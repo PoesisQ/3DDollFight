@@ -168,8 +168,19 @@ def convert(subject="14", trial="14_01", name="cmu_boxing", seconds=24, descript
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--martial", action="store_true")
+    parser.add_argument("--locomotion", action="store_true")
     args = parser.parse_args()
-    if args.martial:
+    if args.locomotion:
+        for subject, trial, name, seconds, label in (
+            ("08", "08_04", "cmu_walk", 12, "慢步前进"),
+            ("76", "76_01", "cmu_retreat_punch", 20, "后退然后出拳 · 一次连续采集"),
+            ("76", "76_09", "cmu_backwalk", 16, "后退行走 · 非倒放"),
+            ("69", "69_42", "cmu_strafe", 28, "侧向走动与转向"),
+        ):
+            convert(
+                subject, trial, name, seconds, f"CMU {trial} 真人光学动捕 · {label}；保留根位移。"
+            )
+    elif args.martial:
         for trial, name, label in (
             ("04", "cmu_front_kick", "前踢 / 提膝、伸腿、回收"),
             ("05", "cmu_low_block", "下段格挡 / 全身协同"),

@@ -22,11 +22,12 @@ def build_duel(primary, secondary, config):
     second = secondary if paired else primary
     mappers = [
         MovementMapper(
-            run["source_rest"][0],
+            run["frames"][0]["root"] if run["source"].startswith("cmu_") else run["source_rest"][0],
             side=side,
             gain=config.get("movement_gain", 1.5),
             initial_gap=config.get("initial_gap", 2.2),
             enabled=config.get("movement_enabled", True),
+            mode="mocap" if run["source"].startswith("cmu_") else "station",
         )
         for run, side in ((primary, 1), (second, -1))
     ]
@@ -40,7 +41,11 @@ def build_duel(primary, secondary, config):
         sources = [frame, second["frames"][other_index]]
         valid = [np.array([q == "observed" for q in f["quality"]]) for f in sources]
         mapped = [
-            mapper.process(np.asarray(f["solved"]), reliable, frame["t"])
+            mapper.process(
+                np.asarray(f["avatar"] if mapper.mode == "mocap" else f["solved"]),
+                reliable,
+                frame["t"],
+            )
             for mapper, f, reliable in zip(mappers, sources, valid, strict=True)
         ]
         positions, limited = separate_players([value[0] for value in mapped])

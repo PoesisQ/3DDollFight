@@ -73,3 +73,14 @@ def test_contact_flags_and_diagnostics_can_cross_the_json_api():
     decoded = json.loads(json.dumps(run, allow_nan=False))
     assert decoded["source"] == "asset_bind_check"
     assert not decoded["events"]
+
+
+def test_footwork_contains_real_steps_and_preserves_root_velocity_at_joins():
+    flow = compose_flow(footwork=True)
+    p = flow["points"]
+    assert len(flow["chapters"]) == 9
+    assert np.ptp(p[:, 0, 0]) > 0.6 and np.ptp(p[:, 0, 2]) > 1
+    for join in flow["transitions"]:
+        i = join["frame"]
+        np.testing.assert_allclose(p[i, 0] - p[i - 1, 0], p[i - 1, 0] - p[i - 2, 0], atol=1e-8)
+        assert np.linalg.norm(p[i] - p[i - 1], axis=1).max() < 0.15

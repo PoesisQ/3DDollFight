@@ -15,6 +15,15 @@ from dollfight.solver import SkeletonSolver
 
 ROOT = Path(__file__).resolve().parents[2]
 CATALOG = [
+    {
+        "id": "cmu_footwork",
+        "label": "真人步法衔接 · 前进 → 出拳 → 后退 → 双向侧移",
+        "kind": "动捕编辑",
+    },
+    {"id": "cmu_retreat_punch", "label": "真人 · 后退后出拳（一次连续采集）", "kind": "公开动捕"},
+    {"id": "cmu_walk", "label": "真人 · 前进步态", "kind": "公开动捕"},
+    {"id": "cmu_backwalk", "label": "真人 · 后退步态", "kind": "公开动捕"},
+    {"id": "cmu_strafe", "label": "真人 · 侧向移动与转向", "kind": "公开动捕"},
     {"id": "cmu_flow", "label": "真人组合 · 拳击 → 踢腿 → 格挡（过渡对照）", "kind": "动捕编辑"},
     {"id": "bind_pose", "label": "皮套检查 · 静态 T-pose", "kind": "资产检查"},
     {"id": "cmu_roundhouse", "label": "真人 · 回旋踢（转髋 / 支撑脚）", "kind": "公开动捕"},
@@ -114,10 +123,10 @@ def load_clip(name, transition_blend=True):
             "rest": rest,
             "description": "静态 T-pose 用于检查原始网格、贴图与绑定位置；不是人体采集。",
         }
-    if name == "cmu_flow":
+    if name in ("cmu_flow", "cmu_footwork"):
         from dollfight.transitions import compose_flow
 
-        return compose_flow(blend=transition_blend)
+        return compose_flow(blend=transition_blend, footwork=name == "cmu_footwork")
     if name in {item["id"] for item in CATALOG if item["kind"] == "公开动捕"}:
         clip = json.loads((ROOT / f"data/samples/{name}.json").read_text(encoding="utf-8"))
         clip["points"] = np.asarray(clip["points"])

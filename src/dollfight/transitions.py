@@ -32,6 +32,17 @@ PLAN = (
     ("cmu_knife_guard", 0.5, 3.2, "落脚 → 手刀防御"),
     ("cmu_boxing", 13.0, 16.5, "回架 → 拳击"),
 )
+FOOTWORK_PLAN = (
+    ("cmu_walk", 0.10, 0.95, "前进接近 · 真人步态"),
+    ("cmu_boxing", 1.5, 3.9, "落脚 → 护架出拳"),
+    ("cmu_retreat_punch", 0.2, 2.7, "后退拉开 · 真人退步"),
+    ("cmu_strafe", 0.8, 2.6, "侧移 · 重心换脚"),
+    ("cmu_low_block", 1.0, 3.4, "收步 → 下段格挡"),
+    ("cmu_strafe_right", 0.8, 2.6, "反向侧移 · 镜像真人步态"),
+    ("cmu_backwalk", 8.4, 10.6, "退步调整距离 · 真人脚步"),
+    ("cmu_front_kick", 1.6, 4.1, "支撑脚落稳 → 前踢回收"),
+    ("cmu_backwalk", 8.4, 10.6, "退步脱离 · 非动作倒放"),
+)
 
 
 def multiply(a, b):
@@ -108,8 +119,15 @@ def constrain_feet(root, rotations, rest, anchors):
     return rotations
 
 
-@lru_cache(maxsize=8)
+@lru_cache(maxsize=16)
 def normalized_clip(name):
+    if name == "cmu_strafe_right":
+        points, _ = normalized_clip("cmu_strafe")
+        order = [0, 1, 2, 3, 4, 8, 9, 10, 5, 6, 7, 15, 16, 17, 18, 11, 12, 13, 14]
+        mirrored = points[:, order] * [-1, 1, 1]
+        retarget = Retargeter(rest_pose(), target_rest=rest_pose(), foot_lock=True)
+        result = [retarget.process(p, DT)[:2] for p in mirrored]
+        return np.array([p for p, _ in result]), np.array([q for _, q in result])
     clip = json.loads((ROOT / f"data/samples/{name}.json").read_text(encoding="utf-8"))
     rest = rest_pose()
     retarget = Retargeter(clip["rest"], target_rest=rest, foot_lock=True)
@@ -121,10 +139,12 @@ def normalized_clip(name):
     return np.asarray(points), np.asarray(rotations)
 
 
-def align(points, rotations, start, old_points, old_q):
+def align(points, rotations, start, old_points, old_q, fixed_heading=False):
     old = matrix(old_q[0])
     new = matrix(rotations[start, 0])
-    yaw = np.arctan2(old[0, 2], old[2, 2]) - np.arctan2(new[0, 2], new[2, 2])
+    yaw = (
+        0 if fixed_heading else np.arctan2(old[0, 2], old[2, 2]) - np.arctan2(new[0, 2], new[2, 2])
+    )
     basis = rotation_y(yaw)
     origin = points[start, 0] * [1, 0, 1]
     aligned = (points - origin) @ basis.T + old_points[0] * [1, 0, 1]
@@ -140,10 +160,10 @@ def support(points, previous, rest):
     )
 
 
-def compose_flow(blend=True, duration=0.6):
+def compose_flow(blend=True, duration=0.6, footwork=False):
     rest = rest_pose()
     output, output_q, joins, chapters, actions = [], [], [], [], []
-    for segment, (name, begin, end, label) in enumerate(PLAN):
+    for segment, (name, begin, end, label) in enumerate(FOOTWORK_PLAN if footwork else PLAN):
         points, rotations = normalized_clip(name)
         start, stop = round(begin * FPS), min(round(end * FPS), len(points))
         if output:
@@ -152,7 +172,7 @@ def compose_flow(blend=True, duration=0.6):
             old_support = support(output[-1], output[-2], rest)
             choices = []
             for candidate in range(start, min(start + 9, stop - 2)):
-                p, q = align(points, rotations, candidate, output[-1], output_q[-1])
+                p, q = align(points, rotations, candidate, output[-1], output_q[-1], footwork)
                 mismatch = np.linalg.norm(
                     (p[candidate] - p[candidate, 0]) - (output[-1] - output[-1][0]), axis=1
                 )
@@ -162,7 +182,7 @@ def compose_flow(blend=True, duration=0.6):
                 cost += 0.2 * np.sum(old_support != new_support)
                 choices.append((cost, candidate))
             _, start = min(choices)
-            points, rotations = align(points, rotations, start, output[-1], output_q[-1])
+            points, rotations = align(points, rotations, start, output[-1], output_q[-1], footwork)
             predicted_q = multiply(multiply(output_q[-1], inverse(output_q[-2])), output_q[-1])
             offset = log_rotation(multiply(predicted_q, inverse(rotations[start])))
             before = log_rotation(multiply(output_q[-1], inverse(rotations[start - 1])))
@@ -228,7 +248,7 @@ def compose_flow(blend=True, duration=0.6):
             output.append(p)
             output_q.append(q)
     return {
-        "name": "cmu_flow",
+        "name": "cmu_footwork" if footwork else "cmu_flow",
         "source": "cmu_composed_mocap",
         "fps": FPS,
         "points": np.asarray(output),
@@ -236,7 +256,11 @@ def compose_flow(blend=True, duration=0.6):
         "reference_actions": actions,
         "chapters": chapters,
         "transitions": joins,
-        "description": "真人拳击 / 前踢 / 格挡 / 回旋踢组合；"
+        "description": (
+            "真人前进 / 退步 / 双向侧移与拳踢组合；"
+            if footwork
+            else "真人拳击 / 前踢 / 格挡 / 回旋踢组合；"
+        )
         + ("姿态与速度衔接 + 支撑脚 IK。" if blend else "硬切对照：保留姿态跳变。")
         + "非同一次采集，过渡是算法编辑。",
     }

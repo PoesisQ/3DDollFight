@@ -94,6 +94,9 @@ def main():
         for subject, filenames in (
             ("14", ("14.asf", "14_01.amc")),
             ("135", ("135.asf", "135_04.amc", "135_05.amc", "135_07.amc", "135_10.amc")),
+            ("08", ("08.asf", "08_04.amc")),
+            ("76", ("76.asf", "76_01.amc", "76_09.amc")),
+            ("69", ("69.asf", "69_42.amc")),
         ):
             for filename in filenames:
                 destination = raw / filename

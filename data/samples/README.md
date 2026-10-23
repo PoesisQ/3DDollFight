@@ -1,5 +1,18 @@
 # 可离线回放的输入
 
+v0.7 新增真实步法（均为 120 → 30 Hz，文件内固定原始 hash）：
+
+| 文件 | 原始试验 | 原站动作名称 | 帧数 |
+| --- | --- | --- | --- |
+| `cmu_walk.json` | 08_04 | slow walk | 121 |
+| `cmu_retreat_punch.json` | 76_01 | walk backwards then attack with a punch | 233 |
+| `cmu_backwalk.json` | 76_09 | walking backwards | 397 |
+| `cmu_strafe.json` | 69_42 | walk sideways and turn (repeated) | 840（截取前 28 s） |
+
+[08 原站目录](https://mocap.cs.cmu.edu/search.php?subjectnumber=08)、[76 原站目录](https://mocap.cs.cmu.edu/search.php?subjectnumber=76)、[69 原站目录](https://mocap.cs.cmu.edu/search.php?subjectnumber=69)。76_01 是连续真人采集；组合展示中的其他衔接为算法编辑。反向侧移明确标记为镜像步态，不作为新增真人采集。
+
+重建：`uv run python tools/fetch_demo_assets.py --cmu`，然后 `uv run python tools/convert_cmu.py --locomotion`。
+
 `cmu_boxing.json` 是 CMU Graphics Lab Motion Capture Database 的 subject 14、trial 01（boxing）前 24 秒，120 Hz 下采样至 30 Hz，转换为项目 canonical19。
 
 v0.4 新增 subject 135 的完整片段，同样从 120 Hz 下采样到 30 Hz：

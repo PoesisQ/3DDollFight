@@ -76,6 +76,15 @@ def test_movement_deadzone_speed_boundary_and_lane_order():
     np.testing.assert_allclose(ordered[:, 2], [0.2, -0.2])
 
 
+def test_mocap_movement_preserves_metric_root_without_camera_station_clamp():
+    mapper = MovementMapper(rest_pose()[0], side=1, gain=2.5, mode="mocap")
+    for i in range(90):
+        points = rest_pose() + [i / 90, 0, i / 30]
+        pos, info = mapper.process(points, VALID[0], i / 30)
+        np.testing.assert_allclose(pos, [-1.1 + i / 30, 0, -i / 90])
+        assert not info["clamped"] and info["mode"] == "mocap"
+
+
 def test_attack_event_at_distance_never_deals_damage():
     resolver, points = CombatResolver(), pair(3)
     for i in range(20):
