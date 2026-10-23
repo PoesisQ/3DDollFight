@@ -7,6 +7,9 @@ requires-python = ">=3.10.19,<3.11"
 dependencies = ["numpy>=1.26.4,<2", "jsonschema>=4.23,<5"]
 
 [dependency-groups]
+assets = [
+    "gradio-client==2.7.2",
+]
 dev = ["pytest>=8.3,<9", "ruff>=0.9,<1"]
 
 [build-system]

@@ -53,6 +53,7 @@ Python 3.10.19、uv ≥0.9.17、依赖由 `uv.lock` 固定。Node 22+ 仅用于�
 
 - [当前实现、失败边界与验收方法](docs/motion-lab.md)
 - [Unity 导入与回放交接](unity/README.md)
+- [二次元皮套：Tripo / SkinTokens 路线、接入检查与实测记录](docs/avatar-pipeline.md)
 - [Git 与 uv 协作规范](CONTRIBUTING.md)
 - [跨组协议](docs/contracts.md)、[JSON Schema](src/dollfight/schemas/)、[协议样例](tests/fixtures/)
 - [动捕来源与致谢](data/samples/README.md)
