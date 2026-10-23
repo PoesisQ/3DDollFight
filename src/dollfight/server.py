@@ -34,6 +34,10 @@ class Handler(BaseHTTPRequestHandler):
             self.reply({"sources": CATALOG, "profiles": PROFILES})
             return
         assets = {
+            **{
+                f"/assets/local/{name}.vrm": ROOT / f"data/avatars/local/{name}.vrm"
+                for name in ("nozomi", "mizore", "nozomi-hybrid", "mizore-hybrid")
+            },
             "/assets/sample.vrm": ROOT / "data/raw/avatars/sample.vrm",
             "/assets/liz/nozomi.vrm": ROOT / "data/avatars/liz/nozomi.vrm",
             "/assets/liz/mizore.vrm": ROOT / "data/avatars/liz/mizore.vrm",

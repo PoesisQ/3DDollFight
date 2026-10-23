@@ -107,10 +107,12 @@ export class ClothSolver {
                     wb = b < this.segments ? 0 : 1;
                 if (!wa && !wb) continue;
                 const correction = (1 - (rest * 1.12) / distance) / (wa + wb);
-                for (const [k, delta] of [x, y, z].entries()) {
-                    p[ia + k] += wa * delta * correction;
-                    p[ib + k] -= wb * delta * correction;
-                }
+                p[ia] += wa * x * correction;
+                p[ib] -= wb * x * correction;
+                p[ia + 1] += wa * y * correction;
+                p[ib + 1] -= wb * y * correction;
+                p[ia + 2] += wa * z * correction;
+                p[ib + 2] -= wb * z * correction;
             }
             if (largest < 1.15) break;
         }
@@ -205,32 +207,34 @@ export class ClothSolver {
                     // point projection alone can send neighboring cloth vertices to
                     // opposite sides of a fast kicking thigh and tear open an edge.
                     const prior = previousCapsules[capsuleIndex];
-                    const axis = prior.b.map((v, k) => v - prior.a[k]);
-                    const norm2 = axis.reduce((sum, v) => sum + v * v, 0);
+                    const ax = prior.b[0] - prior.a[0],
+                        ay = prior.b[1] - prior.a[1],
+                        az = prior.b[2] - prior.a[2];
+                    const norm2 = ax * ax + ay * ay + az * az;
                     const previousT =
                         norm2 > 1e-12
                             ? Math.max(
                                   0,
                                   Math.min(
                                       1,
-                                      axis.reduce(
-                                          (sum, v, k) =>
-                                              sum +
-                                              (before[i + k] - prior.a[k]) * v,
-                                          0,
-                                      ) / norm2,
+                                      ((before[i] - prior.a[0]) * ax +
+                                          (before[i + 1] - prior.a[1]) * ay +
+                                          (before[i + 2] - prior.a[2]) * az) /
+                                          norm2,
                                   ),
                               )
                             : 0;
-                    const normal = axis.map(
-                        (v, k) => before[i + k] - prior.a[k] - previousT * v,
-                    );
-                    const previousDistance = Math.hypot(...normal);
+                    const nx = before[i] - prior.a[0] - previousT * ax,
+                        ny = before[i + 1] - prior.a[1] - previousT * ay,
+                        nz = before[i + 2] - prior.a[2] - previousT * az;
+                    const previousDistance = Math.hypot(nx, ny, nz);
                     if (
                         previousDistance > 1e-9 &&
-                        x * normal[0] + y * normal[1] + z * normal[2] < 0
+                        x * nx + y * ny + z * nz < 0
                     ) {
-                        [x, y, z] = normal;
+                        x = nx;
+                        y = ny;
+                        z = nz;
                         distance = previousDistance;
                     }
                     if (distance < 1e-10) {

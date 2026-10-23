@@ -5,12 +5,15 @@ import { createStaticAvatar } from "./static-avatar.js";
 const $ = (id) => document.getElementById(id);
 const cards = [],
     runs = new Map();
+const bakes = new Map();
 const baselineChoices = [
     ["old", "/assets/liz/nozomi.vrm"],
     ["nozomi", "/assets/atelier/nozomi.vrm"],
     ["mizore", "/assets/atelier/mizore.vrm"],
 ];
 let loading = true;
+let motionTime = 0,
+    lastTime = performance.now();
 const status = (value) => {
     $("status").textContent = value;
 };
@@ -46,7 +49,7 @@ function framePair(frames, t) {
 function render() {
     if (loading) return;
     for (const c of cards) {
-        const t = $("pose").value;
+        const t = $("pose").value === "motion" ? motionTime : $("pose").value;
         if (c.avatar.static) c.avatar.materialMode($("material").value);
         if (!c.avatar.static) {
             c.avatar.secondary.useCache(
@@ -93,6 +96,7 @@ function render() {
     $("metrics").textContent = JSON.stringify(makeReport(), null, 2);
 }
 async function updatePose() {
+    motionTime = 0;
     loading = true;
     $("pose").disabled = true;
     $("comparison").disabled = true;
@@ -119,24 +123,30 @@ async function updatePose() {
                     runs.set(key, value);
                 }
                 c.run = runs.get(key);
-                c.motionCache = await c.avatar.secondary.bake(
-                    c.run.frames,
-                    (a, b, alpha) => c.avatar.apply(a, b, alpha, true, true),
-                    (p) =>
-                        status(
-                            `正在准备 ${c.id} 衣物回放 · ${Math.round(p * 100)}%`,
-                        ),
-                );
+                const bakeKey = key + c.avatar.secondary.signature;
+                c.motionCache =
+                    bakes.get(bakeKey) ||
+                    (await c.avatar.secondary.bake(
+                        c.run.frames,
+                        (a, b, alpha) =>
+                            c.avatar.apply(a, b, alpha, true, true),
+                        (p) =>
+                            status(
+                                `正在准备 ${c.id} 衣物回放 · ${Math.round(p * 100)}%`,
+                            ),
+                    ));
+                bakes.set(bakeKey, c.motionCache);
                 c.motionReady = true;
             }
         status(
             $("pose").value === "bind"
                 ? "绑定姿态 · 检查比例、轮廓与正侧背面"
-                : "真人动捕关键帧 · 可动皮套使用同一时刻；Tripo 免费原件保持静态，未伪造绑定",
+                : "真人动捕关键帧 · 可动皮套使用同一时刻；标为静态原件的列不参与动作",
         );
     } catch (error) {
         status(`检查未完成：${error.message}`);
     } finally {
+        lastTime = performance.now();
         loading = false;
         $("pose").disabled = false;
         $("comparison").disabled = false;
@@ -156,57 +166,80 @@ async function start() {
     }
     cards.length = 0;
     const mode = $("comparison").value;
-    $("material-label").hidden = mode === "atelier";
+    $("material-label").hidden =
+        mode === "atelier" || mode.startsWith("local-");
     const character = mode.endsWith("mizore") ? "mizore" : "nozomi";
     const name = character === "nozomi" ? "希美" : "霙";
-    const choices =
-        mode === "atelier"
-            ? baselineChoices
-            : [
-                  ["old", `/assets/liz/${character}.vrm`],
-                  ["nozomi", `/assets/atelier/${character}.vrm`],
-                  [
-                      "mizore",
-                      `/assets/tripo/${character === "nozomi" ? "nozomi-h25-retopo" : "mizore-h25-source"}.glb`,
-                      true,
-                  ],
-              ];
-    const labels =
-        mode === "atelier"
-            ? [
-                  [
-                      "旧路线",
-                      "单图生成 + 规则绑定",
-                      "正面投影 · 19 骨骼；裙摆与双腿混合蒙皮",
-                  ],
-                  [
-                      "新底模 A",
-                      "希美方向 · 外观草稿",
-                      "完整 UV · 手指 / 扭转骨；独立裙布 + 腿部碰撞",
-                  ],
-                  [
-                      "新底模 B",
-                      "霙方向 · 外观草稿",
-                      "同一可靠身体绑定；短发、白袜与校服变体",
-                  ],
-              ]
-            : [
-                  [
-                      "旧路线",
-                      `${name} · 旧单图方案`,
-                      "规则权重与正面投影；保留作为失败对照",
-                  ],
-                  [
-                      "可动底模",
-                      `${name}方向 · 校服草稿`,
-                      "可回放真人动作；脸型与发型还需精修",
-                  ],
-                  [
-                      "Tripo 原件",
-                      `${name} · H2.5 静态外观`,
-                      "免费导出未含可用绑定；切动作时本列保持 T-pose",
-                  ],
-              ];
+    const choices = mode.startsWith("local-")
+        ? [
+              ["old", `/assets/atelier/${character}.vrm`],
+              ["nozomi", `/assets/local/${character}.vrm`],
+              ["mizore", `/assets/local/${character}-hybrid.vrm`],
+          ]
+        : mode === "atelier"
+          ? baselineChoices
+          : [
+                ["old", `/assets/liz/${character}.vrm`],
+                ["nozomi", `/assets/atelier/${character}.vrm`],
+                [
+                    "mizore",
+                    `/assets/tripo/${character === "nozomi" ? "nozomi-h25-retopo" : "mizore-h25-source"}.glb`,
+                    true,
+                ],
+            ];
+    const labels = mode.startsWith("local-")
+        ? [
+              [
+                  "授权底模",
+                  `${name} · 动作基线`,
+                  "已有作者绑定 · 同一真人动作对照",
+              ],
+              [
+                  "本地绑定",
+                  `${name} · Tripo 原网格`,
+                  "54 人体骨骼 · 216 点裙摆控制 · 保留原始面数",
+              ],
+              [
+                  "局部重建",
+                  `${name} · 授权头部重建`,
+                  "完整授权头部 / 发型与统一肤色 · 保留 Tripo 身体、服装；尚需外观验收",
+              ],
+          ]
+        : mode === "atelier"
+          ? [
+                [
+                    "旧路线",
+                    "单图生成 + 规则绑定",
+                    "正面投影 · 19 骨骼；裙摆与双腿混合蒙皮",
+                ],
+                [
+                    "新底模 A",
+                    "希美方向 · 外观草稿",
+                    "完整 UV · 手指 / 扭转骨；独立裙布 + 腿部碰撞",
+                ],
+                [
+                    "新底模 B",
+                    "霙方向 · 外观草稿",
+                    "同一可靠身体绑定；短发、白袜与校服变体",
+                ],
+            ]
+          : [
+                [
+                    "旧路线",
+                    `${name} · 旧单图方案`,
+                    "规则权重与正面投影；保留作为失败对照",
+                ],
+                [
+                    "可动底模",
+                    `${name}方向 · 校服草稿`,
+                    "可回放真人动作；脸型与发型还需精修",
+                ],
+                [
+                    "Tripo 原件",
+                    `${name} · H2.5 静态外观`,
+                    "免费导出未含可用绑定；切动作时本列保持 T-pose",
+                ],
+            ];
     for (const [i, [id, url, isStatic]] of choices.entries()) {
         const article = $(id).closest("article");
         article.querySelector(".badge").textContent = labels[i][0];
@@ -301,3 +334,22 @@ function showError(error) {
     $("comparison").disabled = false;
 }
 start().catch(showError);
+function animateReview(now) {
+    if (!loading && $("pose").value === "motion") {
+        const duration = cards.find((c) => c.run)?.run.duration || 0;
+        const nextTime = Math.min(
+            duration,
+            motionTime + Math.min(0.05, (now - lastTime) / 1000),
+        );
+        if (nextTime !== motionTime) {
+            motionTime = nextTime;
+            render();
+            status(
+                `真人组合连续播放 · ${motionTime.toFixed(2)} / ${duration.toFixed(2)} s · 相同动作时刻`,
+            );
+        }
+    }
+    lastTime = now;
+    requestAnimationFrame(animateReview);
+}
+requestAnimationFrame(animateReview);

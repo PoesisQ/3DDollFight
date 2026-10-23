@@ -4,6 +4,7 @@ import { configureOffAxis, configureOpponentCamera } from "./projection.js";
 import { createAvatar, createStick } from "./avatar.js";
 import { createVRMAvatar } from "./vrm-avatar.js";
 import { CombatVisuals } from "./combat-visuals.js";
+import { FrameMeter } from "./performance.js";
 
 function renderer(container) {
     const instance = new THREE.WebGLRenderer({ antialias: true, alpha: false });
@@ -113,6 +114,14 @@ export class LabScene {
             document.getElementById(id),
         );
         this.renderers = this.containers.map(renderer);
+        this.visibleViews = [true, true, true];
+        this.meter = new FrameMeter();
+        const observer = new IntersectionObserver((entries) => {
+            for (const entry of entries)
+                this.visibleViews[this.containers.indexOf(entry.target)] =
+                    entry.isIntersecting;
+        });
+        this.containers.forEach((c) => observer.observe(c));
         this.arena = environment(true);
         this.combatVisuals = new CombatVisuals(this.arena);
         this.compare = environment(false);
@@ -183,7 +192,7 @@ export class LabScene {
                 (opponentBuffer !== buffer ? " / P2：" + avatars[1].info : ""),
         };
     }
-    async load(run) {
+    async load(run, secondaryMode = "cache") {
         this.loading = true;
         this.avatars.forEach((a) => {
             a.group.removeFromParent();
@@ -206,7 +215,8 @@ export class LabScene {
                 [p1, run.frames],
                 [p2, run.duel.opponent_frames || run.frames],
             ]) {
-                if (avatar.secondary?.enabled)
+                avatar.secondary?.setMode(secondaryMode);
+                if (avatar.secondary?.enabled && secondaryMode === "cache")
                     await avatar.secondary.bake(
                         frames,
                         (a, b, alpha) => avatar.apply(a, b, alpha, true, true),
@@ -219,6 +229,7 @@ export class LabScene {
                     );
             }
             target.secondary?.useCache(p1.secondary?.cache);
+            target.secondary?.setMode(secondaryMode);
         } finally {
             this.loading = false;
         }
@@ -237,6 +248,21 @@ export class LabScene {
         ];
         this.compare.add(...this.sticks.map((s) => s.group));
         this.setMode(this.mode);
+    }
+    startBenchmark() {
+        this.meter.start({
+            source: this.run.name,
+            avatars: this.avatars.slice(0, 2).map((a) => a.info),
+            optimized: document.getElementById("optimized").checked,
+            secondary_mode: document.getElementById("secondary-mode").value,
+            viewport: [innerWidth, innerHeight],
+            pixel_ratio: this.renderers[0].getPixelRatio(),
+            render_target_pixels: this.renderers.map((r) => [
+                r.domElement.width,
+                r.domElement.height,
+            ]),
+            user_agent: navigator.userAgent,
+        });
     }
     setMode(mode) {
         this.mode = mode;
@@ -324,6 +350,15 @@ export class LabScene {
     }
     draw(frame, next, alpha, second, nextSecond, options) {
         if (!this.run || this.loading) return;
+        const start = performance.now();
+        const visible = options.optimized
+            ? this.visibleViews
+            : [true, true, true];
+        if (!visible.some(Boolean)) return;
+        const arenaNeeded =
+            visible[1] || visible[2] || (visible[0] && this.mode === "arena");
+        const targetNeeded =
+            !options.optimized || (visible[0] && this.mode !== "arena");
         this.orbit.update();
         for (let i = 0; i < 2; i++) {
             this.avatars[i].group.position
@@ -337,17 +372,6 @@ export class LabScene {
             this.avatars[i].group.rotation.y =
                 i === 0 ? Math.PI / 2 : -Math.PI / 2;
         }
-        this.avatars[0].apply(frame, next, alpha, options.secondary);
-        this.avatars[1].apply(second, nextSecond, alpha, options.secondary);
-        this.avatars[2].apply(frame, next, alpha, options.secondary);
-        const audit = this.avatars[2].audit?.(frame, next, alpha);
-        if (audit) {
-            const worst = audit.reduce((a, b) => (a.error > b.error ? a : b));
-            document.getElementById("mapping-audit").textContent =
-                `实际蒙皮骨骼 / 求解目标：最大位置残差 ${worst.error.toFixed(1)} mm · ${worst.name}`;
-        } else
-            document.getElementById("mapping-audit").textContent =
-                "几何人偶 · 直接使用 canonical19 骨架";
         // In the motion review, preserve captured root translation. Moving the
         // camera with the subjects keeps them in frame while the floor remains
         // stationary, so foot sliding is visible instead of hidden by in-place playback.
@@ -390,17 +414,44 @@ export class LabScene {
             this.orbit.target.add(delta);
             this.followCenter.copy(center);
         }
+        if (arenaNeeded) {
+            this.avatars[0].apply(frame, next, alpha, options.secondary);
+            this.avatars[1].apply(second, nextSecond, alpha, options.secondary);
+        }
+        if (targetNeeded)
+            this.avatars[2].apply(frame, next, alpha, options.secondary);
+        const shouldAudit =
+            !options.optimized ||
+            !this.lastAudit ||
+            start - this.lastAudit > 200;
+        const audit = shouldAudit
+            ? this.avatars[targetNeeded ? 2 : 0].audit?.(frame, next, alpha)
+            : null;
+        if (audit) {
+            this.lastAudit = start;
+            const worst = audit.reduce((a, b) => (a.error > b.error ? a : b));
+            document.getElementById("mapping-audit").textContent =
+                `实际蒙皮骨骼 / 求解目标：最大位置残差 ${worst.error.toFixed(1)} mm · ${worst.name}`;
+        } else if (shouldAudit)
+            document.getElementById("mapping-audit").textContent =
+                "几何人偶 · 直接使用 canonical19 骨架";
         this.avatars.forEach((a) =>
             a.appearance(options.bones, options.wireframe),
         );
-        this.sticks[0].apply(frame.raw, [], frame.solved[0]);
-        this.sticks[1].apply(frame.solved, frame.quality, frame.solved[0]);
-        this.combatVisuals.update(this.run, options, frame, second, alpha);
-        this.renderers[0].render(
-            this.mode === "arena" ? this.arena : this.compare,
-            this.camera,
-        );
+        if (targetNeeded && this.mode !== "avatar") {
+            this.sticks[0].apply(frame.raw, [], frame.solved[0]);
+            this.sticks[1].apply(frame.solved, frame.quality, frame.solved[0]);
+        }
+        if (arenaNeeded)
+            this.combatVisuals.update(this.run, options, frame, second, alpha);
+        const pose = performance.now() - start;
+        if (visible[0])
+            this.renderers[0].render(
+                this.mode === "arena" ? this.arena : this.compare,
+                this.camera,
+            );
         for (let i = 0; i < 2; i++) {
+            if (!visible[i + 1]) continue;
             this.eye(i, i === 0 ? frame : second, options, alpha);
             this.combatVisuals.debug.visible = false;
             this.avatars[i].group.visible = false;
@@ -409,5 +460,24 @@ export class LabScene {
             this.avatars[i].group.visible = true;
             this.avatars[i].skeletonHelper.visible = options.bones;
         }
+        const info = this.renderers
+            .filter((_, i) => visible[i])
+            .map((r) => r.info.render);
+        this.meter.record({
+            pose,
+            render: performance.now() - start - pose,
+            animated: options.playing,
+            cloth: this.avatars.reduce(
+                (sum, a, i) =>
+                    sum +
+                    ((i < 2 ? arenaNeeded : targetNeeded)
+                        ? a.secondary?.stats.stepMs || 0
+                        : 0),
+                0,
+            ),
+            triangles: info.reduce((s, i) => s + i.triangles, 0),
+            calls: info.reduce((s, i) => s + i.calls, 0),
+            views: visible.filter(Boolean).length,
+        });
     }
 }

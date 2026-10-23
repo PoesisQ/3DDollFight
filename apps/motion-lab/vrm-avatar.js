@@ -62,8 +62,7 @@ export async function createVRMAvatar(buffer) {
     const vrm = gltf.userData.vrm;
     if (!vrm) throw new Error("VRM 解析失败");
     VRMUtils.rotateVRM0(vrm);
-    // Secondary motion is baked at fixed steps and sampled by animation time;
-    // wall-clock updates would make a paused/seeked frame change on every visit.
+    // Secondary motion follows the selected live or deterministic review mode.
     const group = new THREE.Group();
     group.add(vrm.scene);
     group.updateMatrixWorld(true);
@@ -99,7 +98,10 @@ export async function createVRMAvatar(buffer) {
     });
     const globals = bones.map(() => new THREE.Quaternion());
     const q = new THREE.Quaternion(),
+        nextQ = new THREE.Quaternion(),
         parent = new THREE.Quaternion();
+    const fingerAxis = new THREE.Vector3(0, 0, 1);
+    let lastWireframe = null;
     const groupQ = new THREE.Quaternion(),
         desired = new THREE.Quaternion();
     const rootPosition = new THREE.Vector3();
@@ -139,10 +141,7 @@ export async function createVRMAvatar(buffer) {
                     frame.rotations[i],
                 );
                 if (next)
-                    rotation.slerp(
-                        new THREE.Quaternion().fromArray(next.rotations[i]),
-                        alpha,
-                    );
+                    rotation.slerp(nextQ.fromArray(next.rotations[i]), alpha);
                 const parentIndex = PARENTS[i];
                 expectedRotations[i] =
                     parentIndex < 0
@@ -182,11 +181,7 @@ export async function createVRMAvatar(buffer) {
             // it has extra shoulder / upperChest nodes and its own bind axes.
             bones.forEach((bone, i) => {
                 q.fromArray(frame.rotations[i]);
-                if (next)
-                    q.slerp(
-                        new THREE.Quaternion().fromArray(next.rotations[i]),
-                        alpha,
-                    );
+                if (next) q.slerp(nextQ.fromArray(next.rotations[i]), alpha);
                 globals[i].copy(q);
                 if (PARENTS[i] >= 0)
                     globals[i].premultiply(globals[PARENTS[i]]);
@@ -206,7 +201,7 @@ export async function createVRMAvatar(buffer) {
                     group.localToWorld(rootPosition);
                     bone.position.copy(bone.parent.worldToLocal(rootPosition));
                 }
-                bone.updateWorldMatrix(false, true);
+                bone.updateWorldMatrix(false, false);
             });
             // Hand shape is a display prior: canonical19 contains no fingers.
             // Keep defence open; close the four fingers during recorded kicks / attacks.
@@ -217,7 +212,7 @@ export async function createVRMAvatar(buffer) {
                     .copy(finger.bind)
                     .multiply(
                         q.setFromAxisAngle(
-                            new THREE.Vector3(0, 0, 1),
+                            fingerAxis,
                             closed ? finger.sign * 0.85 : 0.12 * finger.sign,
                         ),
                     );
@@ -233,6 +228,8 @@ export async function createVRMAvatar(buffer) {
         },
         appearance(showBones, wireframe) {
             skeletonHelper.visible = showBones;
+            if (wireframe === lastWireframe) return;
+            lastWireframe = wireframe;
             meshes.forEach((mesh) => {
                 for (const mat of Array.isArray(mesh.material)
                     ? mesh.material

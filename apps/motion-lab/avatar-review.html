@@ -24,6 +24,12 @@
                 <label
                     >对照路线
                     <select id="comparison">
+                        <option value="local-nozomi" selected>
+                            希美 · 本地绑定 / 头部重建
+                        </option>
+                        <option value="local-mizore">
+                            霙 · 本地绑定 / 头部重建
+                        </option>
                         <option value="atelier">两套可动底模</option>
                         <option value="tripo-nozomi">
                             希美 · 加入 Tripo 原件
@@ -37,6 +43,7 @@
                     >检查姿态
                     <select id="pose">
                         <option value="bind">绑定姿态</option>
+                        <option value="motion">连续播放 · 真人组合</option>
                         <option value="2">拳击护架</option>
                         <option value="4.95">前踢 · 4.95 s</option>
                         <option value="7.7">下段格挡 · 7.70 s</option>
@@ -100,8 +107,9 @@
                 </article>
             </section>
             <p class="limits">
-                新版仍是角色外观草稿：脸型、刘海与马尾需要精修。裙布限制过度拉伸，但极端高踢仍有身体穿插；没有布料自碰撞，尚未通过完整衣物验收。
-                Tripo 免费原件用于外观对照，不能作为已经完成的可动皮套。
+                本地绑定版已接入真人动捕；原网格、头部重建与授权底模可直接对照。
+                生成模型的手指、袖口、面部边缘仍需精修；衣物没有自碰撞，极端高踢仍要逐帧验收。
+                旧的静态 Tripo 对照保留，用于比较绑定前后的变化。
             </p>
             <button id="report" disabled>导出本次皮套检查数据</button>
             <details id="diagnostics">

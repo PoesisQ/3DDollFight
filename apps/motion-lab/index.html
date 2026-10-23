@@ -150,9 +150,13 @@
                     <h2><span>03</span> 角色与画面</h2>
                     <label for="avatar-asset">皮套试验</label>
                     <select id="avatar-asset">
-                        <option value="atelier" selected>
-                            新路线 · 两套校服底模
+                        <option value="local-pair">
+                            Tripo · 两人本地绑定 / 原网格
                         </option>
+                        <option value="local-hybrid" selected>
+                            Tripo · 两人本地绑定 / 头部重建
+                        </option>
+                        <option value="atelier">新路线 · 两套校服底模</option>
                         <option value="atelier-nozomi">
                             希美方向 · 校服外观草稿
                         </option>
@@ -167,8 +171,9 @@
                         <option value="mizore">铠冢霙 · 单模型检查</option>
                     </select>
                     <p class="source-note">
-                        新版保留底模的面部、手指、扭转骨与 UV，校服和裙布独立。
-                        角色外观仍是草稿，可切回旧模型对照。
+                        Tripo
+                        原网格已在本机绑定；可比较原面部、头部重建和授权底模。
+                        衣物使用独立控制网格，角色外观仍待验收。
                     </p>
                     <label class="toggle"
                         ><input
@@ -178,6 +183,28 @@
                         />衣物碰撞与头发惯性</label
                     >
                     <p id="secondary-status" class="note">正在准备衣物回放…</p>
+                    <label for="secondary-mode">衣物计算方式</label>
+                    <select id="secondary-mode">
+                        <option value="live" selected>
+                            实时逐帧 · 不读未来动作
+                        </option>
+                        <option value="cache">缓存回放 · 可重复检查</option>
+                    </select>
+                    <p id="performance" class="note">正在测量渲染…</p>
+                    <button id="benchmark">测量当前场景 12 秒</button>
+                    <details>
+                        <summary>性能测量报告</summary>
+                        <pre id="benchmark-report">
+尚未测量。保持页面可见、正常播放后测量。</pre
+                        >
+                    </details>
+                    <label class="toggle"
+                        ><input
+                            id="optimized"
+                            type="checkbox"
+                            checked
+                        />仅更新可见视图与骨架</label
+                    >
                     <p class="note">
                         <a href="/avatar-review.html"
                             >打开皮套正侧背面 / 动作对照 ↗</a
@@ -205,7 +232,7 @@
                     />
                     <label class="range-label" for="initial-gap"
                         >起始间距
-                        <output id="initial-gap-value">2.2 m</output></label
+                        <output id="initial-gap-value">3.2 m</output></label
                     >
                     <input
                         id="initial-gap"
@@ -213,12 +240,12 @@
                         min="1.2"
                         max="3.5"
                         step="0.1"
-                        value="2.2"
+                        value="3.2"
                         aria-label="起始间距"
                     />
                     <p class="note">
-                        相机站位前后 ±0.65 m
-                        映射到虚拟空间；调整后点击重新计算。转身不改变移动轴。
+                        相机输入保留前后 ±0.65 m
+                        的安全范围；真人动捕按角色比例保留世界位移，不使用站位裁剪或倍率。调整后点击重新计算。
                     </p>
                     <label class="toggle"
                         ><input
@@ -291,6 +318,11 @@
                     ><button data-view="compare">骨架对比</button
                     ><button data-view="retarget">重定向检查</button
                     ><button data-view="avatar">皮套近看</button
+                    ><label class="toggle"
+                        ><input
+                            id="three-screens"
+                            type="checkbox"
+                        />三屏同测</label
                     ><span>拖动旋转 · 滚轮缩放</span>
                 </nav>
                 <div id="chapters" class="chapters" aria-label="战术段落"></div>
@@ -479,7 +511,7 @@
                 <footer>
                     <span id="description"
                         >合成轨迹用于可控实验，不代表真人准确率。</span
-                    ><span>v0.6 · 独立衣物 / 皮套对照 / 时序攻防</span>
+                    ><span>v0.7 · 本地绑骨 / 真人步法 / 实时三屏</span>
                 </footer>
                 <div id="error" class="error" role="alert" hidden></div>
             </div>

@@ -86,12 +86,15 @@ async function compute({ preserveTime = false } = {}) {
             if (!vrmBuffer) {
                 const choice = $("avatar-asset").value;
                 const atelier = choice.startsWith("atelier");
-                const url =
-                    choice === "sample"
-                        ? "/assets/sample.vrm"
-                        : atelier
-                          ? `/assets/atelier/${choice === "atelier-mizore" ? "mizore" : "nozomi"}.vrm`
-                          : `/assets/liz/${choice === "pair" ? "nozomi" : choice}.vrm`;
+                const localRig = choice.startsWith("local-");
+                const suffix = choice === "local-hybrid" ? "-hybrid" : "";
+                const url = localRig
+                    ? `/assets/local/nozomi${suffix}.vrm`
+                    : choice === "sample"
+                      ? "/assets/sample.vrm"
+                      : atelier
+                        ? `/assets/atelier/${choice === "atelier-mizore" ? "mizore" : "nozomi"}.vrm`
+                        : `/assets/liz/${choice === "pair" ? "nozomi" : choice}.vrm`;
                 const asset = await fetch(url);
                 if (!asset.ok)
                     throw new Error(
@@ -101,9 +104,11 @@ async function compute({ preserveTime = false } = {}) {
                     );
                 const primary = await asset.arrayBuffer();
                 let opponent = null;
-                if (choice === "pair" || choice === "atelier") {
+                if (choice === "pair" || choice === "atelier" || localRig) {
                     const other = await fetch(
-                        `/assets/${atelier ? "atelier" : "liz"}/mizore.vrm`,
+                        localRig
+                            ? `/assets/local/mizore${suffix}.vrm`
+                            : `/assets/${atelier ? "atelier" : "liz"}/mizore.vrm`,
                     );
                     if (!other.ok)
                         throw new Error("缺少霙的 VRM：请先 git lfs pull");
@@ -137,11 +142,14 @@ async function compute({ preserveTime = false } = {}) {
         run = value;
         currentConfig = nextConfig;
         time = Math.min(previousTime, run.duration);
-        await scene.load(run);
+        await scene.load(run, $("secondary-mode").value);
         const cloth = scene.avatars[0].secondary?.cache;
-        $("secondary-status").textContent = cloth
-            ? `60 Hz 固定步长缓存 · ${cloth.springBones} 个衣发辅助骨 · ${cloth.clothVertices} 个裙布顶点；暂停、拖动与变速使用同一结果。`
-            : "此模型没有可计算的独立衣物 / 发丝结构。";
+        $("secondary-status").textContent =
+            $("secondary-mode").value === "live"
+                ? "实时逐帧：衣物只使用当前姿态；倒拖 / 大幅跳转会重置，不预读后续动作。"
+                : cloth
+                  ? `60 Hz 固定步长缓存 · ${cloth.springBones} 个衣发辅助骨 · ${cloth.clothVertices} 个裙布顶点；暂停、拖动与变速使用同一结果。`
+                  : "此模型没有可计算的独立衣物 / 发丝结构。";
         buildCombatUI();
         last = performance.now();
         const m = run.metrics;
@@ -403,6 +411,9 @@ function animate(now) {
             offaxis: $("offaxis").checked,
             eyeOffset: +$("eye-x").value / 100,
             secondary: $("secondary-motion").checked,
+            secondaryMode: $("secondary-mode").value,
+            optimized: $("optimized").checked,
+            playing,
         });
         if (now - lastUi > 60) {
             ui(frame, duel);
@@ -420,6 +431,26 @@ function animate(now) {
 }
 
 async function start() {
+    $("three-screens").addEventListener("change", () => {
+        document.body.classList.toggle(
+            "three-screens",
+            $("three-screens").checked,
+        );
+        const eyes = document.querySelector(".eyes");
+        if ($("three-screens").checked)
+            document.querySelector(".transport").after(eyes);
+        else document.querySelector(".metrics").after(eyes);
+        scene.size();
+    });
+    $("secondary-mode").addEventListener("change", () =>
+        compute({ preserveTime: true }),
+    );
+    $("benchmark").addEventListener("click", () => {
+        if (!run || scene.loading || !$("loading").hidden) return;
+        time = 0;
+        scene.startBenchmark();
+        setPlaying(true);
+    });
     try {
         scene = new LabScene();
     } catch (err) {

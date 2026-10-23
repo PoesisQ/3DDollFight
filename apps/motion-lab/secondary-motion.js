@@ -1,12 +1,25 @@
 import * as THREE from "three";
 import { ClothSolver } from "./cloth.js";
 
-// Bake once at 60 Hz, then sample by animation time. Seeking, pausing, switching
-// view and changing playback speed cannot change cloth/hair at a given time.
+// Runtime mode integrates current/history poses; review mode bakes at 60 Hz.
+// Only the cached review mode is independent of seek/playback history.
 export function createSecondaryMotion(vrm, group) {
     const manager = vrm.springBoneManager;
     let cloth = null;
     const proxies = [];
+    let cage = null;
+    vrm.scene.traverse((object) => {
+        if (object.userData.dollfightCage) cage = object.userData.dollfightCage;
+    });
+    const cageBones = cage
+        ? cage.rest.map((_, i) =>
+              vrm.scene.getObjectByName(
+                  `DF_Cage_${Math.floor(i / cage.segments)}_${i % cage.segments}`,
+              ),
+          )
+        : [];
+    if (cage)
+        cloth = new ClothSolver(cage.rest.flat(), cage.segments, cage.rows);
     const garment = vrm.scene.getObjectByName("DollFight_PleatedSkirt");
     if (garment?.userData.dollfightCloth) {
         const sourceMeshes = [];
@@ -47,12 +60,53 @@ export function createSecondaryMotion(vrm, group) {
         vector = new THREE.Vector3();
     const raw = (name) => vrm.humanoid.getRawBoneNode(name);
     const bodyCapsules = [
-        ["leftUpperLeg", "leftLowerLeg", 0.103],
-        ["rightUpperLeg", "rightLowerLeg", 0.103],
-        ["leftLowerLeg", "leftFoot", 0.051],
-        ["rightLowerLeg", "rightFoot", 0.051],
+        ["leftUpperLeg", "leftLowerLeg", cage?.capsuleRadii[0] ?? 0.067],
+        ["rightUpperLeg", "rightLowerLeg", cage?.capsuleRadii[1] ?? 0.067],
+        ["leftLowerLeg", "leftFoot", cage?.capsuleRadii[2] ?? 0.04],
+        ["rightLowerLeg", "rightFoot", cage?.capsuleRadii[3] ?? 0.04],
     ];
     let cache = null;
+    let mode = "cache",
+        liveTime = null,
+        stepMs = 0,
+        lastDraw = null,
+        lastEnabled = true;
+    const localInverse = new THREE.Matrix4(),
+        hipInverse = new THREE.Matrix4();
+    function drawCloth(positions, worldSpace = false) {
+        group.updateMatrixWorld(true);
+        localInverse.copy(group.matrixWorld).invert();
+        if (cage) {
+            hipInverse.copy(hips.matrixWorld).invert();
+            cageBones.forEach((bone, i) => {
+                vector.fromArray(positions, i * 3);
+                if (!worldSpace) vector.applyMatrix4(group.matrixWorld);
+                bone.position.copy(vector.applyMatrix4(hipInverse));
+            });
+        } else {
+            for (const proxy of proxies) {
+                const attr = proxy.geometry.attributes.position;
+                if (worldSpace) {
+                    for (let i = 0; i < positions.length; i += 3)
+                        vector
+                            .fromArray(positions, i)
+                            .applyMatrix4(localInverse)
+                            .toArray(attr.array, i);
+                } else attr.array.set(positions);
+                attr.needsUpdate = true;
+            }
+            // Both materials share the same surface, so calculate normals once.
+            if (proxies.length) {
+                proxies[0].geometry.computeVertexNormals();
+                for (const proxy of proxies.slice(1)) {
+                    proxy.geometry.attributes.normal.array.set(
+                        proxies[0].geometry.attributes.normal.array,
+                    );
+                    proxy.geometry.attributes.normal.needsUpdate = true;
+                }
+            }
+        }
+    }
     function transformedRest() {
         matrix.copy(hips.matrixWorld).multiply(inverseHipBind);
         const array = new Float64Array(cloth.rest.length);
@@ -83,6 +137,30 @@ export function createSecondaryMotion(vrm, group) {
     const q = new THREE.Quaternion();
     return {
         proxies,
+        signature: JSON.stringify({
+            cloth: cloth ? Array.from(cloth.rest) : null,
+            springs: springBones.map((bone, i) => [
+                bone.name,
+                bone.position.toArray(),
+                binds[i].toArray(),
+            ]),
+            capsules: bodyCapsules,
+        }),
+        setMode(value) {
+            if (value !== mode) {
+                mode = value;
+                liveTime = null;
+                lastDraw = null;
+            }
+        },
+        get stats() {
+            return {
+                mode,
+                stepMs,
+                simulatedVertices: cloth?.rest.length / 3 || 0,
+                gpuCage: !!cage,
+            };
+        },
         get enabled() {
             return !!cloth || springBones.length > 0;
         },
@@ -91,6 +169,7 @@ export function createSecondaryMotion(vrm, group) {
         },
         useCache(value) {
             cache = value;
+            lastDraw = null;
         },
         async bake(frames, applyPose, progress = () => {}) {
             if (!frames.length || (!cloth && !springBones.length)) return;
@@ -174,6 +253,41 @@ export function createSecondaryMotion(vrm, group) {
             return cache;
         },
         apply(time, enabled = true) {
+            if (mode === "live") {
+                if (enabled !== lastEnabled) liveTime = null;
+                lastEnabled = enabled;
+                const started = performance.now();
+                const dt = liveTime === null ? 0 : time - liveTime;
+                group.updateMatrixWorld(true);
+                if (liveTime === null || dt < 0 || dt > 0.1) {
+                    manager?.reset();
+                    if (cloth) cloth.reset(transformedRest());
+                } else if (dt > 1e-6 && enabled) {
+                    // At most two bounded steps; no future pose or full-clip cache.
+                    const steps = Math.min(2, Math.ceil(dt * 60));
+                    for (let k = 0; k < steps; k++) {
+                        manager?.update(Math.min(dt / steps, 1 / 60));
+                        if (cloth)
+                            cloth.step(
+                                Math.min(dt / steps, 1 / 60),
+                                transformedRest(),
+                                capsules(),
+                            );
+                    }
+                }
+                liveTime = time;
+                if (!enabled)
+                    springBones.forEach((bone, i) =>
+                        bone.quaternion.copy(binds[i]),
+                    );
+                if (cloth)
+                    drawCloth(
+                        enabled ? cloth.position : transformedRest(),
+                        true,
+                    );
+                stepMs = performance.now() - started;
+                return;
+            }
             if (!cache) return;
             const at = Math.min(
                 cache.samples.length - 1,
@@ -211,14 +325,15 @@ export function createSecondaryMotion(vrm, group) {
                             .applyMatrix4(matrix)
                             .toArray(baseline, i);
                 }
-                for (const proxy of proxies) {
-                    const attr = proxy.geometry.attributes.position;
-                    for (let i = 0; i < attr.array.length; i++)
-                        attr.array[i] = enabled
-                            ? a.cloth[i] * (1 - alpha) + b.cloth[i] * alpha
-                            : baseline[i];
-                    attr.needsUpdate = true;
-                    proxy.geometry.computeVertexNormals();
+                if (lastDraw !== time || !enabled || cage) {
+                    const positions =
+                        baseline ||
+                        Float32Array.from(
+                            a.cloth,
+                            (v, i) => v * (1 - alpha) + b.cloth[i] * alpha,
+                        );
+                    drawCloth(positions);
+                    lastDraw = time;
                 }
             }
         },

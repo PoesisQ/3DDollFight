@@ -120,6 +120,10 @@ a {
     margin: auto;
 }
 .controls {
+    position: sticky;
+    top: 0;
+    height: calc(100vh - 74px);
+    overflow-y: auto;
     border-right: 1px solid var(--line);
     padding: 28px 23px;
     background: #141d23;
@@ -599,6 +603,32 @@ input[type="range"] {
     display: block;
     width: 100%;
     height: 100%;
+}
+.three-screens .hero-viewport {
+    height: 270px;
+}
+.three-screens .eye-viewport {
+    height: 170px;
+}
+.three-screens .chapters {
+    display: none;
+}
+.three-screens .chapter-detail {
+    display: none;
+}
+.three-screens .content {
+    padding-top: 16px;
+}
+#benchmark-report {
+    white-space: pre-wrap;
+    font-size: 10px;
+}
+@media (max-width: 960px) {
+    .controls {
+        position: static;
+        height: auto;
+        overflow: visible;
+    }
 }
 .analysis {
     border-top: 1px solid var(--line);

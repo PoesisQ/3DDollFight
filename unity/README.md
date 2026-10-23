@@ -25,6 +25,8 @@ v0.6 的校服底模位于 `data/avatars/atelier/`。VRM 中保留人体、手�
 
 ## Git 与来源
 
+v0.7 的 Tripo 本地绑定版本在 `data/avatars/local/`，54 个 Humanoid 映射与 4 权重蒙皮为普通 VRM 结构；216 个 `DF_Cage_*` 骨用于保留高面数的裙布驱动。`dollfightCage` extras 和其 PBD 更新是本项目浏览器扩展，UniVRM 不会自动替你运行。导入后只验证人体骨骼，并按同一模型重新导出动作；裙布控制网格、发束 spring 更新与碰撞需要另行移植和 Editor 验收，不能把加载成功当成衣物已支持。
+
 包代码、asmdef 和 `.meta` 一起提交，移动文件保留 GUID。团队实际工程还需提交其 `ProjectSettings/ProjectVersion.txt` 和 `Packages/packages-lock.json`，不能用此包声明代替引擎版本锁。`Library/Temp` 不入库，正式 VRM/FBX 大资产走 LFS 或固定 manifest。
 
 实现对照 [UniVRM v0.128.0 加载 API 源码](https://github.com/vrm-c/UniVRM/blob/v0.128.0/Assets/VRM10/Runtime/IO/Vrm10.cs)、[Unity Humanoid 配置说明](https://docs.unity3d.com/2022.3/Documentation/Manual/ConfiguringtheAvatar.html)。VRM 样例的模型许可与 UniVRM/three-vrm 的代码许可分别管理。
