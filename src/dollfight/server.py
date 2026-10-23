@@ -62,7 +62,7 @@ class Handler(BaseHTTPRequestHandler):
             config = json.loads(self.rfile.read(length))
             if not isinstance(config, dict):
                 raise ValueError("配置必须为 JSON 对象")
-            run = make_run(config)
+            run = make_run(config, include_duel=self.path == "/api/run")
             self.reply(run if self.path == "/api/run" else {"frames": export_poseframes(run)})
         except ValidationError as exc:
             self.reply({"error": f"协议字段 {list(exc.path)}: {exc.message}"}, 400)

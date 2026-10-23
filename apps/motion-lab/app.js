@@ -24,6 +24,7 @@ const phases = {
     committed: "提交",
     recovery: "回收",
     unreliable: "不可靠",
+    defending: "防守",
 };
 
 function error(message) {
@@ -48,6 +49,9 @@ function config() {
         constraints: $("constraints").checked,
         foot_lock: $("foot-lock").checked,
         profile: $("profile").value,
+        movement_enabled: $("movement-enabled").checked,
+        movement_gain: +$("movement-gain").value,
+        initial_gap: +$("initial-gap").value,
         seed: 42,
     };
     if (value.source === "upload")
@@ -77,6 +81,7 @@ async function compute() {
         currentConfig = nextConfig;
         time = 0;
         scene.load(run);
+        buildCombatUI();
         last = performance.now();
         const m = run.metrics;
         $("metric-error").innerHTML =
@@ -163,13 +168,55 @@ function frameAt(t) {
         b = run.frames[next];
     return [a, b, b.t > a.t ? (t - a.t) / (b.t - a.t) : 0, index];
 }
-function ui(frame, secondTime) {
+function buildCombatUI() {
+    const labels = Object.fromEntries(
+        [...run.events, ...run.duel.opponent_events].map((e) => [
+            e.action,
+            e.label,
+        ]),
+    );
+    $("chapters").replaceChildren();
+    for (const chapter of run.duel.chapters) {
+        const button = document.createElement("button");
+        button.textContent = chapter.label;
+        button.dataset.start = chapter.time_s;
+        button.addEventListener("click", () => {
+            time = chapter.time_s;
+            setPlaying(true);
+        });
+        $("chapters").append(button);
+    }
+    $("combat-source").textContent = run.duel.description;
+    $("combat-events").replaceChildren();
+    for (const event of run.duel.events) {
+        const button = document.createElement("button");
+        button.dataset.result = event.id;
+        button.dataset.outcome = event.outcome;
+        const title = document.createElement("strong");
+        title.textContent = `P${event.attacker + 1} → P${event.defender + 1} · ${event.label}`;
+        const detail = document.createElement("span");
+        detail.textContent = `${labels[event.action] || event.action} · ${event.time_s.toFixed(2)} s · ${event.damage ? `−${event.damage} HP${event.combo_count > 1 ? ` · ${event.combo_count} 连击` : ""}` : "无伤害"}`;
+        button.append(title, detail);
+        button.addEventListener("click", () => {
+            time = event.time_s;
+            setPlaying(false);
+        });
+        $("combat-events").append(button);
+    }
+}
+function ui(frame, duel) {
     $("time").textContent =
         `${time.toFixed(2).padStart(5, "0")} / ${run.duration.toFixed(2)}`;
     $("timeline").value = Math.round((time / run.duration) * 1000);
     const latest = run.events.filter((e) => e.time_s <= time).at(-1);
+    const otherTime = (run.duel.opponent_frames || run.frames)[
+        duel.opponent_frame
+    ].t;
+    const otherLatest = run.duel.opponent_events
+        .filter((e) => e.time_s <= otherTime)
+        .at(-1);
     $("action-label").textContent =
-        latest && time - latest.time_s < 0.8 ? latest.label : "待机 / 动作回收";
+        `P1 · ${latest && time - latest.time_s < 0.9 ? latest.label : "待机"} / P2 · ${otherLatest && otherTime - otherLatest.time_s < 0.9 ? otherLatest.label : "待机"}`;
     const counts = frame.quality.reduce((a, q) => {
         a[q] = (a[q] || 0) + 1;
         return a;
@@ -184,20 +231,56 @@ function ui(frame, secondTime) {
     }
     for (const button of $("events").querySelectorAll("button"))
         button.classList.toggle("current", button.dataset.event === latest?.id);
-    const attacks1 = run.events.filter(
-        (e) =>
-            e.time_s < time &&
-            !e.action.startsWith("dodge") &&
-            e.action !== "crouch",
-    ).length;
-    const attacks2 = run.events.filter(
-        (e) =>
-            e.time_s < secondTime &&
-            !e.action.startsWith("dodge") &&
-            e.action !== "crouch",
-    ).length;
-    $("health-p2").style.width = `${100 - attacks1 * 5}%`;
-    $("health-p1").style.width = `${100 - attacks2 * 5}%`;
+    for (let i = 0; i < 2; i++) {
+        const key = i === 0 ? "one" : "two",
+            movement = duel.movement[i];
+        $(`health-p${i + 1}`).style.width = `${duel.health[i]}%`;
+        $(`guard-p${i + 1}`).style.width = `${duel.guard_energy[i]}%`;
+        $(`hp-${key}`).textContent = `${duel.health[i]} HP`;
+        $(`player-${key}-state`).textContent = duel.recovery[i]
+            ? "硬直"
+            : movement.state;
+        $(`motion-${key}`).textContent =
+            `${movement.state} · ${movement.source_forward_m === null ? "失跟踪" : `${movement.source_forward_m.toFixed(2)} m → ${movement.mapped_forward_m.toFixed(2)} m`}`;
+        $(`defense-${key}`).textContent =
+            `${duel.defense[i].label} · 防守槽 ${Math.round(duel.guard_energy[i])}`;
+    }
+    $("duel-distance").textContent = `${duel.distance_m.toFixed(2)} m`;
+    $("lane-state").textContent = duel.separation_limited
+        ? "近身边界：保持 0.55 m，防止穿过对手"
+        : "骨盆位移 → 场景移动 · 距离以角色根节点计";
+    const inputCombo = run.events
+        .filter((e) => e.combo && e.time_s <= time && time - e.time_s < 2)
+        .at(-1);
+    $("input-combo").textContent = inputCombo
+        ? inputCombo.combo
+        : "等待动作序列";
+    const result = run.duel.events
+        .filter((e) => e.time_s <= time + 0.0001)
+        .at(-1);
+    const recent = result && time - result.time_s < 1.2;
+    $("combat-result").textContent = recent
+        ? `P${result.attacker + 1} · ${result.label}`
+        : "接近 · 出招 · 观察对手";
+    $("combat-combo").textContent =
+        recent && result.combo_count > 1
+            ? `${result.combo_count} HIT · 连续命中`
+            : recent && result.damage
+              ? `−${result.damage} HP`
+              : "";
+    $("combat-banner").dataset.outcome = recent ? result.outcome : "";
+    for (const button of $("combat-events").children)
+        button.classList.toggle(
+            "current",
+            button.dataset.result === result?.id,
+        );
+    const chapter = run.duel.chapters.filter((c) => c.time_s <= time).at(-1);
+    $("chapter-detail").textContent = chapter?.detail || run.duel.description;
+    for (const button of $("chapters").children)
+        button.classList.toggle(
+            "active",
+            Number(button.dataset.start) === chapter?.time_s,
+        );
     $("projection-label").textContent = $("offaxis").checked
         ? "窗口透视"
         : "普通 LookAt";
@@ -208,17 +291,26 @@ function animate(now) {
     if (run) {
         if (playing && $("loading").hidden)
             time = (time + delta * +$("speed").value) % run.duration;
-        const [frame, next, alpha] = frameAt(time);
-        const secondTime = (time + 4.5) % run.duration;
-        const [second, nextSecond] = frameAt(secondTime);
+        const [frame, next, alpha, index] = frameAt(time);
+        const duel = run.duel.frames[index];
+        const nextDuel =
+            run.duel.frames[Math.min(index + 1, run.frames.length - 1)];
+        const opponent = run.duel.opponent_frames || run.frames;
+        const second = opponent[duel.opponent_frame],
+            nextSecond = opponent[nextDuel.opponent_frame];
         scene.draw(frame, next, alpha, second, nextSecond, {
+            duel,
+            nextDuel,
+            time,
+            index,
+            hitboxes: $("hitboxes").checked,
             bones: $("bones").checked,
             wireframe: $("wireframe").checked,
             offaxis: $("offaxis").checked,
             eyeOffset: +$("eye-x").value / 100,
         });
         if (now - lastUi > 60) {
-            ui(frame, secondTime);
+            ui(frame, duel);
             lastUi = now;
         }
         renderCount++;
@@ -270,6 +362,8 @@ async function start() {
         ["dropout", "dropout-value", "%"],
         ["cutoff", "cutoff-value", " Hz"],
         ["eye-x", "eye-value", " cm"],
+        ["movement-gain", "movement-gain-value", "×"],
+        ["initial-gap", "initial-gap-value", " m"],
     ]) {
         $(id).addEventListener("input", () => {
             $(output).textContent = $(id).value + suffix;
@@ -284,13 +378,14 @@ async function start() {
                 .forEach((b) => b.classList.toggle("active", b === button));
             $("arena-hud").hidden = mode !== "arena";
             $("arena-hud").style.display = mode === "arena" ? "flex" : "none";
+            $("combat-banner").hidden = mode !== "arena";
             $("compare-labels").hidden = mode === "arena";
             const labels = $("compare-labels").children;
             labels[0].style.display = mode === "retarget" ? "none" : "";
             labels[1].textContent =
                 mode === "retarget" ? "源人体骨架" : "约束骨架";
             $("view-title").textContent = {
-                arena: "01 / 极简对战场景",
+                arena: "01 / 位移与空间攻防",
                 compare: "02 / 原始 → 约束 → 蒙皮",
                 retarget: "03 / 相同动作 · 不同身体比例",
             }[mode];
@@ -334,6 +429,12 @@ async function start() {
                     metrics: run.metrics,
                     events: run.events,
                     limitations: run.limitations,
+                    combat: {
+                        summary: run.duel.summary,
+                        events: run.duel.events,
+                        description: run.duel.description,
+                        limitations: run.duel.limitations,
+                    },
                 },
                 null,
                 2,

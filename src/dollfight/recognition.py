@@ -8,6 +8,10 @@ import numpy as np
 from dollfight.kinematics import body_basis, unit
 
 LABELS = {
+    "left_spin_backfist": "左转身鞭拳",
+    "right_spin_backfist": "右转身鞭拳",
+    "left_spin_kick": "左旋转踢",
+    "right_spin_kick": "右旋转踢",
     "left_straight": "左直拳",
     "right_straight": "右直拳",
     "left_hook": "左勾拳",
@@ -21,6 +25,21 @@ LABELS = {
     "crouch": "下蹲",
     "dodge_left": "左闪避",
     "dodge_right": "右闪避",
+}
+
+COMBOS = [
+    (("left_straight", "right_straight", "left_hook"), "刺拳 → 直拳 → 摆拳"),
+    (("right_straight", "left_straight", "right_uppercut"), "双直拳 → 上勾终结"),
+    (("left_straight", "right_spin_kick"), "直拳牵制 → 旋踢"),
+]
+
+DEFENSE_LABELS = {
+    "open": "未设防",
+    "middle": "中位护架",
+    "high": "高位护头",
+    "cross": "交叉格挡",
+    "single": "单臂护架",
+    "parry": "侧向拨挡",
 }
 
 
@@ -51,6 +70,50 @@ class ActionRecognizer:
         }
         self.armed = dict.fromkeys(self.last_events, True)
         self.event_counter = 0
+        self.previous_yaw = None
+        self.yaw_rate = 0.0
+        self.spin_turn = 0.0
+        self.spin_used = False
+        self.spin_quiet = 0.0
+        self.parry_until = -1.0
+        self.parry_side = None
+        self.parry_id = 0
+        self.parry_last = -1.0
+        self.attack_history = []
+
+    def defense_state(self, local, velocity, valid, time_s):
+        sides = []
+        heights = []
+        for side, shoulder, elbow, wrist in (("left", 5, 6, 7), ("right", 8, 9, 10)):
+            relative = (local[wrist] - local[shoulder]) / max(self.arm_scale[side], 0.1)
+            reliable = np.all(valid[[0, 2, 5, 8, elbow, wrist]])
+            if reliable and 0.10 < relative[2] < 0.40 and -0.30 < relative[1] < 0.4:
+                sides.append(side)
+                heights.append(relative[1])
+                outward_speed = velocity[wrist, 0] * (1 if side == "left" else -1)
+                if (
+                    outward_speed / self.arm_scale[side] > 0.65
+                    and abs(relative[0]) < 0.33
+                    and time_s - self.parry_last > 0.5
+                ):
+                    self.parry_side, self.parry_until = side, time_s + 0.22
+                    self.parry_id += 1
+                    self.parry_last = time_s
+        mode = "open" if not sides else "single"
+        if len(sides) == 2:
+            mode = "high" if min(heights) > 0.13 else "middle"
+            if local[7, 0] < local[10, 0] - 0.025:
+                mode = "cross"
+        if self.parry_side in sides and time_s <= self.parry_until:
+            mode = "parry"
+        return {
+            "mode": mode,
+            "label": DEFENSE_LABELS[mode],
+            "guard_sides": sides,
+            "parry_until": self.parry_until,
+            "parry_side": self.parry_side,
+            "parry_id": self.parry_id,
+        }
 
     def process(self, points, valid, time_s):
         if self.previous_time is not None and time_s <= self.previous_time:
@@ -64,6 +127,29 @@ class ActionRecognizer:
             else (local - self.previous) / dt
         )
         self.previous, self.previous_time = local, time_s
+        trunk_valid = bool(np.all(valid[[0, 2, 5, 8]]))
+        defense = self.defense_state(local, velocity, valid, time_s)
+        yaw = float(np.arctan2(basis[0, 2], basis[2, 2]))
+        delta_yaw = (
+            0.0
+            if self.previous_yaw is None
+            else ((yaw - self.previous_yaw + np.pi) % (2 * np.pi) - np.pi)
+        )
+        self.previous_yaw = yaw
+        if not trunk_valid or dt > 0.25 or abs(delta_yaw) > np.pi / 2:
+            self.yaw_rate, self.spin_turn, self.spin_used = 0.0, 0.0, False
+        else:
+            self.yaw_rate += (1 - np.exp(-dt / 0.065)) * (delta_yaw / dt - self.yaw_rate)
+            if abs(self.yaw_rate) > 1.0:
+                if self.yaw_rate * self.spin_turn < 0:
+                    self.spin_turn = 0.0
+                self.spin_turn += delta_yaw
+                self.spin_quiet = time_s
+            elif time_s - self.spin_quiet > 0.24:
+                self.spin_turn, self.spin_used = 0.0, False
+        # A fast boxing twist is not a spin. Require a substantial, consistent
+        # turn before suppressing ordinary punches; reset on direction reversal.
+        rotating = abs(self.spin_turn) > 1.0
         events = []
         state = "guard"
         phase = {
@@ -87,7 +173,36 @@ class ActionRecognizer:
             self.last_events[channel] = time_s
             self.armed[channel] = False
 
-        trunk_valid = bool(np.all(valid[[0, 2, 5, 8]]))
+        if rotating and abs(self.spin_turn) > 2.1 and not self.spin_used and trunk_valid:
+            spin_action = None
+            for side, hip, knee, ankle in (("left", 11, 12, 13), ("right", 15, 16, 17)):
+                if (
+                    np.all(valid[[hip, knee, ankle]])
+                    and (points[ankle, 1] - self.rest[ankle, 1]) / self.leg_scale[side] > 0.28
+                    and np.linalg.norm(points[ankle] - points[hip]) / self.leg_scale[side] > 0.62
+                ):
+                    spin_action = side + "_spin_kick"
+            if spin_action is None:
+                for side, shoulder, elbow, wrist in (("left", 5, 6, 7), ("right", 8, 9, 10)):
+                    if (
+                        np.all(valid[[shoulder, elbow, wrist]])
+                        and np.linalg.norm(local[wrist] - local[shoulder]) / self.arm_scale[side]
+                        > 0.40
+                        and (local[wrist, 1] - local[shoulder, 1]) / self.arm_scale[side] > -0.18
+                        and (
+                            (local[wrist, 2] - local[shoulder, 2]) / self.arm_scale[side] > 0.24
+                            or abs(local[wrist, 0] - local[shoulder, 0]) / self.arm_scale[side]
+                            > 0.30
+                        )
+                    ):
+                        spin_action = side + "_spin_backfist"
+            if spin_action:
+                channel = spin_action.split("_")[0] + (
+                    "_leg" if spin_action.endswith("kick") else "_arm"
+                )
+                emit(spin_action, channel, 0.82)
+                phase[channel] = "committed"
+                self.spin_used = True
         for side, shoulder, elbow, wrist in (("left", 5, 6, 7), ("right", 8, 9, 10)):
             channel = side + "_arm"
             scale = max(self.arm_scale[side], 0.1)
@@ -98,6 +213,13 @@ class ActionRecognizer:
             if not trunk_valid or not np.all(valid[[shoulder, elbow, wrist]]):
                 phase[channel] = "unreliable"
                 self.armed[channel] = False
+                continue
+            if rotating:
+                continue
+            if defense["mode"] in ("high", "cross") or (
+                defense["mode"] == "parry" and defense["parry_side"] == side
+            ):
+                phase[channel] = "defending"
                 continue
             neutral = forward < 0.30 and vertical < 0.13 and lateral < 0.13
             if neutral and time_s - self.last_events[channel] > 0.22:
@@ -126,6 +248,8 @@ class ActionRecognizer:
             if not trunk_valid or not np.all(valid[[hip, knee, ankle]]):
                 phase[channel] = "unreliable"
                 self.armed[channel] = False
+                continue
+            if rotating:
                 continue
             if foot_height < 0.10 and knee_lift < 0.10 and time_s - self.last_events[channel] > 0.3:
                 self.armed[channel] = True
@@ -177,9 +301,23 @@ class ActionRecognizer:
             state = events[-1]["action"]
         elif crouch > 0.15:
             state = "crouch"
+        for event in events:
+            if event["action"] in ("crouch", "dodge_left", "dodge_right"):
+                continue
+            self.attack_history.append((time_s, event["action"]))
+            self.attack_history = self.attack_history[-3:]
+            for sequence, label in COMBOS:
+                recent = self.attack_history[-len(sequence) :]
+                if tuple(action for _, action in recent) == sequence and all(
+                    b[0] - a[0] <= 0.95 for a, b in zip(recent, recent[1:], strict=False)
+                ):
+                    event["combo"] = label
         return events, {
             "state": state,
             "phase": phase,
             "left_speed": round(float(np.linalg.norm(velocity[7])), 3),
             "right_speed": round(float(np.linalg.norm(velocity[10])), 3),
+            "defense": defense,
+            "heading_deg": round(float(np.rad2deg(yaw)), 1),
+            "angular_speed_dps": round(float(np.rad2deg(self.yaw_rate)), 1),
         }

@@ -74,7 +74,7 @@
                 <section>
                     <h2><span>02</span> 骨架处理</h2>
                     <label class="range-label" for="noise"
-                        >观测噪声 <output id="noise-value">15 mm</output></label
+                        >观测噪声 <output id="noise-value">5 mm</output></label
                     >
                     <input
                         id="noise"
@@ -82,7 +82,7 @@
                         min="0"
                         max="60"
                         step="5"
-                        value="15"
+                        value="5"
                         aria-label="观测噪声"
                     />
                     <label class="range-label" for="dropout"
@@ -137,6 +137,49 @@
                 </section>
                 <section>
                     <h2><span>03</span> 角色与画面</h2>
+                    <label class="toggle"
+                        ><input
+                            id="movement-enabled"
+                            type="checkbox"
+                            checked
+                        />人体位移控制进退</label
+                    >
+                    <label class="range-label" for="movement-gain"
+                        >位移映射倍率
+                        <output id="movement-gain-value">1.5×</output></label
+                    >
+                    <input
+                        id="movement-gain"
+                        type="range"
+                        min="0.5"
+                        max="2.5"
+                        step="0.1"
+                        value="1.5"
+                        aria-label="位移映射倍率"
+                    />
+                    <label class="range-label" for="initial-gap"
+                        >起始间距
+                        <output id="initial-gap-value">2.2 m</output></label
+                    >
+                    <input
+                        id="initial-gap"
+                        type="range"
+                        min="1.2"
+                        max="3.5"
+                        step="0.1"
+                        value="2.2"
+                        aria-label="起始间距"
+                    />
+                    <p class="note">
+                        相机站位前后 ±0.65 m
+                        映射到虚拟空间；调整后点击重新计算。转身不改变移动轴。
+                    </p>
+                    <label class="toggle"
+                        ><input
+                            id="hitboxes"
+                            type="checkbox"
+                        />主视图碰撞体与攻击轨迹</label
+                    >
                     <label for="profile">目标角色比例</label>
                     <select id="profile" aria-label="目标角色比例">
                         <option value="standard">标准体型</option>
@@ -183,7 +226,7 @@
                 <div class="view-heading">
                     <div>
                         <div class="eyebrow">OBSERVE / COMPARE / ITERATE</div>
-                        <h2>一个动作，三种观察方式</h2>
+                        <h2>距离、时机，和每一次攻防</h2>
                     </div>
                     <span id="render-fps" class="fps">— FPS</span>
                 </div>
@@ -193,22 +236,44 @@
                     ><button data-view="retarget">重定向检查</button
                     ><span>拖动旋转 · 滚轮缩放</span>
                 </nav>
+                <div id="chapters" class="chapters" aria-label="战术段落"></div>
+                <p id="chapter-detail" class="chapter-detail">
+                    选择片段检查进退、攻击与防守的关系。
+                </p>
                 <section class="hero-viewport">
                     <div id="main-view" class="viewport"></div>
                     <div class="viewport-top">
-                        <span id="view-title">01 / 极简对战场景</span
+                        <span id="view-title">01 / 位移与空间攻防</span
                         ><span id="source-badge" class="tag">合成验证</span>
                     </div>
                     <div id="arena-hud" class="arena-hud">
                         <div class="fighter">
-                            <span>P1 <b>动作回放</b></span>
+                            <span
+                                >P1 <b id="player-one-state">站稳</b
+                                ><small id="hp-one">100</small></span
+                            >
                             <div class="health"><i id="health-p1"></i></div>
+                            <div class="guard-energy">
+                                <i id="guard-p1"></i>
+                            </div>
                         </div>
-                        <span class="round">LAB<br /><b>∞</b></span>
+                        <span class="round"
+                            >间距<br /><b id="duel-distance">2.20 m</b></span
+                        >
                         <div class="fighter right">
-                            <span><b>延时回放</b> P2</span>
+                            <span
+                                ><small id="hp-two">100</small
+                                ><b id="player-two-state">站稳</b> P2</span
+                            >
                             <div class="health"><i id="health-p2"></i></div>
+                            <div class="guard-energy">
+                                <i id="guard-p2"></i>
+                            </div>
                         </div>
+                    </div>
+                    <div id="combat-banner" class="combat-banner">
+                        <strong id="combat-result">接近对手进入有效距离</strong
+                        ><span id="combat-combo"></span>
                     </div>
                     <div id="compare-labels" class="compare-labels" hidden>
                         <span class="raw">原始观测</span
@@ -222,7 +287,9 @@
                     <div id="loading" class="loading">
                         <span class="spinner"></span
                         ><strong>正在计算动作序列</strong
-                        ><span>骨架约束 → 重定向 → 动作判定</span>
+                        ><span
+                            >两路骨架 → 位移与重定向 → 时序识别 → 空间碰撞</span
+                        >
                     </div>
                 </section>
                 <section class="transport">
@@ -245,6 +312,23 @@
                         <option value="1.5">1.5×</option>
                     </select>
                 </section>
+                <div class="duel-readout">
+                    <article>
+                        <span>P1 · 移动 / 防守</span
+                        ><strong id="motion-one">—</strong
+                        ><small id="defense-one">—</small>
+                    </article>
+                    <article>
+                        <span>输入连招 ≠ 命中连击</span
+                        ><strong id="input-combo">等待动作序列</strong
+                        ><small id="lane-state">远距出招不会扣血</small>
+                    </article>
+                    <article>
+                        <span>P2 · 移动 / 防守</span
+                        ><strong id="motion-two">—</strong
+                        ><small id="defense-two">—</small>
+                    </article>
+                </div>
                 <div class="metrics">
                     <article>
                         <span>原始 → 处理后偏差</span
@@ -261,7 +345,7 @@
                     <article>
                         <span>算法处理 P95</span
                         ><strong id="metric-time">—</strong
-                        ><small>不含采集、网络与渲染</small>
+                        ><small>单人骨架处理；不含碰撞与渲染</small>
                     </article>
                     <article>
                         <span>识别事件</span
@@ -284,6 +368,22 @@
                         </div>
                         <div id="eye-two" class="eye-viewport"></div>
                     </article>
+                </section>
+                <section class="analysis combat-analysis">
+                    <div class="analysis-head">
+                        <div>
+                            <div class="eyebrow">
+                                DISTANCE / CONTACT / TIMING
+                            </div>
+                            <h2>这次为什么命中或落空</h2>
+                        </div>
+                        <span id="combat-source" class="tag">双人合成输入</span>
+                    </div>
+                    <p class="note">
+                        点击结果回看接触时刻。青 /
+                        红为双方受击体，蓝色为候选防守前臂，黄色为攻击轨迹；只有空间相交才结算伤害。
+                    </p>
+                    <div id="combat-events" class="combat-event-list"></div>
                 </section>
                 <section class="analysis">
                     <div class="analysis-head">
@@ -309,7 +409,7 @@
                 <footer>
                     <span id="description"
                         >合成轨迹用于可控实验，不代表真人准确率。</span
-                    ><span>v0.2 · 课程评估原型</span>
+                    ><span>v0.3 · 位移与攻防原型</span>
                 </footer>
                 <div id="error" class="error" role="alert" hidden></div>
             </div>

@@ -14,6 +14,7 @@ from dollfight.solver import SkeletonSolver
 
 ROOT = Path(__file__).resolve().parents[2]
 CATALOG = [
+    {"id": "duel", "label": "战术对练 · 进退 / 防守 / 旋转 / 连招", "kind": "双人合成"},
     {"id": "showcase", "label": "招式巡检 · 13 种动作", "kind": "合成验证"},
     {"id": "cmu_boxing", "label": "CMU 14_01 · 真人拳击动捕", "kind": "公开动捕"},
     {"id": "punch", "label": "左右直拳 · 重复与回收", "kind": "合成验证"},
@@ -106,8 +107,8 @@ def load_clip(name):
     return synthetic_clip(name)
 
 
-def make_run(config):
-    name = config.get("source", "showcase")
+def make_run(config, *, include_duel=False, player=0):
+    name = config.get("source", "duel")
     clip = (
         import_frames(
             config["frames"],
@@ -116,14 +117,20 @@ def make_run(config):
         )
         if name == "upload"
         else load_clip(name)
+        if name != "duel"
+        else None
     )
-    sigma = np.clip(float(config.get("noise_mm", 15)), 0, 80) / 1000
+    if name == "duel":
+        from dollfight.duel_fixture import duel_clip
+
+        clip = duel_clip(player)
+    sigma = np.clip(float(config.get("noise_mm", 5)), 0, 80) / 1000
     dropout = np.clip(float(config.get("dropout", 0)), 0, 0.5)
     cutoff = float(np.clip(config.get("cutoff", 1.7), 0.2, 12))
     profile = config.get("profile", "standard")
     if profile not in PROFILES:
         raise ValueError("Unknown avatar profile")
-    seed = int(config.get("seed", 42))
+    seed = int(config.get("seed", 42)) + player
     rng = np.random.default_rng(seed)
     truth = clip["points"]
     observations = truth + rng.normal(0, sigma, truth.shape)
@@ -215,8 +222,8 @@ def make_run(config):
         "reference": "clean_input" if name != "upload" else "input_consistency_only",
         "comparison": "raw_error_mm/solved_error_mm use the same observed joints",
     }
-    return {
-        "version": "0.2.0",
+    run = {
+        "version": "0.3.0",
         "source": clip["source"],
         "name": name,
         "description": clip["description"],
@@ -231,11 +238,17 @@ def make_run(config):
         "metrics": metrics,
         "config": {key: value for key, value in config.items() if key != "frames"},
         "limitations": [
-            "算法耗时不含相机、网络和渲染，不是端到端延迟。",
+            "算法耗时仅单人骨架、识别与重定向，不含碰撞、相机、网络和渲染。",
             "误差相对未加噪输入；不代表真实 RGB-D 人体关节准确率。",
             "位置输入无法恢复真实前臂扭转和手指；使用父骨架朝向先验。",
         ],
     }
+    if include_duel:
+        from dollfight.duel import build_duel
+
+        secondary = make_run(config, player=1) if name == "duel" else None
+        run["duel"] = build_duel(run, secondary, config)
+    return run
 
 
 def export_poseframes(run):

@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { OrbitControls } from "./vendor/OrbitControls.js";
 import { configureOffAxis } from "./projection.js";
 import { createAvatar, createStick } from "./avatar.js";
+import { CombatVisuals } from "./combat-visuals.js";
 
 function renderer(container) {
     const instance = new THREE.WebGLRenderer({ antialias: true, alpha: false });
@@ -112,6 +113,7 @@ export class LabScene {
         );
         this.renderers = this.containers.map(renderer);
         this.arena = environment(true);
+        this.combatVisuals = new CombatVisuals(this.arena);
         this.compare = environment(false);
         this.camera = new THREE.PerspectiveCamera(39, 1, 0.05, 50);
         this.camera.position.set(3.5, 2.4, 5.5);
@@ -162,9 +164,7 @@ export class LabScene {
             createAvatar(run.target_rest, run.parents),
         ];
         const [p1, p2, target] = this.avatars;
-        p1.group.position.x = -1.05;
         p1.group.rotation.y = Math.PI / 2;
-        p2.group.position.x = 1.05;
         p2.group.rotation.y = -Math.PI / 2;
         this.arena.add(
             p1.group,
@@ -193,24 +193,32 @@ export class LabScene {
             this.avatars[2].group.position.x = mode === "retarget" ? 1.5 : 1.95;
         }
     }
-    eye(index, frame, offaxis, eyeOffset) {
+    eye(index, frame, options, alpha) {
         const camera = this.eyeCameras[index],
             side = index === 0 ? 1 : -1;
-        const rest = this.run.target_rest;
-        const height = rest[4][1] + 0.02;
-        const center = new THREE.Vector3(-side * 0.55, height, 0);
         const right = new THREE.Vector3(0, 0, side),
             up = new THREE.Vector3(0, 1, 0);
-        const localHead = frame.avatar[4],
-            root = frame.avatar[0];
-        const eye = new THREE.Vector3(
-            -side * 1.05 + side * (localHead[2] - root[2] + 0.09),
-            localHead[1] + 0.025,
-            -side * (localHead[0] - root[0]),
-        );
+        const { duel, nextDuel, offaxis, eyeOffset } = options;
+        const eye = new THREE.Vector3()
+            .fromArray(duel.world[index][4])
+            .lerp(
+                new THREE.Vector3().fromArray(nextDuel.world[index][4]),
+                alpha,
+            );
+        eye.x += side * 0.09;
+        eye.y += 0.025;
         eye.addScaledVector(right, eyeOffset);
-        // The demo keeps the virtual eye on the viewer side of its screen plane.
-        eye.x = side * Math.min(side * eye.x, -0.63);
+        // Physical screen distance uses station-space head tracking, independent
+        // of virtual movement gain. Turning the body does not rotate the screen.
+        const physical = frame.solved[4].map(
+            (v, i) => v - this.run.source_rest[4][i],
+        );
+        const distance = THREE.MathUtils.clamp(1.15 - physical[2], 0.35, 2);
+        const center = eye
+            .clone()
+            .add(new THREE.Vector3(side * distance, 0, 0))
+            .addScaledVector(right, physical[0] - eyeOffset)
+            .addScaledVector(up, -physical[1]);
         const aspect =
             this.containers[index + 1].clientWidth /
             this.containers[index + 1].clientHeight;
@@ -237,13 +245,23 @@ export class LabScene {
             camera.aspect = aspect;
             camera.fov = 54;
             camera.updateProjectionMatrix();
-            camera.lookAt(side * 1.05, height - 0.15, 0);
+            const target = duel.world[1 - index][4];
+            camera.lookAt(target[0], target[1] - 0.15, target[2]);
         }
         camera.updateMatrixWorld(true);
     }
     draw(frame, next, alpha, second, nextSecond, options) {
         if (!this.run) return;
         this.orbit.update();
+        for (let i = 0; i < 2; i++)
+            this.avatars[i].group.position
+                .fromArray(options.duel.positions[i])
+                .lerp(
+                    new THREE.Vector3().fromArray(
+                        options.nextDuel.positions[i],
+                    ),
+                    alpha,
+                );
         this.avatars[0].apply(frame, next, alpha);
         this.avatars[1].apply(second, nextSecond, alpha);
         this.avatars[2].apply(frame, next, alpha);
@@ -252,17 +270,14 @@ export class LabScene {
         );
         this.sticks[0].apply(frame.raw, [], frame.solved[0]);
         this.sticks[1].apply(frame.solved, frame.quality, frame.solved[0]);
+        this.combatVisuals.update(this.run, options, frame, second, alpha);
         this.renderers[0].render(
             this.mode === "arena" ? this.arena : this.compare,
             this.camera,
         );
         for (let i = 0; i < 2; i++) {
-            this.eye(
-                i,
-                i === 0 ? frame : second,
-                options.offaxis,
-                options.eyeOffset,
-            );
+            this.eye(i, i === 0 ? frame : second, options, alpha);
+            this.combatVisuals.debug.visible = false;
             this.avatars[i].group.visible = false;
             this.avatars[i].skeletonHelper.visible = false;
             this.renderers[i + 1].render(this.arena, this.eyeCameras[i]);
