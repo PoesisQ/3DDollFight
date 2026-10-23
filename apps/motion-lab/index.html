@@ -1,0 +1,319 @@
+<!doctype html>
+<html lang="zh-CN">
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width,initial-scale=1" />
+        <title>DollFight · Motion Lab</title>
+        <link
+            rel="icon"
+            href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%2376e3ca'/%3E%3Ctext x='7' y='44' font-size='36' font-family='Arial' font-weight='bold' fill='%23121c22'%3EDF%3C/text%3E%3C/svg%3E"
+        />
+        <link rel="stylesheet" href="/style.css" />
+        <script type="importmap">
+            { "imports": { "three": "/vendor/three.module.min.js" } }
+        </script>
+    </head>
+    <body>
+        <header class="topbar">
+            <a class="brand" href="/"
+                ><span class="brandmark">DF</span
+                ><span>DOLLFIGHT <small>MOTION LAB</small></span></a
+            >
+            <span class="project-note">3D 视觉 · 骨架与交互实验室</span>
+            <span class="local-status"><i></i> LOCAL / CPU</span>
+        </header>
+        <main class="workspace">
+            <aside class="controls">
+                <div class="eyebrow">EXPERIMENT 01</div>
+                <h1>从人体骨架<br />到格斗角色<span>。</span></h1>
+                <p class="intro">
+                    观察骨架、改变参数，判断每一次出招是如何发生的。
+                </p>
+                <section>
+                    <h2><span>01</span> 动作输入</h2>
+                    <label for="source">回放样本</label>
+                    <select id="source" aria-label="回放样本"></select>
+                    <div id="source-note" class="source-note">
+                        合成验证 · 不是摄像头实测
+                    </div>
+                    <div class="small-buttons">
+                        <button id="import-button">导入骨架 JSONL</button
+                        ><button id="export-pose">导出样例</button>
+                    </div>
+                    <input
+                        id="file-input"
+                        type="file"
+                        accept=".jsonl,.json"
+                        hidden
+                    />
+                    <details>
+                        <summary>导入相机坐标设置</summary>
+                        <label
+                            >相机高度 / m<input
+                                id="camera-height"
+                                type="number"
+                                min="0.1"
+                                max="3"
+                                step="0.1"
+                                value="1.4" /></label
+                        ><label
+                            >站位距离 / m<input
+                                id="camera-distance"
+                                type="number"
+                                min="0.3"
+                                max="6"
+                                step="0.1"
+                                value="2.5"
+                        /></label>
+                        <p>
+                            仅适配水平放置的相机；任意外参请先由采集适配器变换。前
+                            30 帧保持自然站立。
+                        </p>
+                    </details>
+                </section>
+                <section>
+                    <h2><span>02</span> 骨架处理</h2>
+                    <label class="range-label" for="noise"
+                        >观测噪声 <output id="noise-value">15 mm</output></label
+                    >
+                    <input
+                        id="noise"
+                        type="range"
+                        min="0"
+                        max="60"
+                        step="5"
+                        value="15"
+                        aria-label="观测噪声"
+                    />
+                    <label class="range-label" for="dropout"
+                        >随机缺失 <output id="dropout-value">0%</output></label
+                    >
+                    <input
+                        id="dropout"
+                        type="range"
+                        min="0"
+                        max="35"
+                        step="5"
+                        value="0"
+                        aria-label="随机缺失"
+                    />
+                    <label class="toggle"
+                        ><input
+                            id="smoothing"
+                            type="checkbox"
+                            checked
+                        />速度自适应平滑<span>1€</span></label
+                    >
+                    <label class="range-label" for="cutoff"
+                        >最小截止频率
+                        <output id="cutoff-value">1.7 Hz</output></label
+                    >
+                    <input
+                        id="cutoff"
+                        type="range"
+                        min="0.5"
+                        max="8"
+                        step="0.1"
+                        value="1.7"
+                        aria-label="最小截止频率"
+                    />
+                    <label class="toggle"
+                        ><input
+                            id="constraints"
+                            type="checkbox"
+                            checked
+                        />固定骨长与关节限位</label
+                    >
+                    <label class="toggle"
+                        ><input
+                            id="foot-lock"
+                            type="checkbox"
+                            checked
+                        />角色接地 IK</label
+                    >
+                    <button id="apply" class="primary">
+                        重新计算并对比 <span>↗</span>
+                    </button>
+                </section>
+                <section>
+                    <h2><span>03</span> 角色与画面</h2>
+                    <label for="profile">目标角色比例</label>
+                    <select id="profile" aria-label="目标角色比例">
+                        <option value="standard">标准体型</option>
+                        <option value="reach">长臂轻量 · 手臂 ×1.25</option>
+                        <option value="power">宽肩重型 · 肩宽 ×1.35</option>
+                    </select>
+                    <label class="toggle"
+                        ><input id="bones" type="checkbox" />显示角色骨骼</label
+                    >
+                    <label class="toggle"
+                        ><input
+                            id="wireframe"
+                            type="checkbox"
+                        />显示蒙皮网格</label
+                    >
+                    <label class="toggle"
+                        ><input
+                            id="offaxis"
+                            type="checkbox"
+                            checked
+                        />屏幕窗口透视<span>OFF-AXIS</span></label
+                    >
+                    <label class="range-label" for="eye-x"
+                        >眼位左右偏移
+                        <output id="eye-value">0 cm</output></label
+                    >
+                    <input
+                        id="eye-x"
+                        type="range"
+                        min="-35"
+                        max="35"
+                        step="1"
+                        value="0"
+                        aria-label="眼位左右偏移"
+                    />
+                </section>
+                <p class="aside-foot">
+                    算法在 Python
+                    中逐帧执行。画面使用真实骨架层级与加权蒙皮。外部采集通过
+                    PoseFrame 接入。
+                </p>
+            </aside>
+            <div class="content">
+                <div class="view-heading">
+                    <div>
+                        <div class="eyebrow">OBSERVE / COMPARE / ITERATE</div>
+                        <h2>一个动作，三种观察方式</h2>
+                    </div>
+                    <span id="render-fps" class="fps">— FPS</span>
+                </div>
+                <nav class="tabs" aria-label="观察模式">
+                    <button class="active" data-view="arena">对战视图</button
+                    ><button data-view="compare">骨架对比</button
+                    ><button data-view="retarget">重定向检查</button
+                    ><span>拖动旋转 · 滚轮缩放</span>
+                </nav>
+                <section class="hero-viewport">
+                    <div id="main-view" class="viewport"></div>
+                    <div class="viewport-top">
+                        <span id="view-title">01 / 极简对战场景</span
+                        ><span id="source-badge" class="tag">合成验证</span>
+                    </div>
+                    <div id="arena-hud" class="arena-hud">
+                        <div class="fighter">
+                            <span>P1 <b>动作回放</b></span>
+                            <div class="health"><i id="health-p1"></i></div>
+                        </div>
+                        <span class="round">LAB<br /><b>∞</b></span>
+                        <div class="fighter right">
+                            <span><b>延时回放</b> P2</span>
+                            <div class="health"><i id="health-p2"></i></div>
+                        </div>
+                    </div>
+                    <div id="compare-labels" class="compare-labels" hidden>
+                        <span class="raw">原始观测</span
+                        ><span class="solved">约束骨架</span
+                        ><span class="avatar">目标蒙皮</span>
+                    </div>
+                    <div class="viewport-bottom">
+                        <span id="action-label">等待回放</span
+                        ><span id="quality-label">19 关节</span>
+                    </div>
+                    <div id="loading" class="loading">
+                        <span class="spinner"></span
+                        ><strong>正在计算动作序列</strong
+                        ><span>骨架约束 → 重定向 → 动作判定</span>
+                    </div>
+                </section>
+                <section class="transport">
+                    <button id="play" class="play" aria-label="暂停回放">
+                        Ⅱ</button
+                    ><button id="step" title="下一帧">步进</button
+                    ><span id="time">00.00 / 00.00</span
+                    ><input
+                        id="timeline"
+                        type="range"
+                        min="0"
+                        max="1000"
+                        step="1"
+                        value="0"
+                        aria-label="回放时间"
+                    /><select id="speed" aria-label="回放速度">
+                        <option value="0.25">0.25×</option>
+                        <option value="0.5">0.5×</option>
+                        <option value="1" selected>1×</option>
+                        <option value="1.5">1.5×</option>
+                    </select>
+                </section>
+                <div class="metrics">
+                    <article>
+                        <span>原始 → 处理后偏差</span
+                        ><strong id="metric-error">—</strong
+                        ><small id="metric-reference"
+                            >相对未加噪输入，非实机精度</small
+                        >
+                    </article>
+                    <article>
+                        <span>骨长平均偏差</span
+                        ><strong id="metric-bone">—</strong
+                        ><small>原始 → 约束骨架</small>
+                    </article>
+                    <article>
+                        <span>算法处理 P95</span
+                        ><strong id="metric-time">—</strong
+                        ><small>不含采集、网络与渲染</small>
+                    </article>
+                    <article>
+                        <span>识别事件</span
+                        ><strong id="metric-events">—</strong
+                        ><small id="metric-valid">输入有效关节 —</small>
+                    </article>
+                </div>
+                <section class="eyes">
+                    <article>
+                        <div class="mini-heading">
+                            <span><i class="teal"></i> 玩家一 · 对手视角</span
+                            ><small id="projection-label">窗口透视</small>
+                        </div>
+                        <div id="eye-one" class="eye-viewport"></div>
+                    </article>
+                    <article>
+                        <div class="mini-heading">
+                            <span><i class="coral"></i> 玩家二 · 对手视角</span
+                            ><small>同一场景状态</small>
+                        </div>
+                        <div id="eye-two" class="eye-viewport"></div>
+                    </article>
+                </section>
+                <section class="analysis">
+                    <div class="analysis-head">
+                        <div>
+                            <div class="eyebrow">WHAT DID THE SYSTEM SEE?</div>
+                            <h2>动作判定与质量观察</h2>
+                        </div>
+                        <button id="export-report">导出评估报告 ↓</button>
+                    </div>
+                    <div class="analysis-body">
+                        <div>
+                            <div class="phase-heading">
+                                当前状态 <span id="state-label">guard</span>
+                            </div>
+                            <div id="phase-list" class="phase-list"></div>
+                            <p class="note">
+                                丢失关节会显示为黄色/红色，并停止使用该肢体产生攻击。点击事件可以回看判定时刻。
+                            </p>
+                        </div>
+                        <div id="events" class="event-list"></div>
+                    </div>
+                </section>
+                <footer>
+                    <span id="description"
+                        >合成轨迹用于可控实验，不代表真人准确率。</span
+                    ><span>v0.2 · 课程评估原型</span>
+                </footer>
+                <div id="error" class="error" role="alert" hidden></div>
+            </div>
+        </main>
+        <script type="module" src="/app.js"></script>
+    </body>
+</html>
