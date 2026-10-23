@@ -1,6 +1,6 @@
 # Git 与 uv 协作规范
 
-仓库当前为本地项目，尚无远端地址。这里先给出协作约定与 CI 文件；保护分支、PR 检查和 LFS 远端存储需要在团队选定的平台启用。配置文件的存在不代表这些远端规则已经生效。
+GitHub 远端为 [PoesisQ/3DDollFight](https://github.com/PoesisQ/3DDollFight)，本地使用 `origin`。仓库已提供协作约定与 CI 文件；保护分支、必需的 PR 检查和 LFS 存储设置仍需在 GitHub 确认。配置文件的存在不代表这些远端规则已经生效。
 
 ## 仓库组织
 
@@ -26,7 +26,7 @@ uv.lock                已解析依赖版本
 
 采用 main + 短期 feature 分支，main 保持可复现。按工作内容命名，如 `feat/retarget-arm-ik`、`fix/depth-alignment`、`docs/pose-contract`。同一个功能提交尽量只涉及一个明确问题；协议改变可合理跨模块。
 
-远端建好后的一般流程：
+日常开发的一般流程：
 
 ```powershell
 git switch main
