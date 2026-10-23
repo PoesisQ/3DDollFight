@@ -1,0 +1,6 @@
+{
+  "name": "DollFight.Humanoid",
+  "rootNamespace": "DollFight",
+  "references": ["VRM10", "UniGLTF"],
+  "autoReferenced": true
+}

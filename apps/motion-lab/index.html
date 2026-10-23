@@ -27,7 +27,8 @@
                 <div class="eyebrow">EXPERIMENT 01</div>
                 <h1>从人体骨架<br />到格斗角色<span>。</span></h1>
                 <p class="intro">
-                    观察骨架、改变参数，判断每一次出招是如何发生的。
+                    真实动捕 → 骨盆与胸腔分离 → VRM
+                    全身映射。逐帧观察发力、支撑与回收。
                 </p>
                 <section>
                     <h2><span>01</span> 动作输入</h2>
@@ -74,7 +75,7 @@
                 <section>
                     <h2><span>02</span> 骨架处理</h2>
                     <label class="range-label" for="noise"
-                        >观测噪声 <output id="noise-value">5 mm</output></label
+                        >观测噪声 <output id="noise-value">0 mm</output></label
                     >
                     <input
                         id="noise"
@@ -82,7 +83,7 @@
                         min="0"
                         max="60"
                         step="5"
-                        value="5"
+                        value="0"
                         aria-label="观测噪声"
                     />
                     <label class="range-label" for="dropout"
@@ -146,7 +147,7 @@
                     >
                     <label class="range-label" for="movement-gain"
                         >位移映射倍率
-                        <output id="movement-gain-value">1.5×</output></label
+                        <output id="movement-gain-value">1.0×</output></label
                     >
                     <input
                         id="movement-gain"
@@ -154,7 +155,7 @@
                         min="0.5"
                         max="2.5"
                         step="0.1"
-                        value="1.5"
+                        value="1"
                         aria-label="位移映射倍率"
                     />
                     <label class="range-label" for="initial-gap"
@@ -180,7 +181,19 @@
                             type="checkbox"
                         />主视图碰撞体与攻击轨迹</label
                     >
-                    <label for="profile">目标角色比例</label>
+                    <label for="avatar-kind">角色皮套</label>
+                    <select id="avatar-kind" aria-label="角色皮套">
+                        <option value="vrm">VRM 官方样例 · 动漫角色</option>
+                        <option value="procedural">几何人偶 · 比例实验</option>
+                    </select>
+                    <button id="import-vrm">导入本地 VRM</button
+                    ><input id="vrm-input" type="file" accept=".vrm" hidden />
+                    <button id="export-unity">导出 Unity 动作</button>
+                    <p id="avatar-status" class="note">正在加载 VRM…</p>
+                    <p id="mapping-audit" class="note"></p>
+                    <label for="profile"
+                        >几何人偶比例（VRM 使用实际骨长）</label
+                    >
                     <select id="profile" aria-label="目标角色比例">
                         <option value="standard">标准体型</option>
                         <option value="reach">长臂轻量 · 手臂 ×1.25</option>
@@ -196,11 +209,9 @@
                         />显示蒙皮网格</label
                     >
                     <label class="toggle"
-                        ><input
-                            id="offaxis"
-                            type="checkbox"
-                            checked
-                        />屏幕窗口透视<span>OFF-AXIS</span></label
+                        ><input id="offaxis" type="checkbox" />严格眼位实验<span
+                            >需标定</span
+                        ></label
                     >
                     <label class="range-label" for="eye-x"
                         >眼位左右偏移
@@ -226,7 +237,7 @@
                 <div class="view-heading">
                     <div>
                         <div class="eyebrow">OBSERVE / COMPARE / ITERATE</div>
-                        <h2>距离、时机，和每一次攻防</h2>
+                        <h2>全身动作、转髋，与角色映射</h2>
                     </div>
                     <span id="render-fps" class="fps">— FPS</span>
                 </div>
@@ -312,6 +323,19 @@
                         <option value="1.5">1.5×</option>
                     </select>
                 </section>
+                <section class="motion-inspector">
+                    <div>
+                        <span>全身动作诊断</span
+                        ><strong id="body-readout">—</strong>
+                    </div>
+                    <div>
+                        <span>招式时序 · 实际影响攻击窗口</span
+                        ><strong id="action-timing">—</strong>
+                    </div>
+                    <p>
+                        支撑根据足部高度与速度估计；髋肩夹角显示躯干扭转。此处没有肌肉或动力学仿真。真人动作的参考时序是独立标注，不是识别器输出。
+                    </p>
+                </section>
                 <div class="duel-readout">
                     <article>
                         <span>P1 · 移动 / 防守</span
@@ -357,7 +381,7 @@
                     <article>
                         <div class="mini-heading">
                             <span><i class="teal"></i> 玩家一 · 对手视角</span
-                            ><small id="projection-label">窗口透视</small>
+                            ><small id="projection-label">全身取景</small>
                         </div>
                         <div id="eye-one" class="eye-viewport"></div>
                     </article>
@@ -409,7 +433,7 @@
                 <footer>
                     <span id="description"
                         >合成轨迹用于可控实验，不代表真人准确率。</span
-                    ><span>v0.3 · 位移与攻防原型</span>
+                    ><span>v0.4 · 全身动捕 / VRM / 时序攻防</span>
                 </footer>
                 <div id="error" class="error" role="alert" hidden></div>
             </div>

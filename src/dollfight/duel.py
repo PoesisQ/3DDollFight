@@ -8,6 +8,7 @@ from dollfight.combat import CombatResolver
 from dollfight.duel_fixture import CHAPTERS
 from dollfight.kinematics import rotation_y
 from dollfight.locomotion import MovementMapper, separate_players
+from dollfight.motion_reference import REVIEW_CHAPTERS
 
 
 def world_joints(frame, position, side):
@@ -30,6 +31,7 @@ def build_duel(primary, secondary, config):
         for run, side in ((primary, 1), (second, -1))
     ]
     event_maps = [{event["id"]: event for event in run["events"]} for run in (primary, second)]
+    references = [run.get("reference_actions", []) for run in (primary, second)]
     combat = CombatResolver()
     frames = []
     for i, frame in enumerate(primary["frames"]):
@@ -54,6 +56,21 @@ def build_duel(primary, secondary, config):
             else []
             for p in range(2)
         ]
+        # Reference playback uses independently authored hit windows. Recognition
+        # events remain unchanged and visible, and are used for all other inputs.
+        for p, source_frame in enumerate(sources):
+            if references[p] and (p == 0 or i >= delay):
+                source_t = source_frame["t"]
+                previous_t = (
+                    -1
+                    if (i == 0 or (p == 1 and i == delay))
+                    else (
+                        primary["frames"][i - 1]["t"]
+                        if p == 0
+                        else second["frames"][max(0, other_index - 1)]["t"]
+                    )
+                )
+                attacks[p] = [e for e in references[p] if previous_t < e["time_s"] <= source_t]
         states = [f["recognition"] for f in sources]
         result, _ = combat.process(world, states, attacks, valid, frame["t"])
         frames.append(
@@ -78,12 +95,32 @@ def build_duel(primary, secondary, config):
         "events": combat.events,
         "opponent_frames": second["frames"] if paired else None,
         "opponent_events": second["events"],
-        "chapters": CHAPTERS if paired else [],
+        "chapters": CHAPTERS
+        if paired
+        else [
+            {
+                "time_s": max(0, e["time_s"] - 0.1),
+                "label": f"{i + 1}. {e['label']}",
+                "detail": (
+                    f"真人动作参考 · 前摇 {e['timing']['startup']:.2f} s / "
+                    f"有效 {e['timing']['active']:.2f} s / "
+                    f"后摇 {e['timing']['recovery']:.2f} s"
+                ),
+            }
+            for i, e in enumerate(references[0])
+        ]
+        or REVIEW_CHAPTERS.get(primary["name"], []),
         "paired": paired,
         "summary": dict(Counter(event["outcome"] for event in combat.events)),
         "movement_gain": float(config.get("movement_gain", 1.5)),
         "initial_gap": float(config.get("initial_gap", 2.2)),
-        "description": "独立双人合成输入" if paired else "P2 为同段输入延后 4.5 s；非真实双人",
+        "description": "独立双人合成输入"
+        if paired
+        else (
+            "真人动作回放 · P2 延后 4.5 s · 攻击窗口为参考标注"
+            if references[0]
+            else "P2 为同段输入延后 4.5 s；非真实双人"
+        ),
         "limitations": [
             "无相机接入；移动由米制骨盆位移模拟相机输出。",
             "当前是有序的 2.5D 对战区域；限制站位范围并防止穿过对手。",

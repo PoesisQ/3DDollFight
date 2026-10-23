@@ -1,0 +1,17 @@
+{
+  "name": "VRM1_Constraint_Twist_Sample v1.0.1",
+  "author": "pixiv Inc.",
+  "copyright": "(c) 2022 pixiv Inc.",
+  "url": "https://raw.githubusercontent.com/vrm-c/vrm-specification/master/samples/VRM1_Constraint_Twist_Sample/vrm/VRM1_Constraint_Twist_Sample.vrm",
+  "sha256": "12c2b97e95e700783a6a550dc0eee2d7880aeedccef9ae67bc4c5a2f0f2631a2",
+  "license": "VRM Public License 1.0",
+  "license_url": "https://vrm.dev/licenses/1.0/",
+  "permissions_from_embedded_meta": {
+    "avatarPermission": "everyone",
+    "allowRedistribution": true,
+    "modification": "allowModificationRedistribution",
+    "allowExcessivelyViolentUsage": true,
+    "creditNotation": "unnecessary"
+  },
+  "purpose": "Temporary avatar for coursework mapping evaluation; not a final character design. Model license is separate from code MIT licenses."
+}

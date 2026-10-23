@@ -8,13 +8,18 @@ import numpy as np
 
 from dollfight.contracts import JOINTS, validate_message
 from dollfight.kinematics import EDGES, PARENTS, PROFILES, Retargeter, bone_lengths, rest_pose, unit
+from dollfight.motion_reference import body_diagnostics, reference_actions, timing_at
 from dollfight.motions import synthetic_clip
 from dollfight.recognition import ActionRecognizer
 from dollfight.solver import SkeletonSolver
 
 ROOT = Path(__file__).resolve().parents[2]
 CATALOG = [
-    {"id": "duel", "label": "战术对练 · 进退 / 防守 / 旋转 / 连招", "kind": "双人合成"},
+    {"id": "cmu_roundhouse", "label": "真人 · 回旋踢（转髋 / 支撑脚）", "kind": "公开动捕"},
+    {"id": "cmu_front_kick", "label": "真人 · 前踢（提膝 / 回收）", "kind": "公开动捕"},
+    {"id": "cmu_low_block", "label": "真人 · 下段格挡（步法 / 躯干）", "kind": "公开动捕"},
+    {"id": "cmu_knife_guard", "label": "真人 · 手刀防御（全身协同）", "kind": "公开动捕"},
+    {"id": "duel", "label": "旧版合成攻防 · 仅逻辑回归", "kind": "双人合成"},
     {"id": "showcase", "label": "招式巡检 · 13 种动作", "kind": "合成验证"},
     {"id": "cmu_boxing", "label": "CMU 14_01 · 真人拳击动捕", "kind": "公开动捕"},
     {"id": "punch", "label": "左右直拳 · 重复与回收", "kind": "合成验证"},
@@ -97,8 +102,8 @@ def import_frames(messages, camera_height=1.4, camera_distance=2.5):
 
 
 def load_clip(name):
-    if name == "cmu_boxing":
-        clip = json.loads((ROOT / "data/samples/cmu_boxing.json").read_text(encoding="utf-8"))
+    if name in {item["id"] for item in CATALOG if item["kind"] == "公开动捕"}:
+        clip = json.loads((ROOT / f"data/samples/{name}.json").read_text(encoding="utf-8"))
         clip["points"] = np.asarray(clip["points"])
         clip["rest"] = np.asarray(clip["rest"])
         return clip
@@ -108,7 +113,7 @@ def load_clip(name):
 
 
 def make_run(config, *, include_duel=False, player=0):
-    name = config.get("source", "duel")
+    name = config.get("source", "cmu_roundhouse")
     clip = (
         import_frames(
             config["frames"],
@@ -148,7 +153,12 @@ def make_run(config, *, include_duel=False, player=0):
         constraints=bool(config.get("constraints", True)),
     )
     recognizer = ActionRecognizer(clip["rest"])
-    retarget = Retargeter(clip["rest"], profile, foot_lock=bool(config.get("foot_lock", True)))
+    retarget = Retargeter(
+        clip["rest"],
+        profile,
+        foot_lock=bool(config.get("foot_lock", True)),
+        target_rest=config.get("target_rest"),
+    )
     frames, events, costs, errors_raw, errors_solved, bones_raw, bones_solved = (
         [],
         [],
@@ -161,6 +171,8 @@ def make_run(config, *, include_duel=False, player=0):
     lengths = bone_lengths(clip["rest"])
     errors_all, errors_missing = [], []
     previous_t = None
+    previous_solved = None
+    references = reference_actions(name)
     for index, (point, quality, time_s) in enumerate(
         zip(observations, confidence, times, strict=True)
     ):
@@ -170,7 +182,10 @@ def make_run(config, *, include_duel=False, player=0):
         avatar, quaternions, contacts = retarget.process(
             solved, 1 / clip["fps"] if previous_t is None else time_s - previous_t
         )
-        previous_t = time_s
+        diagnostics = body_diagnostics(
+            solved, previous_solved, 1 / clip["fps"] if previous_t is None else time_s - previous_t
+        )
+        previous_t, previous_solved = time_s, solved.copy()
         costs.append((perf_counter() - start) * 1000)
         events.extend({**event, "frame": index} for event in recognized)
         raw_error = np.linalg.norm(point - truth[index], axis=1)
@@ -198,6 +213,8 @@ def make_run(config, *, include_duel=False, player=0):
                 "quality": states,
                 "contacts": contacts,
                 "recognition": state,
+                "body": diagnostics,
+                "action_timing": timing_at(references, time_s),
                 "event_ids": [event["id"] for event in recognized],
                 "error_mm": round(float(np.nanmean(solved_error) * 1000), 2)
                 if np.isfinite(solved_error).any()
@@ -223,7 +240,7 @@ def make_run(config, *, include_duel=False, player=0):
         "comparison": "raw_error_mm/solved_error_mm use the same observed joints",
     }
     run = {
-        "version": "0.3.0",
+        "version": "0.4.0",
         "source": clip["source"],
         "name": name,
         "description": clip["description"],
@@ -235,6 +252,7 @@ def make_run(config, *, include_duel=False, player=0):
         "target_rest": retarget.rest.tolist(),
         "frames": frames,
         "events": events,
+        "reference_actions": references,
         "metrics": metrics,
         "config": {key: value for key, value in config.items() if key != "frames"},
         "limitations": [

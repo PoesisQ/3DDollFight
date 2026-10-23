@@ -1,0 +1,5 @@
+{
+  "name": "DollFight.Humanoid.Editor",
+  "references": ["DollFight.Humanoid"],
+  "includePlatforms": ["Editor"]
+}

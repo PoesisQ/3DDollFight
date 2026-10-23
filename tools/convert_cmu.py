@@ -5,6 +5,7 @@ The output is downsampled at 30 Hz, keeps metric scale, and aligns the initial
 heading to +Z. The file is optical motion capture, never Gemini measurements.
 """
 
+import argparse
 import hashlib
 import json
 from pathlib import Path
@@ -110,12 +111,12 @@ def forward(bones, hierarchy, frame):
     return np.array([positions[name] for name in names]) * (2.54 / 100 / 0.45)
 
 
-def main():
+def convert(subject="14", trial="14_01", name="cmu_boxing", seconds=24, description=None):
     raw = ROOT / "data" / "raw" / "cmu"
-    bones, hierarchy = read_asf(raw / "14.asf")
-    frames = read_amc(raw / "14_01.amc")
+    bones, hierarchy = read_asf(raw / f"{subject}.asf")
+    frames = read_amc(raw / f"{trial}.amc")
     # First 24 seconds; 120 Hz source to 30 Hz display, no interpolation.
-    points = np.array([forward(bones, hierarchy, f) for f in frames[:2880:4]])
+    points = np.array([forward(bones, hierarchy, f) for f in frames[: int(seconds * 120) : 4]])
     initial = points[0, 0].copy()
     initial[1] = 0
     points -= initial
@@ -130,17 +131,23 @@ def main():
     for parent, child in EDGES:
         length = np.median(np.linalg.norm(points[:, child] - points[:, parent], axis=1))
         reference[child] = reference[parent] + unit(base[child] - base[parent]) * length
+    # A capture may begin in a low fighting stance, not an upright calibration
+    # pose. The neutral T-pose must put its ankles on the observed floor; using
+    # the first crouched pelvis as neutral produced negative ankle heights.
+    ankle_height = float(np.percentile(points[:, [13, 17], 1], 5))
+    reference[:, 1] += ankle_height - np.mean(reference[[13, 17], 1])
     output = {
-        "name": "cmu_boxing",
+        "name": name,
         "source": "cmu_optical_mocap",
         "fps": 30,
-        "description": "CMU 14_01 真实光学拳击动捕；不是深度相机输入，无逐拳类别真值。",
+        "description": description
+        or "CMU 14_01 真实光学拳击动捕；不是深度相机输入，无逐拳类别真值。",
         "source_fps": 120,
         "source_units_to_m": 2.54 / 100 / 0.45,
-        "source_url": "https://mocap.cs.cmu.edu/search.php?subjectnumber=14",
+        "source_url": f"https://mocap.cs.cmu.edu/search.php?subjectnumber={subject}",
         "source_hashes": {
             name: hashlib.sha256((raw / name).read_bytes()).hexdigest()
-            for name in ("14.asf", "14_01.amc")
+            for name in (f"{subject}.asf", f"{trial}.amc")
         },
         "transform": {
             "initial_xz": initial.tolist(),
@@ -152,10 +159,32 @@ def main():
     }
     destination = ROOT / "data" / "samples"
     destination.mkdir(parents=True, exist_ok=True)
-    (destination / "cmu_boxing.json").write_text(
+    (destination / f"{name}.json").write_text(
         json.dumps(output, separators=(",", ":")), encoding="utf-8"
     )
-    print(f"Converted {len(points)} frames ({len(points) / 30:.1f}s), metric canonical19")
+    print(f"{name}: {len(points)} frames ({len(points) / 30:.1f}s), metric canonical19")
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--martial", action="store_true")
+    args = parser.parse_args()
+    if args.martial:
+        for trial, name, label in (
+            ("04", "cmu_front_kick", "前踢 / 提膝、伸腿、回收"),
+            ("05", "cmu_low_block", "下段格挡 / 全身协同"),
+            ("07", "cmu_roundhouse", "回旋踢 / 转髋、支撑脚枢转"),
+            ("10", "cmu_knife_guard", "手刀防御 / 步法与躯干"),
+        ):
+            convert(
+                "135",
+                f"135_{trial}",
+                name,
+                60,
+                f"CMU 135_{trial} 真人光学动捕 · {label}；原始连续动作，无人工旋转肢体。",
+            )
+    else:
+        convert()
 
 
 if __name__ == "__main__":

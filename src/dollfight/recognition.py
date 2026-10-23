@@ -8,6 +8,8 @@ import numpy as np
 from dollfight.kinematics import body_basis, unit
 
 LABELS = {
+    "left_roundhouse_kick": "左回旋踢",
+    "right_roundhouse_kick": "右回旋踢",
     "left_spin_backfist": "左转身鞭拳",
     "right_spin_backfist": "右转身鞭拳",
     "left_spin_kick": "左旋转踢",
@@ -31,6 +33,7 @@ COMBOS = [
     (("left_straight", "right_straight", "left_hook"), "刺拳 → 直拳 → 摆拳"),
     (("right_straight", "left_straight", "right_uppercut"), "双直拳 → 上勾终结"),
     (("left_straight", "right_spin_kick"), "直拳牵制 → 旋踢"),
+    (("left_straight", "right_roundhouse_kick"), "直拳牵制 → 回旋踢"),
 ]
 
 DEFENSE_LABELS = {
@@ -40,6 +43,7 @@ DEFENSE_LABELS = {
     "cross": "交叉格挡",
     "single": "单臂护架",
     "parry": "侧向拨挡",
+    "low": "下段防守（候选）",
 }
 
 
@@ -80,19 +84,32 @@ class ActionRecognizer:
         self.parry_id = 0
         self.parry_last = -1.0
         self.attack_history = []
+        self.knee_candidate_since = {"left": None, "right": None}
 
     def defense_state(self, local, velocity, valid, time_s):
         sides = []
         heights = []
+        low_sides = []
         for side, shoulder, elbow, wrist in (("left", 5, 6, 7), ("right", 8, 9, 10)):
             relative = (local[wrist] - local[shoulder]) / max(self.arm_scale[side], 0.1)
             reliable = np.all(valid[[0, 2, 5, 8, elbow, wrist]])
-            if reliable and 0.10 < relative[2] < 0.40 and -0.30 < relative[1] < 0.4:
+            low_guard = (
+                reliable
+                and 0.16 < relative[2] < 0.65
+                and -0.7 < relative[1] <= -0.30
+                and local[elbow, 1] > local[wrist, 1] + 0.08
+            )
+            if reliable and (
+                (0.10 < relative[2] < 0.40 and -0.30 < relative[1] < 0.4) or low_guard
+            ):
                 sides.append(side)
                 heights.append(relative[1])
+                if low_guard:
+                    low_sides.append(side)
                 outward_speed = velocity[wrist, 0] * (1 if side == "left" else -1)
                 if (
-                    outward_speed / self.arm_scale[side] > 0.65
+                    not low_guard
+                    and outward_speed / self.arm_scale[side] > 0.65
                     and abs(relative[0]) < 0.33
                     and time_s - self.parry_last > 0.5
                 ):
@@ -104,6 +121,8 @@ class ActionRecognizer:
             mode = "high" if min(heights) > 0.13 else "middle"
             if local[7, 0] < local[10, 0] - 0.025:
                 mode = "cross"
+        if low_sides:
+            mode = "low"
         if self.parry_side in sides and time_s <= self.parry_until:
             mode = "parry"
         return {
@@ -150,6 +169,10 @@ class ActionRecognizer:
         # A fast boxing twist is not a spin. Require a substantial, consistent
         # turn before suppressing ordinary punches; reset on direction reversal.
         rotating = abs(self.spin_turn) > 1.0
+        leg_engaged = any(
+            valid[ankle] and (points[ankle, 1] - self.rest[ankle, 1]) / self.leg_scale[side] > 0.25
+            for side, ankle in (("left", 13), ("right", 17))
+        )
         events = []
         state = "guard"
         phase = {
@@ -216,6 +239,15 @@ class ActionRecognizer:
                 continue
             if rotating:
                 continue
+            # A lifted kicking leg often produces large balancing arm sweeps.
+            # They are not independent punches. A future learned model can
+            # support intentional simultaneous techniques; this rule abstains.
+            if leg_engaged:
+                phase[channel] = "supporting"
+                continue
+            if relative[1] < -0.30:
+                phase[channel] = "defending" if side in defense["guard_sides"] else "ready"
+                continue
             if defense["mode"] in ("high", "cross") or (
                 defense["mode"] == "parry" and defense["parry_side"] == side
             ):
@@ -245,11 +277,16 @@ class ActionRecognizer:
             knee_lift = (points[knee, 1] - self.rest[knee, 1]) / scale
             foot_forward = ((points[ankle] - points[hip]) @ basis[:, 2]) / scale
             foot_height = (points[ankle, 1] - self.rest[ankle, 1]) / scale
+            foot_lateral = ((points[ankle] - points[hip]) @ basis[:, 0]) / scale
+            extension_speed = (
+                float((velocity[ankle] - velocity[hip]) @ unit(local[ankle] - local[hip])) / scale
+            )
             if not trunk_valid or not np.all(valid[[hip, knee, ankle]]):
                 phase[channel] = "unreliable"
                 self.armed[channel] = False
+                self.knee_candidate_since[side] = None
                 continue
-            if rotating:
+            if self.spin_used or abs(self.spin_turn) > 1.75:
                 continue
             if foot_height < 0.10 and knee_lift < 0.10 and time_s - self.last_events[channel] > 0.3:
                 self.armed[channel] = True
@@ -263,20 +300,31 @@ class ActionRecognizer:
             )
             action = None
             if (
-                foot_forward > 0.56
+                (foot_forward > 0.50 or (abs(foot_lateral) > 0.40 and foot_forward > 0.20))
                 and angle > np.deg2rad(125)
-                and velocity[ankle, 2] / scale > 0.25
+                and foot_height > 0.20
+                and extension_speed > 0.25
             ):
-                action = side + "_kick"
+                action = side + ("_roundhouse_kick" if abs(foot_lateral) > 0.30 else "_kick")
+                self.knee_candidate_since[side] = None
             elif (
-                knee_lift > 0.32
+                not rotating
+                and knee_lift > 0.32
                 and foot_forward < 0.35
                 and angle < np.deg2rad(110)
-                and velocity[knee, 1] / scale > 0.2
             ):
-                action = side + "_knee"
-            elif knee_lift > 0.12:
+                # Do not commit a knee strike at the first chamber frame. A
+                # front/roundhouse kick first lifts a bent knee, then extends.
+                if self.knee_candidate_since[side] is None:
+                    self.knee_candidate_since[side] = time_s
+                if time_s - self.knee_candidate_since[side] >= 0.18:
+                    action = side + "_knee"
                 phase[channel] = "preparation"
+            elif knee_lift > 0.12:
+                self.knee_candidate_since[side] = None
+                phase[channel] = "preparation"
+            else:
+                self.knee_candidate_since[side] = None
             if action and time_s - self.last_events[channel] > 0.5:
                 emit(action, channel, 0.85)
                 phase[channel] = "committed"
@@ -289,6 +337,7 @@ class ActionRecognizer:
             trunk_valid
             and valid[4]
             and self.armed["body"]
+            and not leg_engaged
             and time_s - self.last_events["body"] > 0.7
         ):
             if crouch > 0.18:

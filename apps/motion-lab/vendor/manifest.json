@@ -1,22 +1,66 @@
 {
-  "three_version": "0.180.0",
-  "source": "https://registry.npmjs.org/three/-/three-0.180.0.tgz",
+  "packages": [
+    {
+      "name": "three",
+      "version": "0.180.0",
+      "url": "https://registry.npmjs.org/three/-/three-0.180.0.tgz",
+      "sha256": "ad66d724565ee29a2467277fa84daa5ed0211d6b8d446e9ef29f6bae0cd14144"
+    },
+    {
+      "name": "@pixiv/three-vrm",
+      "version": "3.5.5",
+      "url": "https://registry.npmjs.org/@pixiv/three-vrm/-/three-vrm-3.5.5.tgz",
+      "sha256": "6f0102f987bc8abc9b9e78ef5b3259ea9f0dc51e30bf51d32aea6218394ea755"
+    }
+  ],
   "files": [
     {
       "file": "three.module.min.js",
-      "sha256": "e2b5ee6bccd38fd6d8a2428546b83c5f2426d84b152ef82be8055556e3b40eb6"
+      "package": "three",
+      "sha256": "e2b5ee6bccd38fd6d8a2428546b83c5f2426d84b152ef82be8055556e3b40eb6",
+      "patch": null
     },
     {
       "file": "three.core.min.js",
-      "sha256": "61ba0df005b05991361d040d8ff670e1aadfd0ce7aeebd1fdb0725957a8957de"
+      "package": "three",
+      "sha256": "61ba0df005b05991361d040d8ff670e1aadfd0ce7aeebd1fdb0725957a8957de",
+      "patch": null
     },
     {
       "file": "OrbitControls.js",
-      "sha256": "b97879c748170baadeb3fb84cea1ffdf4674e283dc06042f34e2acb95a76042c"
+      "package": "three",
+      "sha256": "b97879c748170baadeb3fb84cea1ffdf4674e283dc06042f34e2acb95a76042c",
+      "patch": null
+    },
+    {
+      "file": "GLTFLoader.js",
+      "package": "three",
+      "sha256": "adbbafe8ce40416525b6be0ee5cac0d3782482bcf0122c8ca8ec1ffa77d3440b",
+      "patch": "Flatten ../utils/BufferGeometryUtils.js to ./BufferGeometryUtils.js"
+    },
+    {
+      "file": "BufferGeometryUtils.js",
+      "package": "three",
+      "sha256": "fda7e946b8e0b5ab39b779206589e7a1079a22eb24efb89d7223e03fdfb1f751",
+      "patch": null
     },
     {
       "file": "THREE-LICENSE.txt",
-      "sha256": "bfe119ea4fd413f5f7ca3fcd63adb0c4a073ed39daa2fe7d3e6b769e21272601"
+      "package": "three",
+      "sha256": "bfe119ea4fd413f5f7ca3fcd63adb0c4a073ed39daa2fe7d3e6b769e21272601",
+      "patch": null
+    },
+    {
+      "file": "three-vrm.module.min.js",
+      "package": "@pixiv/three-vrm",
+      "sha256": "99f943e956e52dbf52bbe418899e8a8ae5e35f5c79a94ab8e404926afc620bf2",
+      "patch": null
+    },
+    {
+      "file": "three-vrm-LICENSE.txt",
+      "package": "@pixiv/three-vrm",
+      "sha256": "279ec82987aec7e72ecb9850bb704a87e352d577bc7581454c30f3551a88ea92",
+      "patch": null
     }
   ]
 }

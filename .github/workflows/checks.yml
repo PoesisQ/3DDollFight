@@ -27,4 +27,4 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-      - run: node apps/motion-lab/tests/projection.test.js
+      - run: node apps/motion-lab/tests/run-tests.js

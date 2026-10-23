@@ -12,6 +12,9 @@ let renderCount = 0,
     fpsTime = last,
     lastUi = 0;
 let requestId = 0;
+let vrmBuffer = null,
+    targetRest = null,
+    avatarInfo = "";
 const names = {
     left_arm: "左臂",
     right_arm: "右臂",
@@ -25,6 +28,7 @@ const phases = {
     recovery: "回收",
     unreliable: "不可靠",
     defending: "防守",
+    supporting: "全身协同",
 };
 
 function error(message) {
@@ -53,6 +57,7 @@ function config() {
         movement_gain: +$("movement-gain").value,
         initial_gap: +$("initial-gap").value,
         seed: 42,
+        target_rest: $("avatar-kind").value === "vrm" ? targetRest : null,
     };
     if (value.source === "upload")
         Object.assign(value, {
@@ -66,8 +71,30 @@ async function compute() {
     const id = ++requestId;
     $("loading").hidden = false;
     $("apply").disabled = true;
+    $("source").disabled = true;
+    $("avatar-kind").disabled = true;
+    $("import-vrm").disabled = true;
     $("error").hidden = true;
     try {
+        if ($("avatar-kind").value === "vrm") {
+            if (!vrmBuffer) {
+                const asset = await fetch("/assets/sample.vrm");
+                if (!asset.ok)
+                    throw new Error(
+                        "缺少 VRM 样例：请运行 uv run python tools/fetch_avatar.py，或导入本地 VRM",
+                    );
+                vrmBuffer = await asset.arrayBuffer();
+            }
+            const binding = await scene.prepareAvatar(vrmBuffer);
+            targetRest = binding.rest;
+            avatarInfo = binding.info;
+        } else {
+            targetRest = null;
+            avatarInfo = "程序几何人偶 · 用于骨长、权重与 IK 检查";
+        }
+        if (id !== requestId) return;
+        $("profile").disabled = !!targetRest;
+        $("avatar-status").textContent = avatarInfo;
         const nextConfig = config();
         const response = await fetch("/api/run", {
             method: "POST",
@@ -105,7 +132,7 @@ async function compute() {
               ? "外部骨架输入"
               : "合成验证";
         $("source-note").textContent = actual
-            ? "CMU 14_01 · 无逐拳类别真值"
+            ? "CMU 光学动捕 · 独立显示规则识别结果"
             : upload
               ? "外部输入 · 无独立三维真值"
               : "合成验证 · 不是摄像头实测";
@@ -146,6 +173,9 @@ async function compute() {
         if (id === requestId) {
             $("loading").hidden = true;
             $("apply").disabled = false;
+            $("source").disabled = false;
+            $("avatar-kind").disabled = false;
+            $("import-vrm").disabled = false;
         }
     }
 }
@@ -170,10 +200,11 @@ function frameAt(t) {
 }
 function buildCombatUI() {
     const labels = Object.fromEntries(
-        [...run.events, ...run.duel.opponent_events].map((e) => [
-            e.action,
-            e.label,
-        ]),
+        [
+            ...run.events,
+            ...run.duel.opponent_events,
+            ...run.reference_actions,
+        ].map((e) => [e.action, e.label]),
     );
     $("chapters").replaceChildren();
     for (const chapter of run.duel.chapters) {
@@ -224,6 +255,14 @@ function ui(frame, duel) {
     $("quality-label").textContent =
         `${counts.observed || 0}/19 可靠 · ${counts.predicted || 0} 预测 · ${counts.missing || 0} 缺失`;
     $("state-label").textContent = frame.recognition.state;
+    const body = frame.body;
+    if (body)
+        $("body-readout").textContent =
+            `髋肩扭转 ${body.hip_chest_deg.toFixed(0)}° · 躯干倾斜 ${body.lean_deg.toFixed(0)}° · ${body.support}`;
+    const timing = frame.action_timing;
+    $("action-timing").textContent = timing
+        ? `${timing.label} · ${timing.phase_label}${timing.phase === "recovery" ? " / 尚不能再出招" : ""}`
+        : "自由动作 / 无参考时序";
     for (const [key, value] of Object.entries(frame.recognition.phase)) {
         const element = $(`phase-${key}`);
         element.textContent = phases[value];
@@ -237,9 +276,14 @@ function ui(frame, duel) {
         $(`health-p${i + 1}`).style.width = `${duel.health[i]}%`;
         $(`guard-p${i + 1}`).style.width = `${duel.guard_energy[i]}%`;
         $(`hp-${key}`).textContent = `${duel.health[i]} HP`;
-        $(`player-${key}-state`).textContent = duel.recovery[i]
-            ? "硬直"
-            : movement.state;
+        const actionPhase = duel.action_phase[i];
+        $(`player-${key}-state`).textContent =
+            {
+                startup: "前摇",
+                active: "攻击中",
+                recovery: "后摇锁定",
+                hitstun: "受击硬直",
+            }[actionPhase] || movement.state;
         $(`motion-${key}`).textContent =
             `${movement.state} · ${movement.source_forward_m === null ? "失跟踪" : `${movement.source_forward_m.toFixed(2)} m → ${movement.mapped_forward_m.toFixed(2)} m`}`;
         $(`defense-${key}`).textContent =
@@ -282,8 +326,8 @@ function ui(frame, duel) {
             Number(button.dataset.start) === chapter?.time_s,
         );
     $("projection-label").textContent = $("offaxis").checked
-        ? "窗口透视"
-        : "普通 LookAt";
+        ? "严格眼位 · 需标定"
+        : "全身取景 · 保留反应空间";
 }
 function animate(now) {
     const delta = Math.min((now - last) / 1000, 0.1);
@@ -344,6 +388,23 @@ async function start() {
     $("apply").addEventListener("click", compute);
     $("source").addEventListener("change", compute);
     $("profile").addEventListener("change", compute);
+    $("avatar-kind").addEventListener("change", compute);
+    $("import-vrm").addEventListener("click", () => $("vrm-input").click());
+    $("vrm-input").addEventListener("change", async () => {
+        const file = $("vrm-input").files[0];
+        if (!file) return;
+        try {
+            if (file.size > 40 * 1024 * 1024) throw new Error("VRM 超过 40 MB");
+            const candidate = await file.arrayBuffer();
+            // Validate and bind before replacing the current playable asset.
+            await scene.prepareAvatar(candidate);
+            vrmBuffer = candidate;
+            $("avatar-kind").value = "vrm";
+            await compute();
+        } catch (err) {
+            error(err.message);
+        }
+    });
     $("play").addEventListener("click", () => setPlaying(!playing));
     $("step").addEventListener("click", () => {
         if (run) {
@@ -387,7 +448,7 @@ async function start() {
             $("view-title").textContent = {
                 arena: "01 / 位移与空间攻防",
                 compare: "02 / 原始 → 约束 → 蒙皮",
-                retarget: "03 / 相同动作 · 不同身体比例",
+                retarget: "03 / 真实动捕骨架 → VRM 全身映射",
             }[mode];
         }),
     );
@@ -441,6 +502,27 @@ async function start() {
             ),
         );
     });
+    $("export-unity").addEventListener("click", async () => {
+        if (!run) return;
+        $("export-unity").disabled = true;
+        try {
+            const response = await fetch("/api/export-unity", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(currentConfig),
+            });
+            const clip = await response.json();
+            if (!response.ok) throw new Error(clip.error);
+            download(
+                `dollfight-${run.name}-humanoid.json`,
+                JSON.stringify(clip),
+            );
+        } catch (err) {
+            error(err.message);
+        } finally {
+            $("export-unity").disabled = false;
+        }
+    });
     $("export-pose").addEventListener("click", async () => {
         if (!run) return;
         $("export-pose").disabled = true;
@@ -463,6 +545,7 @@ async function start() {
             $("export-pose").disabled = false;
         }
     });
+    document.querySelector('[data-view="retarget"]').click();
     requestAnimationFrame(animate);
     await compute();
 }

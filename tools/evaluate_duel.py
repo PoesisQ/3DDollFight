@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def main():
     report = {
-        "version": "0.3.0",
+        "version": "0.4.0",
         "python": platform.python_version(),
         "lock_sha256": hashlib.sha256((ROOT / "uv.lock").read_bytes()).hexdigest(),
         "cases": {},

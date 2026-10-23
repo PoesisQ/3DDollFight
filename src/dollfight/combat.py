@@ -15,7 +15,7 @@ OUTCOMES = {
     "miss": "挥空",
     "out_of_range": "距离外",
     "tracking_lost": "失跟踪·取消",
-    "recovery": "硬直·未提交",
+    "recovery": "前后摇 / 硬直·未提交",
 }
 
 
@@ -29,6 +29,8 @@ def attack_spec(action):
             "damage": 16 if spin else 8,
             "duration": 0.85 if spin else 0.32,
             "reach": 0.95 if spin else 0.83,
+            "startup": 0.0,
+            "recovery": 0.45 if spin else 0.18,
         }
     if action.endswith(("kick", "knee")):
         spin = "spin" in action
@@ -38,6 +40,8 @@ def attack_spec(action):
             "damage": 18 if spin else 12,
             "duration": 0.85 if spin else 0.4,
             "reach": 1.2,
+            "startup": 0.0,
+            "recovery": 0.6 if spin else 0.35,
         }
     return None
 
@@ -81,6 +85,8 @@ class CombatResolver:
         self.health = [100, 100]
         self.guard_energy = [100.0, 100.0]
         self.recovery_until = [0.0, 0.0]
+        self.busy_until = [0.0, 0.0]
+        self.action_windows = [None, None]
         self.guard_broken_until = [0.0, 0.0]
         self.last_hit_time = [-10.0, -10.0]
         self.last_parry_time = [-10.0, -10.0]
@@ -96,6 +102,7 @@ class CombatResolver:
         p, other = strike.player, 1 - strike.player
         damage = 0
         counter = False
+        punish = ""
         if outcome == "block":
             cost = 23 if "spin" in strike.action else 15
             if self.guard_energy[other] < cost:
@@ -109,6 +116,13 @@ class CombatResolver:
             self.recovery_until[p] = time_s + 0.4
         if outcome in ("hit", "guard_break"):
             damage = strike.spec["damage"]
+            window = self.action_windows[other]
+            if window and time_s < window[0]:
+                punish = "截击前摇"
+            elif window and window[1] <= time_s < window[2]:
+                punish = "后摇惩罚"
+            if punish:
+                damage += 2
             self.health[other] = max(0, self.health[other] - damage)
             self.chains[p] = self.chains[p] + 1 if time_s - self.last_hit_time[p] < 1.1 else 1
             self.last_hit_time[p] = time_s
@@ -122,6 +136,8 @@ class CombatResolver:
             label += " · " + zone
         if counter:
             label = "拨挡反击 · " + label
+        elif punish:
+            label = punish + " · " + label
         event = {
             "id": f"combat-{len(self.events) + 1}",
             "time_s": round(time_s, 4),
@@ -134,6 +150,7 @@ class CombatResolver:
             "zone": zone,
             "combo_count": self.chains[p] if damage else 0,
             "counter": counter,
+            "punish": punish,
             "position": np.asarray(position).round(5).tolist(),
             "guard_side": guard_side,
             "strike_id": strike.id,
@@ -161,6 +178,19 @@ class CombatResolver:
                 spec = attack_spec(event["action"])
                 if spec is None:
                     continue
+                timing = event.get("timing")
+                if timing is not None:
+                    if not all(
+                        np.isfinite(timing[k]) and 0 <= timing[k] <= 3
+                        for k in ("startup", "active", "recovery")
+                    ):
+                        raise ValueError("攻击时序必须是 0–3 秒的有限数值")
+                    spec.update(
+                        startup=timing["startup"],
+                        duration=timing["active"],
+                        recovery=timing["recovery"],
+                        command=True,
+                    )
                 strike = Strike(
                     f"p{p + 1}/{event['id']}",
                     p,
@@ -169,10 +199,14 @@ class CombatResolver:
                     spec,
                     points[1 - p].copy(),
                 )
-                if self.health[p] == 0 or time_s < self.recovery_until[p]:
+                if self.health[p] == 0 or time_s < max(self.recovery_until[p], self.busy_until[p]):
                     self.finish(strike, "recovery", time_s, points[p, spec["joint"]])
                 else:
                     self.strikes.append(strike)
+                    active_at = time_s + spec["startup"]
+                    active_end = active_at + spec["duration"]
+                    self.busy_until[p] = active_end + spec["recovery"]
+                    self.action_windows[p] = (active_at, active_end, self.busy_until[p])
         active_display = []
         for strike in self.strikes:
             if strike.ended:
@@ -190,6 +224,8 @@ class CombatResolver:
             strike.last_tip = tip1
             gap = float(np.linalg.norm((points[p, 0] - points[other, 0])[[0, 2]]))
             strike.minimum_root_distance = min(strike.minimum_root_distance, gap)
+            if time_s < strike.start + strike.spec["startup"]:
+                continue
             relative_travel = np.linalg.norm(tip1 - tip0) + np.max(
                 np.linalg.norm(points[other] - previous[other], axis=1)
             )
@@ -197,15 +233,27 @@ class CombatResolver:
             defense = states[other].get("defense", {"mode": "open"})
             facing = body_basis(points[other])[:, 2] @ (points[p, 0] - points[other, 0]) > 0
             guard_allowed = (
-                defense["mode"] != "open" and facing and time_s >= self.guard_broken_until[other]
+                defense["mode"] != "open"
+                and facing
+                and time_s >= self.guard_broken_until[other]
+                and time_s >= self.busy_until[other]
             )
             # Samples interpolate both players, avoiding endpoint-only tunnelling.
             # Never extend a hit window by a whole extra frame at low frame rates.
             previous_time = time_s if self.previous_time is None else self.previous_time
-            end_alpha = np.clip((strike.start + strike.spec["duration"] - previous_time) / dt, 0, 1)
-            sample_alphas = np.linspace(0, end_alpha, steps + 1)
-            if previous_time > strike.start + strike.spec["duration"] or (
-                dt > 0.2 and time_s > strike.start + strike.spec["duration"]
+            active_start = strike.start + strike.spec["startup"]
+            active_end = active_start + strike.spec["duration"]
+            start_alpha = (
+                np.clip((active_start - previous_time) / dt, 0, 1)
+                if strike.spec.get("command")
+                else 0
+            )
+            end_alpha = np.clip((active_end - previous_time) / dt, 0, 1)
+            sample_alphas = np.linspace(start_alpha, end_alpha, steps + 1)
+            if (
+                previous_time >= active_end
+                or start_alpha > end_alpha
+                or (dt > 0.2 and time_s > active_end)
             ):
                 sample_alphas = []
             for alpha in sample_alphas:
@@ -253,7 +301,7 @@ class CombatResolver:
                         break
                 if strike.ended:
                     break
-            if not strike.ended and time_s - strike.start > strike.spec["duration"]:
+            if not strike.ended and time_s >= active_end:
                 outcome = (
                     "evaded"
                     if strike.stationary_contact
@@ -282,4 +330,16 @@ class CombatResolver:
             "active_attacks": active_display,
             "event_ids": [e["id"] for e in self.events[begin:]],
             "recovery": [time_s < v for v in self.recovery_until],
+            "action_phase": [
+                "hitstun"
+                if time_s < self.recovery_until[p]
+                else "startup"
+                if w and time_s < w[0]
+                else "active"
+                if w and time_s < w[1]
+                else "recovery"
+                if w and time_s < w[2]
+                else "ready"
+                for p, w in enumerate(self.action_windows)
+            ],
         }, self.events[begin:]

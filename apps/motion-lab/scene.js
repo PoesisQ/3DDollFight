@@ -1,7 +1,8 @@
 import * as THREE from "three";
 import { OrbitControls } from "./vendor/OrbitControls.js";
-import { configureOffAxis } from "./projection.js";
+import { configureOffAxis, configureOpponentCamera } from "./projection.js";
 import { createAvatar, createStick } from "./avatar.js";
+import { createVRMAvatar } from "./vrm-avatar.js";
 import { CombatVisuals } from "./combat-visuals.js";
 
 function renderer(container) {
@@ -11,7 +12,7 @@ function renderer(container) {
     instance.shadowMap.type = THREE.PCFSoftShadowMap;
     instance.outputColorSpace = THREE.SRGBColorSpace;
     instance.toneMapping = THREE.ACESFilmicToneMapping;
-    instance.toneMappingExposure = 1.25;
+    instance.toneMappingExposure = 1.0;
     container.appendChild(instance.domElement);
     return instance;
 }
@@ -20,8 +21,8 @@ function environment(arena = false) {
     const scene = new THREE.Scene();
     scene.background = new THREE.Color("#16232b");
     scene.fog = new THREE.Fog("#16232b", 9, 22);
-    scene.add(new THREE.HemisphereLight("#d2e9ec", "#526368", 2.8));
-    const light = new THREE.DirectionalLight("#fff1df", 3.6);
+    scene.add(new THREE.HemisphereLight("#d2e9ec", "#526368", 0.7));
+    const light = new THREE.DirectionalLight("#fff1df", 1.1);
     light.position.set(-2, 6, 4);
     light.castShadow = true;
     light.shadow.mapSize.set(1024, 1024);
@@ -31,7 +32,7 @@ function environment(arena = false) {
     light.shadow.camera.bottom = -5;
     light.shadow.bias = -0.001;
     scene.add(light);
-    const rim = new THREE.DirectionalLight("#76e3ca", 2);
+    const rim = new THREE.DirectionalLight("#76e3ca", 0.65);
     rim.position.set(0, 3, -5);
     scene.add(rim);
     const floor = new THREE.Mesh(
@@ -130,7 +131,8 @@ export class LabScene {
             new THREE.PerspectiveCamera(),
             new THREE.PerspectiveCamera(),
         ];
-        this.mode = "arena";
+        this.mode = "retarget";
+        this.followCenter = new THREE.Vector3();
         this.avatars = [];
         this.sticks = [];
         this.size();
@@ -148,6 +150,19 @@ export class LabScene {
             this.containers[0].clientWidth / this.containers[0].clientHeight;
         this.camera.updateProjectionMatrix();
     }
+    async prepareAvatar(buffer) {
+        const avatars = [];
+        try {
+            for (let i = 0; i < 3; i++)
+                avatars.push(await createVRMAvatar(buffer));
+        } catch (error) {
+            avatars.forEach((a) => a.dispose());
+            throw error;
+        }
+        this.pendingAvatars?.forEach((a) => a.dispose());
+        this.pendingAvatars = avatars;
+        return { rest: avatars[0].rest, info: avatars[0].info };
+    }
     load(run) {
         this.avatars.forEach((a) => {
             a.group.removeFromParent();
@@ -158,11 +173,12 @@ export class LabScene {
             a.dispose();
         });
         this.run = run;
-        this.avatars = [
+        this.avatars = this.pendingAvatars || [
             createAvatar(run.target_rest, run.parents),
             createAvatar(run.target_rest, run.parents, "#ed8a78"),
             createAvatar(run.target_rest, run.parents),
         ];
+        this.pendingAvatars = null;
         const [p1, p2, target] = this.avatars;
         p1.group.rotation.y = Math.PI / 2;
         p2.group.rotation.y = -Math.PI / 2;
@@ -182,8 +198,14 @@ export class LabScene {
     }
     setMode(mode) {
         this.mode = mode;
-        if (mode === "arena") this.camera.position.set(3.5, 2.4, 5.5);
-        else this.camera.position.set(0.15, 1.65, 4.3);
+        this.followCenter.set(0, 0, 0);
+        if (mode === "arena") this.camera.position.set(2.5, 1.9, 4.8);
+        else
+            this.camera.position.set(
+                0.15,
+                1.6,
+                mode === "retarget" ? 4.5 : 6.1,
+            );
         this.orbit.target.set(0, 0.88, 0);
         this.orbit.update();
         if (this.avatars.length) {
@@ -242,18 +264,23 @@ export class LabScene {
                 .addScaledVector(up, h / 2);
             configureOffAxis(camera, eye, a, b, c, camera.near, camera.far);
         } else {
-            camera.aspect = aspect;
-            camera.fov = 54;
-            camera.updateProjectionMatrix();
-            const target = duel.world[1 - index][4];
-            camera.lookAt(target[0], target[1] - 0.15, target[2]);
+            const target = duel.world[1 - index].map((p, j) =>
+                p.map((v, k) =>
+                    THREE.MathUtils.lerp(
+                        v,
+                        nextDuel.world[1 - index][j][k],
+                        alpha,
+                    ),
+                ),
+            );
+            configureOpponentCamera(camera, eye, target, aspect);
         }
         camera.updateMatrixWorld(true);
     }
     draw(frame, next, alpha, second, nextSecond, options) {
         if (!this.run) return;
         this.orbit.update();
-        for (let i = 0; i < 2; i++)
+        for (let i = 0; i < 2; i++) {
             this.avatars[i].group.position
                 .fromArray(options.duel.positions[i])
                 .lerp(
@@ -262,9 +289,54 @@ export class LabScene {
                     ),
                     alpha,
                 );
+            this.avatars[i].group.rotation.y = i === 0 ? Math.PI / 2 : -Math.PI / 2;
+        }
         this.avatars[0].apply(frame, next, alpha);
         this.avatars[1].apply(second, nextSecond, alpha);
         this.avatars[2].apply(frame, next, alpha);
+        const audit = this.avatars[2].audit?.(frame, next, alpha);
+        if (audit) {
+            const worst = audit.reduce((a, b) => (a.error > b.error ? a : b));
+            document.getElementById("mapping-audit").textContent =
+                `实际蒙皮骨骼 / 求解目标：最大位置残差 ${worst.error.toFixed(1)} mm · ${worst.name}`;
+        } else
+            document.getElementById("mapping-audit").textContent =
+                "几何人偶 · 直接使用 canonical19 骨架";
+        // In the motion review, preserve captured root translation. Moving the
+        // camera with the subjects keeps them in frame while the floor remains
+        // stationary, so foot sliding is visible instead of hidden by in-place playback.
+        if (this.mode !== "arena") {
+            const motion = new THREE.Vector3(frame.root[0], 0, frame.root[2]);
+            motion.lerp(
+                new THREE.Vector3(next.root[0], 0, next.root[2]),
+                alpha,
+            );
+            const sourceMotion = new THREE.Vector3(
+                frame.solved[0][0],
+                0,
+                frame.solved[0][2],
+            );
+            this.avatars[2].group.position.set(
+                (this.mode === "retarget" ? 1.15 : 1.95) + motion.x,
+                0,
+                motion.z,
+            );
+            this.sticks[0].group.position.set(
+                -1.95 + sourceMotion.x,
+                0,
+                sourceMotion.z,
+            );
+            this.sticks[1].group.position.set(
+                (this.mode === "retarget" ? -1.15 : 0) + sourceMotion.x,
+                0,
+                sourceMotion.z,
+            );
+            const center = motion.clone().add(sourceMotion).multiplyScalar(0.5);
+            const delta = center.clone().sub(this.followCenter);
+            this.camera.position.add(delta);
+            this.orbit.target.add(delta);
+            this.followCenter.copy(center);
+        }
         this.avatars.forEach((a) =>
             a.appearance(options.bones, options.wireframe),
         );

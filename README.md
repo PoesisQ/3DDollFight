@@ -1,67 +1,60 @@
 # 3DDollFight
 
-3D 视觉课程的双人体感格斗项目。当前已交付 **Motion Lab v0.3：人体位移 → 骨架与招式 → 空间攻防 → 多视角原型**，重点实现我们负责的模块。
+3D 视觉课程的双人体感格斗项目。**Motion Lab v0.4** 将我们负责的两部分放在一个可检查的原型中：骨骼处理与动作识别，以及 VRM 皮套与全身动作映射。
 
-## 直接看效果
+## 看效果
 
-Windows 双击 **`Start-MotionLab.cmd`**（需已安装 uv），或在仓库目录执行：
+Windows 双击 `Start-MotionLab.cmd`，或运行：
 
 ```powershell
 uv sync --locked
+uv run --locked python tools/fetch_avatar.py
 uv run --locked python -m dollfight.server --open
 ```
 
-打开 <http://127.0.0.1:18943/>。Python 算法在本机 CPU 执行，Three.js 在浏览器 GPU 渲染；不需要摄像头、Unity、CUDA、训练服务器或 npm 安装。首次 `uv sync` 需要下载依赖；同步后回放不访问外网。服务仅监听本机，关闭终端即可停止。如果端口占用，用 `--port 18944 --open`。
+打开 <http://127.0.0.1:18943/>。首次同步 Python 依赖、下载官方样例 VRM 需要网络；之后本机 CPU 算法与浏览器渲染均可离线运行。无需摄像头、训练服务器或 Unity。端口占用时加 `--port 18944`。
 
-默认打开 **35 秒独立双人战术对练**。先点画面上方的“逼近 · 三段连招”“后撤与侧闪”“高位 / 交叉格挡”“拨挡 · 反击”“转身鞭拳”“旋转踢”。点击下方攻防结果可暂停在接触帧；打开“主视图碰撞体与攻击轨迹”检查判定。
+默认显示 **真人回旋踢骨架 → 动漫 VRM**。建议按以下顺序验收：
 
-关闭“人体位移控制进退”后重新计算：同样的动作会因为距离不足而全部挥空。位移倍率、起始间距也可调整，再比较命中变化。
+1. 点“1. 右回旋踢”，用 **0.25×**、暂停和步进看提膝、支撑脚枢转、转髋、躯干倾斜、伸腿与回收。默认不再演示程序拼接的旋转动作。
+2. 切换“真人前踢”“下段格挡”“手刀防御”“真人拳击”。拳击有侧身、降低重心的观察段落；不要把片段标题当作识别标签。
+3. 打开骨骼/网格；选择几何人偶后可做长臂、宽肩比例对照。VRM 使用导入模型自己的骨长，也支持导入本地内嵌资源的 `.vrm`。
+4. 看下方两个玩家视窗：默认全身取景，保留拳脚和反应空间。“严格眼位实验”仍可开启，但需要物理屏幕尺寸、位置和眼位标定。
+5. 切到“对战视图”检查距离、攻击窗口、格挡与碰撞。调整距离后重新计算；前摇无伤害，后摇不能马上再出招，前后摇被打有额外惩罚。
 
-骨架与重定向继续按这个顺序检查：
+**真人动作的参考攻击时序与规则识别结果分别保存、显示。** 原始动捕不经过人为抬肢体再整体旋转；识别器不读取片段名称或参考标签。旧合成对练保留在下拉框中用于逻辑回归，不能作为动作质量的证据。
 
-1. **招式巡检 → 骨架对比**：原始观测、约束骨架、目标蒙皮并排。暂停、逐帧、拖动时间轴；点击下面的事件回看出招前一瞬。
-2. **目标角色比例 → 长臂 / 宽肩**：观察相同人体动作如何驱动不同骨长的角色。打开骨骼与蒙皮网格检查绑定。
-3. **噪声 30 mm、缺失 15% → 重新计算**：对照关闭平滑、关闭骨长约束后的效果；预测/缺失关节会变色，不能作为出拳证据。
-4. **CMU 14_01 真人拳击动捕**：看真实运动的自然度、脚滑和可疑事件。它是光学动捕，不是 Gemini 跟踪结果，没有逐拳标签。
-5. **屏幕窗口透视 + 眼位偏移**：看两个玩家视窗的透视变化；关闭后可与普通 LookAt 对照。
+## 已实现与边界
 
-详细说明、指标含义和当前不足见 [评估指南](docs/motion-lab.md)。
-
-## 当前实现
-
-| 层 | 可运行内容 |
+| 部分 | 当前交付 |
 | --- | --- |
-| 输入 | 独立双人战术对练、招式巡检、直拳、遮挡、转向、静止、24 秒真人动捕；PoseFrame JSONL 导入/导出 |
-| 骨架 | canonical19、置信度/速度门限、One Euro 平滑、短时预测、固定骨长、肘膝限位 |
-| 重定向 | 源体型标定、3 种目标比例、局部四元数、正向运动学、接地双骨 IK |
-| 动作 | 左右直拳/勾拳/上勾拳/膝击/前踢、下蹲、左右闪避；局部坐标、体型归一化、回收再触发；转身鞭拳/旋转踢、三种输入组合 |
-| 移动与攻防 | 骨盆进退/侧移、固定站位轴、限速/边界；球与胶囊扫掠检测、高位/交叉/单臂护架、拨挡反击、破防与命中连击 |
-| 渲染 | 层级骨架、加权 SkinnedMesh、可旋转主视图、两个对手视窗、off-axis 屏幕投影 |
-| 评估 | 噪声/缺失注入、开关消融、逐帧状态、事件定位、报告导出、复现实验脚本 |
+| 骨架处理 | 米制坐标、相机适配、标定、置信度门限、One Euro、缺失预测、固定骨长、关节限位 |
+| 全身映射 | 独立骨盆/胸腔朝向，保留躯干扭转；肘膝弯曲平面；按腿长缩放、接地与双骨 IK |
+| 动作识别 | 基础拳/膝/踢/蹲/侧倾、回旋踢、转身、护架、拨挡与组合规则；提膝候选延迟，防止踢腿前摇误报膝击；踢腿配合摆臂不再算独立出拳 |
+| 皮套 | three-vrm 3.5.5 实际加载官方样例，19 个映射关节；处理额外肩/胸节点与 bind pose；模型缺少必需映射时明确报错 |
+| 交互验证 | 动捕/骨架/模型对照、逐帧、慢放、噪声消融、全身玩家视窗、实际影响伤害与出招的前后摇 |
+| Unity 交接 | [UPM 包与导入步骤](unity/README.md)：UniVRM 加载、Humanoid 映射、坐标转换、全局旋转回放、自动创建检查场景 |
 
-战术对练的两人使用独立的合成关节流；其他单人样本的 P2 仍为延后 4.5 秒回放。扣血由目标角色空间中的拳脚与身体接触裁决。**尚未实现实机 Gemini 跟踪、实时双人同步、真实扫描皮套、细手指/前臂扭转或完整格斗游戏。** 旋转、格挡和组合规则通过的是人工设计轨迹的回归测试，不能宣称真人识别准确率。现在已有可检查的距离与攻防闭环；脚步自然度、低帧率/遮挡下的判断仍需真人数据验证。
+浏览器 VRM 路线已可运行。**本机没有 Unity Editor，Unity 包尚未完成 Editor 编译、导入与播放验收。** 不能把 Python/浏览器测试称为 Unity 验证。
 
-## 验证与复现
+仍未完成：Gemini 实机输入、实时双人同步、基于大量真人数据的分类器、自然的任意招式过渡/受击动画、正式角色资产和大招库。这里保留真人全身运动，而非肌肉/动力学仿真。位移放大和对战边界仍可能造成滑步；动作检查视图保留采集根位移，便于直接发现这一问题。P2 是延迟回放，不能当成实时对手。
+
+## 验证与协作
 
 ```powershell
 uv run --locked pytest -q
 uv run --locked ruff check .
 uv run --locked ruff format --check .
 uv run --locked python tools/check_contracts.py
-node apps/motion-lab/tests/projection.test.js
-uv run --locked python tools/evaluate.py
-uv run --locked python tools/evaluate_duel.py
+node apps/motion-lab/tests/run-tests.js
 ```
 
-投影测试需 Node 22+；两个评估脚本分别生成 `outputs/evaluation.json` 和 `outputs/duel-evaluation.json`。运行应用本身不需要 Node。Python 3.10.19、uv 最低 0.9.17；依赖由 `pyproject.toml` + `uv.lock` 管理。GitHub CI 覆盖 Windows/Linux 核心测试和投影测试。
+Python 3.10.19、uv ≥0.9.17、依赖由 `uv.lock` 固定。Node 22+ 仅用于投影测试；启动界面不需要 npm。浏览器依赖、许可证和 SHA-256 在 `apps/motion-lab/vendor/`，公开动捕的原始哈希在每个样本内；VRM 用 [下载清单](data/avatars/sample.json) 固定，10.8 MB 文件保存在忽略目录。
 
-Three.js 0.180.0 按官方 npm 包固定入库，附 MIT 许可证和文件哈希；不需要启动时访问 CDN。CMU 样本附 [来源、转换与致谢](data/samples/README.md)。原始大文件、个人录制和输出不进 Git。
+- [当前实现、失败边界与验收方法](docs/motion-lab.md)
+- [Unity 导入与回放交接](unity/README.md)
+- [Git 与 uv 协作规范](CONTRIBUTING.md)
+- [跨组协议](docs/contracts.md)、[JSON Schema](src/dollfight/schemas/)、[协议样例](tests/fixtures/)
+- [动捕来源与致谢](data/samples/README.md)
 
-## 协作入口
-
-- [Git 与 uv 协作](CONTRIBUTING.md)：main + 短期 feature 分支、PR、LFS、复现要求。
-- [接口草案](docs/contracts.md)、[JSON Schema](src/dollfight/schemas/) 和 [合成消息](tests/fixtures/)：给采集、游戏逻辑、引擎、美术组对接。
-- [当前原型设计与验证](docs/motion-lab.md)：本次真正实现的算法、接口边界和评估方式。
-- [整体技术方案](docs/technical-design.md)、[引擎与 agent 选型](docs/engine-choice.md)：后续路线讨论，不代表所有功能已落地。
-
-远端：[PoesisQ/3DDollFight](https://github.com/PoesisQ/3DDollFight)。本原型位于 `feat/motion-lab` 分支；经 PR 检查后并入 main。
+远端为 [PoesisQ/3DDollFight](https://github.com/PoesisQ/3DDollFight)，当前工作分支 `feat/motion-lab`。

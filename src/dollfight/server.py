@@ -9,6 +9,7 @@ from urllib.parse import unquote, urlparse
 
 from jsonschema import ValidationError
 
+from dollfight.animation_export import export_animation
 from dollfight.kinematics import PROFILES
 from dollfight.pipeline import CATALOG, ROOT, export_poseframes, make_run
 
@@ -32,6 +33,18 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/catalog":
             self.reply({"sources": CATALOG, "profiles": PROFILES})
             return
+        if path == "/assets/sample.vrm":
+            target = ROOT / "data/raw/avatars/sample.vrm"
+            if not target.is_file():
+                self.send_error(404, "Run uv run python tools/fetch_avatar.py first")
+                return
+            payload = target.read_bytes()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/octet-stream")
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers()
+            self.wfile.write(payload)
+            return
         target = (WEB / ("index.html" if path == "/" else path.lstrip("/"))).resolve()
         if not target.is_relative_to(WEB.resolve()) or not target.is_file():
             self.send_error(404)
@@ -52,7 +65,7 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(payload)
 
     def do_POST(self):
-        if self.path not in ("/api/run", "/api/export"):
+        if self.path not in ("/api/run", "/api/export", "/api/export-unity"):
             self.send_error(404)
             return
         try:
@@ -63,7 +76,13 @@ class Handler(BaseHTTPRequestHandler):
             if not isinstance(config, dict):
                 raise ValueError("配置必须为 JSON 对象")
             run = make_run(config, include_duel=self.path == "/api/run")
-            self.reply(run if self.path == "/api/run" else {"frames": export_poseframes(run)})
+            self.reply(
+                export_animation(run)
+                if self.path == "/api/export-unity"
+                else run
+                if self.path == "/api/run"
+                else {"frames": export_poseframes(run)}
+            )
         except ValidationError as exc:
             self.reply({"error": f"协议字段 {list(exc.path)}: {exc.message}"}, 400)
         except (ValueError, KeyError, TypeError) as exc:

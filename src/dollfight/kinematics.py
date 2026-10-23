@@ -128,35 +128,78 @@ def body_basis(points):
     return np.column_stack((left, up, forward))
 
 
+def segment_basis(left, up):
+    """An anatomical frame; hip and shoulder planes are independent measurements."""
+    up = unit(up)
+    left = unit(left - up * (left @ up), (1, 0, 0))
+    return np.column_stack((left, up, unit(np.cross(left, up), (0, 0, 1))))
+
+
+def bend_rotation(
+    rest_direction, direction, bend, fallback, previous=None, dt=1 / 30, rest_pole=(0.0, 0.0, 1.0)
+):
+    """Resolve segment roll from a measured bending plane or explicit pole prior.
+
+    A straight limb has no observed bending plane. Transport the previous frame
+    (initially its parent) while preserving aim. Forearm pronation is unobserved.
+    """
+    a, b = unit(rest_direction), unit(direction)
+    pole = bend - b * (bend @ b)
+    ref = np.array(rest_pole)
+    ref = unit(ref - a * (ref @ a))
+    transported = swing_rotation((previous if previous is not None else fallback) @ a, b) @ (
+        previous if previous is not None else fallback
+    )
+    old_pole = transported @ ref
+    if np.linalg.norm(pole) < 0.035:
+        pole = old_pole
+    else:
+        pole = unit(pole)
+        if previous is not None:
+            # Keep the exactly observed aim. Only regularize inferred axial
+            # twist: its plane becomes ill-conditioned near full extension.
+            angle = np.arctan2(b @ np.cross(old_pole, pole), old_pole @ pole)
+            angle = float(np.clip(angle, -10 * dt, 10 * dt))
+            pole = old_pole * np.cos(angle) + np.cross(b, old_pole) * np.sin(angle)
+    return (
+        np.column_stack((b, pole, np.cross(b, pole)))
+        @ np.column_stack((a, ref, np.cross(a, ref))).T
+    )
+
+
 class Retargeter:
     """Fixed target lengths; FK swing mapping followed by optional planted-foot IK.
 
     Only joint positions are observed, so axial wrist/forearm twist is not
-    measured. We preserve the parent reference rather than inventing twist.
+    measured. Bend-plane and continuity priors resolve the remaining axial DOF.
     """
 
-    def __init__(self, source_rest, profile="standard", foot_lock=True):
+    def __init__(self, source_rest, profile="standard", foot_lock=True, target_rest=None):
         self.source_rest = np.asarray(source_rest)
-        self.rest = rest_pose(profile)
+        self.rest = (
+            rest_pose(profile) if target_rest is None else np.asarray(target_rest, dtype=float)
+        )
+        if self.rest.shape != (19, 3) or not np.isfinite(self.rest).all():
+            raise ValueError("目标骨架必须是 19 × 3 个有限的米制坐标")
+        if np.any(bone_lengths(self.rest) < 0.005) or not 0.2 < self.rest[0, 1] < 2.5:
+            raise ValueError("目标骨架的骨长或骨盆高度不合理")
         self.foot_lock = foot_lock
         self.previous_feet = None
         self.anchors = {}
         self.previous_quaternions = None
+        self.previous_rotations = None
 
     def process(self, source, dt):
         offsets = self.rest.copy()
         for parent, child in EDGES:
             offsets[child] -= self.rest[parent]
-        basis = body_basis(source)
-        flat_forward = unit([basis[0, 2], 0, basis[2, 2]], (0, 0, 1))
-        root_rotation = np.column_stack(
-            (np.cross([0, 1, 0], flat_forward), [0, 1, 0], flat_forward)
-        )
+        hip_left = source[11] - source[15]
+        shoulder_left = source[5] - source[8]
         rotations = np.repeat(np.eye(3)[None], len(JOINTS), axis=0)
-        rotations[0] = root_rotation
-        # Torso frame retains measured lean and shoulder orientation.
-        for index in (1, 2, 3):
-            rotations[index] = basis
+        rotations[0] = segment_basis(hip_left, source[1] - source[0])
+        rotations[1] = segment_basis(unit(hip_left) + unit(shoulder_left), source[2] - source[1])
+        rotations[2] = segment_basis(shoulder_left, source[3] - source[2])
+        rotations[3] = segment_basis(shoulder_left, source[4] - source[3])
         for start, end in (
             (5, 6),
             (6, 7),
@@ -171,16 +214,65 @@ class Retargeter:
         ):
             parent_rotation = rotations[PARENTS[start]]
             rest_direction = parent_rotation @ offsets[end]
-            rotations[start] = (
-                swing_rotation(rest_direction, source[end] - source[start]) @ parent_rotation
-            )
+            if start in (5, 8, 11, 15):
+                rotations[start] = bend_rotation(
+                    offsets[end],
+                    source[end] - source[start],
+                    source[end + 1] - source[end],
+                    parent_rotation,
+                    None if self.previous_rotations is None else self.previous_rotations[start],
+                    dt,
+                )
+            elif start in (13, 17):
+                # Toe direction observes pitch/yaw; foot roll is ambiguous.
+                # Use continuous floor-up roll, never a swinging knee's axis.
+                rotations[start] = bend_rotation(
+                    offsets[end],
+                    source[end] - source[start],
+                    np.array([0.0, 1.0, 0.0]),
+                    parent_rotation,
+                    None if self.previous_rotations is None else self.previous_rotations[start],
+                    dt,
+                    rest_pole=(0.0, 1.0, 0.0),
+                )
+            else:
+                rotations[start] = (
+                    swing_rotation(rest_direction, source[end] - source[start]) @ parent_rotation
+                )
         for terminal in (4, 7, 10, 14, 18):
             rotations[terminal] = rotations[PARENTS[terminal]]
         points = np.zeros_like(source)
-        ratio = self.rest[0, 1] / self.source_rest[0, 1]
+        source_legs = np.mean(
+            [
+                np.linalg.norm(self.source_rest[k] - self.source_rest[h])
+                + np.linalg.norm(self.source_rest[a] - self.source_rest[k])
+                for h, k, a in ((11, 12, 13), (15, 16, 17))
+            ]
+        )
+        target_legs = np.mean(
+            [
+                np.linalg.norm(offsets[k]) + np.linalg.norm(offsets[a])
+                for k, a in ((12, 13), (16, 17))
+            ]
+        )
+        ratio = target_legs / source_legs
         points[0] = self.rest[0] + (source[0] - self.source_rest[0]) * ratio
         for parent, child in EDGES:
             points[child] = points[parent] + rotations[parent] @ offsets[child]
+        # Preserve floor contact for different proportions even during a pivot:
+        # vertical grounding is distinct from locking a stationary foot in XZ.
+        if self.foot_lock:
+            grounded = [a for a in (13, 17) if source[a, 1] < self.source_rest[a, 1] + 0.07]
+            if grounded:
+                correction = np.mean(
+                    [
+                        self.rest[a, 1]
+                        + (source[a, 1] - self.source_rest[a, 1]) * ratio
+                        - points[a, 1]
+                        for a in grounded
+                    ]
+                )
+                points[:, 1] += np.clip(correction, -0.35, 0.35)
         contacts = [False, False]
         feet = source[[13, 17]].copy()
         if self.foot_lock and self.previous_feet is not None:
@@ -218,4 +310,5 @@ class Retargeter:
                 q = -q
             quaternions.append(q)
         self.previous_quaternions = np.array(quaternions)
+        self.previous_rotations = rotations.copy()
         return points, self.previous_quaternions, contacts
