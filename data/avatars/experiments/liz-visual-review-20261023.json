@@ -21,5 +21,7 @@
     "Back colors are procedural, not multi-view reconstruction."
   ],
   "failure_screenshot": "liz-skirt-failure-20261023.png",
-  "next_comparison": "Same generated shape, explicit garment/body separation and skirt rig or cloth collision; compare to learned skinning. Keep original mesh and motion fixed when comparing weights."
+  "next_comparison": "Same generated shape, explicit garment/body separation and skirt rig or cloth collision; compare to learned skinning. Keep original mesh and motion fixed when comparing weights.",
+  "failure_asset_sha256": "7a94eb50bff87b63ef9c7bec4a2b910ce0b055815be94606feafaebc0aca3465",
+  "followup_fix": "Restrict lower-leg blending to knee/ankle neighborhoods; middle shin vertices now follow their lower-leg bone with minimum weight above 0.99999 on both characters and both legs. Garment rig remains unresolved."
 }

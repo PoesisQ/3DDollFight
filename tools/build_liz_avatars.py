@@ -64,8 +64,21 @@ def weight_mesh(vertices, faces, rest, pixel_colors):
             allowed = [4]
         elif abs(x) > 0.23 and y > 1.14:
             allowed = [5, 6, 7] if x > 0 else [8, 9, 10]
-        elif y < 0.55:
-            allowed = [11, 12, 13, 14] if x > 0 else [15, 16, 17, 18]
+        elif y < 0.60:
+            # A shaft follows one bone. Blend only around the anatomical joint;
+            # nearest-segment Gaussians gave the middle calf too much thigh/foot
+            # influence, visibly bowing the shin during kicks.
+            hip, knee, ankle, toe = (11, 12, 13, 14) if x > 0 else (15, 16, 17, 18)
+            upper = float(np.clip((y - rest[knee, 1] + 0.045) / 0.09, 0, 1))
+            upper = upper * upper * (3 - 2 * upper)
+            foot = float(np.clip((rest[ankle, 1] + 0.035 - y) / 0.07, 0, 1))
+            foot = foot * foot * (3 - 2 * foot)
+            toe_weight = foot * float(np.clip((z - 0.06) / 0.07, 0, 1))
+            weights[i, hip] = upper
+            weights[i, knee] = (1 - upper) * (1 - foot)
+            weights[i, ankle] = (1 - upper) * (foot - toe_weight)
+            weights[i, toe] = (1 - upper) * toe_weight
+            continue
         elif y < 1.04:
             # A deliberately simple skirt baseline. Cloth simulation and collision
             # are not solved here; high kicks must be visually inspected.
