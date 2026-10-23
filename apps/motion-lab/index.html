@@ -34,6 +34,16 @@
                     <h2><span>01</span> 动作输入</h2>
                     <label for="source">回放样本</label>
                     <select id="source" aria-label="回放样本"></select>
+                    <label class="toggle"
+                        ><input
+                            id="transition-blend"
+                            type="checkbox"
+                            checked
+                        />组合动作自然衔接</label
+                    >
+                    <p class="source-note">
+                        关闭衔接可比较同一组合的硬切。播放结束停在末帧。
+                    </p>
                     <div id="source-note" class="source-note">
                         合成验证 · 不是摄像头实测
                     </div>
@@ -138,6 +148,19 @@
                 </section>
                 <section>
                     <h2><span>03</span> 角色与画面</h2>
+                    <label for="avatar-asset">皮套试验</label>
+                    <select id="avatar-asset">
+                        <option value="pair" selected>
+                            希美 vs 霙 · 生成网格试穿
+                        </option>
+                        <option value="nozomi">伞木希美 · 单模型检查</option>
+                        <option value="mizore">铠冢霙 · 单模型检查</option>
+                        <option value="sample">官方 VRM 样例 · 绑定对照</option>
+                    </select>
+                    <p class="source-note">
+                        Hunyuan 形体 + 正面投影贴图 +
+                        规则蒙皮。裙摆存在拉伸/穿插，手指与侧背面仍需完善。
+                    </p>
                     <label class="toggle"
                         ><input
                             id="movement-enabled"
@@ -183,7 +206,7 @@
                     >
                     <label for="avatar-kind">角色皮套</label>
                     <select id="avatar-kind" aria-label="角色皮套">
-                        <option value="vrm">VRM 官方样例 · 动漫角色</option>
+                        <option value="vrm">VRM · 动漫角色</option>
                         <option value="procedural">几何人偶 · 比例实验</option>
                     </select>
                     <button id="import-vrm">导入本地 VRM</button
@@ -245,6 +268,7 @@
                     <button class="active" data-view="arena">对战视图</button
                     ><button data-view="compare">骨架对比</button
                     ><button data-view="retarget">重定向检查</button
+                    ><button data-view="avatar">皮套近看</button
                     ><span>拖动旋转 · 滚轮缩放</span>
                 </nav>
                 <div id="chapters" class="chapters" aria-label="战术段落"></div>
@@ -433,7 +457,7 @@
                 <footer>
                     <span id="description"
                         >合成轨迹用于可控实验，不代表真人准确率。</span
-                    ><span>v0.4 · 全身动捕 / VRM / 时序攻防</span>
+                    ><span>v0.5 · 角色生成 / 动作衔接 / 时序攻防</span>
                 </footer>
                 <div id="error" class="error" role="alert" hidden></div>
             </div>

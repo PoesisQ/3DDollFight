@@ -1,0 +1,83 @@
+{
+  "scope": "Five offline joins of CMU clips, canonical skeleton, 30 Hz. Not a live-user accuracy or perceptual-naturalness score.",
+  "method": "same chosen source frames; root yaw/position alignment; C1 inertial offsets; foot IK",
+  "transitions": [
+    {
+      "frame": 111,
+      "time_s": 3.7,
+      "target": "cmu_front_kick",
+      "source_time": 1.8666666666666667,
+      "duration": 0.6,
+      "anchored_feet": [
+        13,
+        17
+      ],
+      "selection_cost": 0.303779053138076,
+      "hard_max_joint_step_mm": 664.98,
+      "hard_root_velocity_jump_mps": 1.039739,
+      "inertial_max_joint_step_mm": 79.38,
+      "inertial_root_velocity_jump_mps": 0.0
+    },
+    {
+      "frame": 178,
+      "time_s": 5.933333333333334,
+      "target": "cmu_low_block",
+      "source_time": 1.2666666666666666,
+      "duration": 0.6,
+      "anchored_feet": [
+        13
+      ],
+      "selection_cost": 0.30887567880943,
+      "hard_max_joint_step_mm": 171.53,
+      "hard_root_velocity_jump_mps": 0.743117,
+      "inertial_max_joint_step_mm": 3.37,
+      "inertial_root_velocity_jump_mps": 0.0
+    },
+    {
+      "frame": 260,
+      "time_s": 8.666666666666666,
+      "target": "cmu_roundhouse",
+      "source_time": 5.266666666666667,
+      "duration": 0.6,
+      "anchored_feet": [
+        13,
+        17
+      ],
+      "selection_cost": 0.13299026904512093,
+      "hard_max_joint_step_mm": 361.77,
+      "hard_root_velocity_jump_mps": 3.042079,
+      "inertial_max_joint_step_mm": 2.69,
+      "inertial_root_velocity_jump_mps": 0.0
+    },
+    {
+      "frame": 339,
+      "time_s": 11.3,
+      "target": "cmu_knife_guard",
+      "source_time": 0.7666666666666667,
+      "duration": 0.6,
+      "anchored_feet": [
+        13
+      ],
+      "selection_cost": 0.34980131439497675,
+      "hard_max_joint_step_mm": 206.37,
+      "hard_root_velocity_jump_mps": 2.338261,
+      "inertial_max_joint_step_mm": 43.74,
+      "inertial_root_velocity_jump_mps": 0.0
+    },
+    {
+      "frame": 412,
+      "time_s": 13.733333333333333,
+      "target": "cmu_boxing",
+      "source_time": 13.133333333333333,
+      "duration": 0.6,
+      "anchored_feet": [
+        17
+      ],
+      "selection_cost": 0.36753400619607624,
+      "hard_max_joint_step_mm": 460.73,
+      "hard_root_velocity_jump_mps": 3.154997,
+      "inertial_max_joint_step_mm": 26.07,
+      "inertial_root_velocity_jump_mps": 0.0
+    }
+  ]
+}

@@ -186,6 +186,8 @@ class Retargeter:
         self.foot_lock = foot_lock
         self.previous_feet = None
         self.anchors = {}
+        self.contact_state = [False, False]
+        self.anchor_weights = [0.0, 0.0]
         self.previous_quaternions = None
         self.previous_rotations = None
 
@@ -279,12 +281,29 @@ class Retargeter:
             for side, (hip, knee, ankle, toe) in enumerate(((11, 12, 13, 14), (15, 16, 17, 18))):
                 speed = np.linalg.norm(feet[side] - self.previous_feet[side]) / max(dt, 1e-3)
                 near_ground = source[ankle, 1] < self.source_rest[ankle, 1] + 0.07
-                if near_ground and speed < 0.25:
-                    anchor = self.anchors.setdefault(side, points[ankle].copy())
+                if self.contact_state[side]:
+                    self.contact_state[side] = (
+                        source[ankle, 1] < self.source_rest[ankle, 1] + 0.095 and speed < 0.4
+                    )
+                else:
+                    self.contact_state[side] = near_ground and speed < 0.22
+                active = self.contact_state[side]
+                # Hysteresis plus a short weight ramp avoids snapping at every
+                # noisy velocity threshold crossing; a lifted/pivoting foot releases.
+                self.anchor_weights[side] = float(
+                    np.clip(self.anchor_weights[side] + dt / (0.08 if active else -0.12), 0, 1)
+                )
+                if active:
+                    self.anchors.setdefault(side, points[ankle].copy())
+                if side in self.anchors and self.anchor_weights[side] > 0:
+                    anchor = self.anchors[side]
                     anchor[1] = self.rest[ankle, 1]
+                    weight = self.anchor_weights[side]
+                    weight = weight * weight * (3 - 2 * weight)
+                    target = points[ankle] * (1 - weight) + anchor * weight
                     k, a = two_bone_ik(
                         points[hip],
-                        anchor,
+                        target,
                         np.linalg.norm(offsets[knee]),
                         np.linalg.norm(offsets[ankle]),
                         points[knee],
@@ -298,7 +317,7 @@ class Retargeter:
                     )
                     points[knee], points[ankle] = k, a
                     points[toe] = a + rotations[ankle] @ offsets[toe]
-                    contacts[side] = True
+                    contacts[side] = bool(active and weight > 0.5)
                 else:
                     self.anchors.pop(side, None)
         self.previous_feet = feet

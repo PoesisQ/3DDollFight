@@ -1,6 +1,28 @@
 # 二次元皮套：生成、绑定与动作验收
 
-2026-10-23。已准备接入工具和首个角色配方，**尚未生成新角色，也没有获得 SkinTokens 输出**。当前 Motion Lab 中的皮套仍是 `data/avatars/sample.json` 指定的官方公开样例。
+2026-10-23。现已生成伞木希美和铠冢霙的参考图、真实 3D 网格及可加载的 VRM，并放入 Motion Lab。**这是 Hunyuan 网格 + 本仓库规则绑定的试穿基线**，不是 Tripo 或 SkinTokens 的成功输出。
+
+## 本轮角色试穿
+
+外观依据来自[电影官网](https://liz-bluebird.com/)的[希美角色图](https://liz-bluebird.com/img/character/nozomi.png)与[霙角色图](https://liz-bluebird.com/img/character/mizore.png)。先用图像生成工具制作各一张正面 T-pose，再在腾讯官方 `tencent/Hunyuan3D-2` 匿名演示调用形体生成；随后本机归一到 1.72 m，建立 19 骨骼、逆绑定矩阵、四影响权重和 VRM humanoid 映射。
+
+[`liz/provenance.json`](../data/avatars/liz/provenance.json) 记录输入图/原始网格 hash、服务参数、输出和限制；[`liz/generated.json`](../data/avatars/liz/generated.json) 记录转换后的资产。原始生成 PNG、未绑定 GLB 和 VRM 都用 LFS 保存，避免覆盖原件后无法比较绑定方案。角色与官方参考画的原始权利仍属于各自权利人，本仓库没有为它们另行授予商业许可。
+
+生成网格分别约 19.3 万和 20.5 万三角面。绑定采用人体区域约束的距离权重，再沿实际网格邻接扩散，消除区域边界的权重突变；它没有学习到人体组织或衣物运动。正面纹理直接引用原始 PNG，背面暂用分区颜色。完整贴图接口另作一次尝试，托管服务返回 `AppError: NameError`，未取得完整贴图；没有执行付费请求。
+
+```powershell
+git lfs pull
+uv sync --locked --group assets
+# 纯离线重建，不调用生成服务
+uv run --locked --group assets python tools/build_liz_avatars.py
+uv run --locked python tools/check_avatar.py data/avatars/liz/nozomi.vrm
+uv run --locked python tools/check_avatar.py data/avatars/liz/mizore.vrm
+# 以下才会重新上传指定角色的生成参考图，手动按需执行
+uv run --locked --group assets python tools/try_hunyuan_avatar.py nozomi
+```
+
+界面默认“希美 vs 霙”。可分别选择单模型，切到“皮套近看”，用静态 T-pose 和真人回旋踢检查。[视觉检查记录](../data/avatars/experiments/liz-visual-review-20261023.json) 和 [3.80 s 裙摆失败帧](../data/avatars/experiments/liz-skirt-failure-20261023.png) 随仓库保存；当前正式美术验收结论为不通过。实际骨骼映射位置残差与蒙皮外观分别观察：前者为零，也不能证明后者合格。长裙高踢时仍可能拉伸、穿插；手指未独立绑定，不能自然握拳；面部和侧背面相似度、发梢、裙摆、隐藏身体拓扑仍需完善。结构报告不是正式美术验收，也没有完成 Unity Editor 验收。
+
 
 ## 采用的路线
 
@@ -24,7 +46,7 @@
 
 文件包含可审核的 Tripo 生成请求体，以及绑定检查和绑定请求的模板。**没有执行付费请求**；模板中的 `<generated_task_id>` 需要真实生成结果，不能原样提交。绑定显式选择 `v3.0-20260909`。`spec: vrm` 指骨骼命名约定，输出仍可为普通 GLB；必须检查 humanoid 扩展，不能改后缀冒充 VRM。[Tripo 绑定接口](https://developers.tripo3d.ai/en/docs/animations-rig)
 
-实际生成需要接入 Tripo 账户。当前插件目录检索没有找到 Tripo，本机也未配置其 CLI/API 访问。官方提供浏览器设备登录方式；账户接通后先确认这一份配方的点数消耗再提交，不需要把密钥贴入聊天。[官方接入方式](https://developers.tripo3d.ai/en/docs/codex-plugin)
+实际生成需要接入 Tripo 账户。当前插件目录检索没有找到 Tripo。官方 CLI 0.7.3 已在 `tools/tripo-cli/` 固定依赖，但尚未登录或获得账户访问；`npm ci --prefix tools/tripo-cli` 可单独恢复，日常回放不依赖它。官方提供浏览器设备登录方式；账户接通后先确认这一份配方的点数消耗再提交，不需要把密钥贴入聊天。[官方接入方式](https://developers.tripo3d.ai/en/docs/codex-plugin)
 
 ## 已完成的结构检查
 

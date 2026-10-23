@@ -33,10 +33,18 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/catalog":
             self.reply({"sources": CATALOG, "profiles": PROFILES})
             return
-        if path == "/assets/sample.vrm":
-            target = ROOT / "data/raw/avatars/sample.vrm"
+        assets = {
+            "/assets/sample.vrm": ROOT / "data/raw/avatars/sample.vrm",
+            "/assets/liz/nozomi.vrm": ROOT / "data/avatars/liz/nozomi.vrm",
+            "/assets/liz/mizore.vrm": ROOT / "data/avatars/liz/mizore.vrm",
+        }
+        if path in assets:
+            target = assets[path]
             if not target.is_file():
-                self.send_error(404, "Run uv run python tools/fetch_avatar.py first")
+                self.send_error(
+                    404,
+                    "Fetch sample.vrm with tools/fetch_avatar.py; for Liz avatars run git lfs pull",
+                )
                 return
             payload = target.read_bytes()
             self.send_response(200)

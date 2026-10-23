@@ -97,7 +97,8 @@ def build_duel(primary, secondary, config):
         "opponent_events": second["events"],
         "chapters": CHAPTERS
         if paired
-        else [
+        else primary.get("chapters")
+        or [
             {
                 "time_s": max(0, e["time_s"] - 0.1),
                 "label": f"{i + 1}. {e['label']}",

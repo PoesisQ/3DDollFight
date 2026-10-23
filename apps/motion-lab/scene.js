@@ -150,18 +150,38 @@ export class LabScene {
             this.containers[0].clientWidth / this.containers[0].clientHeight;
         this.camera.updateProjectionMatrix();
     }
-    async prepareAvatar(buffer) {
+    async prepareAvatar(buffer, opponentBuffer = buffer) {
         const avatars = [];
         try {
             for (let i = 0; i < 3; i++)
-                avatars.push(await createVRMAvatar(buffer));
+                avatars.push(
+                    await createVRMAvatar(i === 1 ? opponentBuffer : buffer),
+                );
+            // Current duel frames share one target skeleton. The two generated
+            // Liz assets intentionally use the same rest rig; reject an accidental
+            // replacement with different proportions instead of silently distorting P2.
+            if (
+                avatars[0].rest.some((p, i) =>
+                    p.some(
+                        (v, j) => Math.abs(v - avatars[1].rest[i][j]) > 1e-4,
+                    ),
+                )
+            )
+                throw new Error(
+                    "当前双人回放需要共享骨架比例；请单模型检查不同骨长的皮套",
+                );
         } catch (error) {
             avatars.forEach((a) => a.dispose());
             throw error;
         }
         this.pendingAvatars?.forEach((a) => a.dispose());
         this.pendingAvatars = avatars;
-        return { rest: avatars[0].rest, info: avatars[0].info };
+        return {
+            rest: avatars[0].rest,
+            info:
+                avatars[0].info +
+                (opponentBuffer !== buffer ? " / P2：" + avatars[1].info : ""),
+        };
     }
     load(run) {
         this.avatars.forEach((a) => {
@@ -200,6 +220,7 @@ export class LabScene {
         this.mode = mode;
         this.followCenter.set(0, 0, 0);
         if (mode === "arena") this.camera.position.set(2.5, 1.9, 4.8);
+        else if (mode === "avatar") this.camera.position.set(0, 1.1, 2.9);
         else
             this.camera.position.set(
                 0.15,
@@ -210,9 +231,11 @@ export class LabScene {
         this.orbit.update();
         if (this.avatars.length) {
             this.sticks[0].group.visible = mode === "compare";
+            this.sticks[1].group.visible = mode !== "avatar";
             this.sticks[0].group.position.x = -1.95;
             this.sticks[1].group.position.x = mode === "retarget" ? -1.5 : 0;
-            this.avatars[2].group.position.x = mode === "retarget" ? 1.5 : 1.95;
+            this.avatars[2].group.position.x =
+                mode === "avatar" ? 0 : mode === "retarget" ? 1.5 : 1.95;
         }
     }
     eye(index, frame, options, alpha) {
@@ -289,7 +312,8 @@ export class LabScene {
                     ),
                     alpha,
                 );
-            this.avatars[i].group.rotation.y = i === 0 ? Math.PI / 2 : -Math.PI / 2;
+            this.avatars[i].group.rotation.y =
+                i === 0 ? Math.PI / 2 : -Math.PI / 2;
         }
         this.avatars[0].apply(frame, next, alpha);
         this.avatars[1].apply(second, nextSecond, alpha);
@@ -317,7 +341,11 @@ export class LabScene {
                 frame.solved[0][2],
             );
             this.avatars[2].group.position.set(
-                (this.mode === "retarget" ? 1.15 : 1.95) + motion.x,
+                (this.mode === "avatar"
+                    ? 0
+                    : this.mode === "retarget"
+                      ? 1.15
+                      : 1.95) + motion.x,
                 0,
                 motion.z,
             );
@@ -331,7 +359,10 @@ export class LabScene {
                 0,
                 sourceMotion.z,
             );
-            const center = motion.clone().add(sourceMotion).multiplyScalar(0.5);
+            const center =
+                this.mode === "avatar"
+                    ? motion
+                    : motion.clone().add(sourceMotion).multiplyScalar(0.5);
             const delta = center.clone().sub(this.followCenter);
             this.camera.position.add(delta);
             this.orbit.target.add(delta);

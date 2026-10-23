@@ -13,6 +13,8 @@ let renderCount = 0,
     lastUi = 0;
 let requestId = 0;
 let vrmBuffer = null,
+    localBuffer = null,
+    opponentBuffer = null,
     targetRest = null,
     avatarInfo = "";
 const names = {
@@ -46,6 +48,7 @@ function download(name, text, type = "application/json") {
 function config() {
     const value = {
         source: $("source").value,
+        transition_blend: $("transition-blend").checked,
         noise_mm: +$("noise").value,
         dropout: +$("dropout").value / 100,
         cutoff: +$("cutoff").value,
@@ -67,25 +70,47 @@ function config() {
         });
     return value;
 }
-async function compute() {
+async function compute({ preserveTime = false } = {}) {
     const id = ++requestId;
+    const previousTime = preserveTime ? time : 0;
     $("loading").hidden = false;
     $("apply").disabled = true;
     $("source").disabled = true;
     $("avatar-kind").disabled = true;
+    $("avatar-asset").disabled = true;
+    $("transition-blend").disabled = true;
     $("import-vrm").disabled = true;
     $("error").hidden = true;
     try {
         if ($("avatar-kind").value === "vrm") {
             if (!vrmBuffer) {
-                const asset = await fetch("/assets/sample.vrm");
+                const choice = $("avatar-asset").value;
+                const url =
+                    choice === "sample"
+                        ? "/assets/sample.vrm"
+                        : `/assets/liz/${choice === "pair" ? "nozomi" : choice}.vrm`;
+                const asset = await fetch(url);
                 if (!asset.ok)
                     throw new Error(
-                        "缺少 VRM 样例：请运行 uv run python tools/fetch_avatar.py，或导入本地 VRM",
+                        choice === "sample"
+                            ? "缺少样例：请运行 uv run python tools/fetch_avatar.py"
+                            : "缺少角色文件：请先 git lfs pull，或导入本地 VRM",
                     );
-                vrmBuffer = await asset.arrayBuffer();
+                const primary = await asset.arrayBuffer();
+                let opponent = null;
+                if (choice === "pair") {
+                    const other = await fetch("/assets/liz/mizore.vrm");
+                    if (!other.ok)
+                        throw new Error("缺少霙的 VRM：请先 git lfs pull");
+                    opponent = await other.arrayBuffer();
+                }
+                vrmBuffer = primary;
+                opponentBuffer = opponent;
             }
-            const binding = await scene.prepareAvatar(vrmBuffer);
+            const binding = await scene.prepareAvatar(
+                vrmBuffer,
+                opponentBuffer || vrmBuffer,
+            );
             targetRest = binding.rest;
             avatarInfo = binding.info;
         } else {
@@ -106,7 +131,7 @@ async function compute() {
         if (!response.ok) throw new Error(value.error || "处理失败");
         run = value;
         currentConfig = nextConfig;
-        time = 0;
+        time = Math.min(previousTime, run.duration);
         scene.load(run);
         buildCombatUI();
         last = performance.now();
@@ -124,18 +149,30 @@ async function compute() {
                 ? "相对导入数据的一致性，无三维真值"
                 : "相对未加噪输入，非实机精度";
         $("description").textContent = run.description;
-        const actual = run.source === "cmu_optical_mocap",
+        const composed = run.source === "cmu_composed_mocap";
+        const assetCheck = run.source === "asset_bind_check";
+        const actual = run.source === "cmu_optical_mocap" || composed,
             upload = run.source === "uploaded_poseframe";
-        $("source-badge").textContent = actual
-            ? "真实光学动捕"
-            : upload
-              ? "外部骨架输入"
-              : "合成验证";
-        $("source-note").textContent = actual
-            ? "CMU 光学动捕 · 独立显示规则识别结果"
-            : upload
-              ? "外部输入 · 无独立三维真值"
-              : "合成验证 · 不是摄像头实测";
+        $("source-badge").textContent = assetCheck
+            ? "静态绑定检查"
+            : composed
+              ? nextConfig.transition_blend
+                  ? "真人片段 · 算法衔接"
+                  : "真人片段 · 硬切对照"
+              : actual
+                ? "真实光学动捕"
+                : upload
+                  ? "外部骨架输入"
+                  : "合成验证";
+        $("source-note").textContent = assetCheck
+            ? "静态资产检查 · 不作为人体动作数据"
+            : composed
+              ? "不同动捕片段组合 · 过渡不是原始采集"
+              : actual
+                ? "CMU 光学动捕 · 独立显示规则识别结果"
+                : upload
+                  ? "外部输入 · 无独立三维真值"
+                  : "合成验证 · 不是摄像头实测";
         const fragment = document.createDocumentFragment();
         for (const event of run.events) {
             const button = document.createElement("button");
@@ -175,6 +212,8 @@ async function compute() {
             $("apply").disabled = false;
             $("source").disabled = false;
             $("avatar-kind").disabled = false;
+            $("avatar-asset").disabled = false;
+            $("transition-blend").disabled = false;
             $("import-vrm").disabled = false;
         }
     }
@@ -333,8 +372,10 @@ function animate(now) {
     const delta = Math.min((now - last) / 1000, 0.1);
     last = now;
     if (run) {
-        if (playing && $("loading").hidden)
-            time = (time + delta * +$("speed").value) % run.duration;
+        if (playing && $("loading").hidden) {
+            time = Math.min(time + delta * +$("speed").value, run.duration);
+            if (time >= run.duration) setPlaying(false);
+        }
         const [frame, next, alpha, index] = frameAt(time);
         const duel = run.duel.frames[index];
         const nextDuel =
@@ -387,8 +428,17 @@ async function start() {
     });
     $("apply").addEventListener("click", compute);
     $("source").addEventListener("change", compute);
+    $("transition-blend").addEventListener("change", () =>
+        compute({ preserveTime: true }),
+    );
     $("profile").addEventListener("change", compute);
     $("avatar-kind").addEventListener("change", compute);
+    $("avatar-asset").addEventListener("change", () => {
+        vrmBuffer = $("avatar-asset").value === "local" ? localBuffer : null;
+        opponentBuffer = null;
+        $("avatar-kind").value = "vrm";
+        compute();
+    });
     $("import-vrm").addEventListener("click", () => $("vrm-input").click());
     $("vrm-input").addEventListener("change", async () => {
         const file = $("vrm-input").files[0];
@@ -399,13 +449,26 @@ async function start() {
             // Validate and bind before replacing the current playable asset.
             await scene.prepareAvatar(candidate);
             vrmBuffer = candidate;
+            localBuffer = candidate;
+            opponentBuffer = null;
+            let option = $("avatar-asset").querySelector('[value="local"]');
+            if (!option) {
+                option = document.createElement("option");
+                option.value = "local";
+                $("avatar-asset").append(option);
+            }
+            option.textContent = `本地导入 · ${file.name}`;
+            $("avatar-asset").value = "local";
             $("avatar-kind").value = "vrm";
             await compute();
         } catch (err) {
             error(err.message);
         }
     });
-    $("play").addEventListener("click", () => setPlaying(!playing));
+    $("play").addEventListener("click", () => {
+        if (run && time >= run.duration) time = 0;
+        setPlaying(!playing);
+    });
     $("step").addEventListener("click", () => {
         if (run) {
             setPlaying(false);
@@ -440,7 +503,7 @@ async function start() {
             $("arena-hud").hidden = mode !== "arena";
             $("arena-hud").style.display = mode === "arena" ? "flex" : "none";
             $("combat-banner").hidden = mode !== "arena";
-            $("compare-labels").hidden = mode === "arena";
+            $("compare-labels").hidden = mode === "arena" || mode === "avatar";
             const labels = $("compare-labels").children;
             labels[0].style.display = mode === "retarget" ? "none" : "";
             labels[1].textContent =
@@ -449,6 +512,7 @@ async function start() {
                 arena: "01 / 位移与空间攻防",
                 compare: "02 / 原始 → 约束 → 蒙皮",
                 retarget: "03 / 真实动捕骨架 → VRM 全身映射",
+                avatar: "04 / 皮套近看 · 拖动旋转 / 滚轮缩放",
             }[mode];
         }),
     );
@@ -545,7 +609,7 @@ async function start() {
             $("export-pose").disabled = false;
         }
     });
-    document.querySelector('[data-view="retarget"]').click();
+    document.querySelector('[data-view="arena"]').click();
     requestAnimationFrame(animate);
     await compute();
 }

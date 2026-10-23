@@ -15,6 +15,8 @@ from dollfight.solver import SkeletonSolver
 
 ROOT = Path(__file__).resolve().parents[2]
 CATALOG = [
+    {"id": "cmu_flow", "label": "真人组合 · 拳击 → 踢腿 → 格挡（过渡对照）", "kind": "动捕编辑"},
+    {"id": "bind_pose", "label": "皮套检查 · 静态 T-pose", "kind": "资产检查"},
     {"id": "cmu_roundhouse", "label": "真人 · 回旋踢（转髋 / 支撑脚）", "kind": "公开动捕"},
     {"id": "cmu_front_kick", "label": "真人 · 前踢（提膝 / 回收）", "kind": "公开动捕"},
     {"id": "cmu_low_block", "label": "真人 · 下段格挡（步法 / 躯干）", "kind": "公开动捕"},
@@ -101,7 +103,21 @@ def import_frames(messages, camera_height=1.4, camera_distance=2.5):
     }
 
 
-def load_clip(name):
+def load_clip(name, transition_blend=True):
+    if name == "bind_pose":
+        rest = rest_pose()
+        return {
+            "name": name,
+            "source": "asset_bind_check",
+            "fps": 30,
+            "points": np.repeat(rest[None], 60, axis=0),
+            "rest": rest,
+            "description": "静态 T-pose 用于检查原始网格、贴图与绑定位置；不是人体采集。",
+        }
+    if name == "cmu_flow":
+        from dollfight.transitions import compose_flow
+
+        return compose_flow(blend=transition_blend)
     if name in {item["id"] for item in CATALOG if item["kind"] == "公开动捕"}:
         clip = json.loads((ROOT / f"data/samples/{name}.json").read_text(encoding="utf-8"))
         clip["points"] = np.asarray(clip["points"])
@@ -121,7 +137,7 @@ def make_run(config, *, include_duel=False, player=0):
             float(config.get("camera_distance", 2.5)),
         )
         if name == "upload"
-        else load_clip(name)
+        else load_clip(name, bool(config.get("transition_blend", True)))
         if name != "duel"
         else None
     )
@@ -172,7 +188,7 @@ def make_run(config, *, include_duel=False, player=0):
     errors_all, errors_missing = [], []
     previous_t = None
     previous_solved = None
-    references = reference_actions(name)
+    references = clip.get("reference_actions", reference_actions(name))
     for index, (point, quality, time_s) in enumerate(
         zip(observations, confidence, times, strict=True)
     ):
@@ -240,7 +256,7 @@ def make_run(config, *, include_duel=False, player=0):
         "comparison": "raw_error_mm/solved_error_mm use the same observed joints",
     }
     run = {
-        "version": "0.4.0",
+        "version": "0.5.0",
         "source": clip["source"],
         "name": name,
         "description": clip["description"],
@@ -253,6 +269,8 @@ def make_run(config, *, include_duel=False, player=0):
         "frames": frames,
         "events": events,
         "reference_actions": references,
+        "chapters": clip.get("chapters", []),
+        "transitions": clip.get("transitions", []),
         "metrics": metrics,
         "config": {key: value for key, value in config.items() if key != "frames"},
         "limitations": [
