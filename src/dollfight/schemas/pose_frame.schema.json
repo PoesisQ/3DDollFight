@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "DollFight PoseFrame 0.1.0 (draft)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "message_type", "session_id", "stream_id", "player_id", "sequence", "captured_at_ns", "clock_domain", "calibration_id", "coordinate_frame", "skeleton_id", "joints"],
+  "properties": {
+    "schema_version": {"const": "0.1.0"},
+    "message_type": {"const": "pose_frame"},
+    "session_id": {"type": "string", "minLength": 1},
+    "stream_id": {"type": "string", "minLength": 1},
+    "player_id": {"enum": ["p1", "p2"]},
+    "sequence": {"type": "integer", "minimum": 0, "maximum": 2147483647},
+    "captured_at_ns": {"type": "string", "pattern": "^(0|[1-9][0-9]{0,18})$"},
+    "clock_domain": {"type": "string", "minLength": 1},
+    "calibration_id": {"type": "string", "minLength": 1},
+    "coordinate_frame": {"const": "camera_optical_rh"},
+    "skeleton_id": {"const": "canonical19"},
+    "joints": {
+      "type": "object",
+      "minProperties": 19,
+      "maxProperties": 19,
+      "propertyNames": {"enum": ["pelvis", "spine", "chest", "neck", "head", "left_shoulder", "left_elbow", "left_wrist", "right_shoulder", "right_elbow", "right_wrist", "left_hip", "left_knee", "left_ankle", "left_toe", "right_hip", "right_knee", "right_ankle", "right_toe"]},
+      "additionalProperties": {"$ref": "#/$defs/joint"}
+    }
+  },
+  "$defs": {
+    "joint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["position_m", "confidence", "tracking_state"],
+      "properties": {
+        "position_m": {"oneOf": [{"type": "null"}, {"type": "array", "minItems": 3, "maxItems": 3, "items": {"type": "number"}}]},
+        "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+        "tracking_state": {"enum": ["observed", "inferred", "predicted", "missing"]}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"tracking_state": {"const": "missing"}}},
+          "then": {"properties": {"position_m": {"type": "null"}, "confidence": {"const": 0}}},
+          "else": {"properties": {"position_m": {"type": "array"}}}
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "DollFight ActionEvent 0.1.0 (draft recognition proposal)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "message_type", "session_id", "stream_id", "player_id", "event_id", "started_at_ns", "committed_at_ns", "clock_domain", "source_sequence", "action_id", "side", "level", "confidence"],
+  "properties": {
+    "schema_version": {"const": "0.1.0"},
+    "message_type": {"const": "action_event"},
+    "session_id": {"type": "string", "minLength": 1},
+    "stream_id": {"type": "string", "minLength": 1},
+    "player_id": {"enum": ["p1", "p2"]},
+    "event_id": {"type": "string", "minLength": 1},
+    "started_at_ns": {"type": "string", "pattern": "^(0|[1-9][0-9]{0,18})$"},
+    "committed_at_ns": {"type": "string", "pattern": "^(0|[1-9][0-9]{0,18})$"},
+    "clock_domain": {"type": "string", "minLength": 1},
+    "source_sequence": {"type": "integer", "minimum": 0, "maximum": 2147483647},
+    "action_id": {"type": "string", "pattern": "^[a-z][a-z0-9_.]*$"},
+    "side": {"enum": ["left", "right", "both", "none"]},
+    "level": {"enum": ["low", "mid", "high", "none"]},
+    "confidence": {"type": "number", "minimum": 0, "maximum": 1}
+  }
+}

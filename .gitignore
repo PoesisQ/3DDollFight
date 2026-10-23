@@ -1,0 +1,44 @@
+.venv/
+.uv-cache/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+dist/
+build/
+.env
+.env.*
+!.env.example
+.idea/
+.vs/
+.DS_Store
+Thumbs.db
+
+# Raw recordings and generated results live outside Git history.
+data/raw/
+data/processed/
+data/private/
+models/weights/
+outputs/
+logs/
+*.log
+
+# Unity: keep Assets (including .meta), Packages and ProjectSettings.
+[Ll]ibrary/
+[Tt]emp/
+[Oo]bj/
+[Bb]uilds/
+[Ll]ogs/
+[Uu]ser[Ss]ettings/
+[Mm]emoryCaptures/
+[Rr]ecordings/
+*.csproj
+*.sln
+*.suo
+
+# Godot: keep project.godot, .tscn, .tres, .gd, .uid and import settings.
+.godot/
+
+# Browser viewer, if selected later.
+node_modules/

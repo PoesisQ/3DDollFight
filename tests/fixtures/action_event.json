@@ -1,0 +1,16 @@
+{
+  "schema_version": "0.1.0",
+  "message_type": "action_event",
+  "session_id": "synthetic-session-001",
+  "stream_id": "synthetic-camera-p1",
+  "player_id": "p1",
+  "event_id": "synthetic-event-001",
+  "started_at_ns": "1000000000",
+  "committed_at_ns": "1300000000",
+  "clock_domain": "synthetic-clock",
+  "source_sequence": 9,
+  "action_id": "punch.straight",
+  "side": "left",
+  "level": "mid",
+  "confidence": 0.9
+}
