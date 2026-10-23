@@ -150,16 +150,38 @@
                     <h2><span>03</span> 角色与画面</h2>
                     <label for="avatar-asset">皮套试验</label>
                     <select id="avatar-asset">
-                        <option value="pair" selected>
-                            希美 vs 霙 · 生成网格试穿
+                        <option value="atelier" selected>
+                            新路线 · 两套校服底模
+                        </option>
+                        <option value="atelier-nozomi">
+                            希美方向 · 校服外观草稿
+                        </option>
+                        <option value="atelier-mizore">
+                            霙方向 · 校服外观草稿
+                        </option>
+                        <option value="sample">原始 VRM 底模 · 绑定对照</option>
+                        <option value="pair">
+                            旧路线 · 希美 vs 霙（不合格对照）
                         </option>
                         <option value="nozomi">伞木希美 · 单模型检查</option>
                         <option value="mizore">铠冢霙 · 单模型检查</option>
-                        <option value="sample">官方 VRM 样例 · 绑定对照</option>
                     </select>
                     <p class="source-note">
-                        Hunyuan 形体 + 正面投影贴图 +
-                        规则蒙皮。裙摆存在拉伸/穿插，手指与侧背面仍需完善。
+                        新版保留底模的面部、手指、扭转骨与 UV，校服和裙布独立。
+                        角色外观仍是草稿，可切回旧模型对照。
+                    </p>
+                    <label class="toggle"
+                        ><input
+                            id="secondary-motion"
+                            type="checkbox"
+                            checked
+                        />衣物碰撞与头发惯性</label
+                    >
+                    <p id="secondary-status" class="note">正在准备衣物回放…</p>
+                    <p class="note">
+                        <a href="/avatar-review.html"
+                            >打开皮套正侧背面 / 动作对照 ↗</a
+                        >
                     </p>
                     <label class="toggle"
                         ><input
@@ -457,7 +479,7 @@
                 <footer>
                     <span id="description"
                         >合成轨迹用于可控实验，不代表真人准确率。</span
-                    ><span>v0.5 · 角色生成 / 动作衔接 / 时序攻防</span>
+                    ><span>v0.6 · 独立衣物 / 皮套对照 / 时序攻防</span>
                 </footer>
                 <div id="error" class="error" role="alert" hidden></div>
             </div>

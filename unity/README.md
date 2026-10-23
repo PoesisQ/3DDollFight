@@ -21,6 +21,8 @@
 
 Python 输出已经按所选皮套求解。应优先用同一个模型验收；更换模型时要重新获取其 rest 骨架再求解，单独按身高缩放不能保证另一个体型也接地。
 
+v0.6 的校服底模位于 `data/avatars/atelier/`。VRM 中保留人体、手指、扭转骨、MToon 和裙板 spring bone 链，可供引擎继续接入。但本包目前关闭 UniVRM 自动更新，未驱动 spring bones，也没有浏览器 `cloth.js` 的 PBD 求解或顶点缓存；因此不能把浏览器裙摆效果称为 Unity 已支持。后续需要在人体回放后显式更新次级骨骼，并移植裙布约束/碰撞，或由 Unity 服装系统实现同等效果后再验收。
+
 ## Git 与来源
 
 包代码、asmdef 和 `.meta` 一起提交，移动文件保留 GUID。团队实际工程还需提交其 `ProjectSettings/ProjectVersion.txt` 和 `Packages/packages-lock.json`，不能用此包声明代替引擎版本锁。`Library/Temp` 不入库，正式 VRM/FBX 大资产走 LFS 或固定 manifest。

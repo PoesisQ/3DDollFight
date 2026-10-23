@@ -183,7 +183,8 @@ export class LabScene {
                 (opponentBuffer !== buffer ? " / P2：" + avatars[1].info : ""),
         };
     }
-    load(run) {
+    async load(run) {
+        this.loading = true;
         this.avatars.forEach((a) => {
             a.group.removeFromParent();
             a.dispose();
@@ -200,6 +201,27 @@ export class LabScene {
         ];
         this.pendingAvatars = null;
         const [p1, p2, target] = this.avatars;
+        try {
+            for (const [avatar, frames] of [
+                [p1, run.frames],
+                [p2, run.duel.opponent_frames || run.frames],
+            ]) {
+                if (avatar.secondary?.enabled)
+                    await avatar.secondary.bake(
+                        frames,
+                        (a, b, alpha) => avatar.apply(a, b, alpha, true, true),
+                        (progress) => {
+                            document.getElementById(
+                                "secondary-status",
+                            ).textContent =
+                                `正在缓存 ${avatar === p1 ? "P1" : "P2"} 衣物与头发 · ${Math.round(progress * 100)}%`;
+                        },
+                    );
+            }
+            target.secondary?.useCache(p1.secondary?.cache);
+        } finally {
+            this.loading = false;
+        }
         p1.group.rotation.y = Math.PI / 2;
         p2.group.rotation.y = -Math.PI / 2;
         this.arena.add(
@@ -301,7 +323,7 @@ export class LabScene {
         camera.updateMatrixWorld(true);
     }
     draw(frame, next, alpha, second, nextSecond, options) {
-        if (!this.run) return;
+        if (!this.run || this.loading) return;
         this.orbit.update();
         for (let i = 0; i < 2; i++) {
             this.avatars[i].group.position
@@ -315,9 +337,9 @@ export class LabScene {
             this.avatars[i].group.rotation.y =
                 i === 0 ? Math.PI / 2 : -Math.PI / 2;
         }
-        this.avatars[0].apply(frame, next, alpha);
-        this.avatars[1].apply(second, nextSecond, alpha);
-        this.avatars[2].apply(frame, next, alpha);
+        this.avatars[0].apply(frame, next, alpha, options.secondary);
+        this.avatars[1].apply(second, nextSecond, alpha, options.secondary);
+        this.avatars[2].apply(frame, next, alpha, options.secondary);
         const audit = this.avatars[2].audit?.(frame, next, alpha);
         if (audit) {
             const worst = audit.reduce((a, b) => (a.error > b.error ? a : b));

@@ -37,6 +37,12 @@ class Handler(BaseHTTPRequestHandler):
             "/assets/sample.vrm": ROOT / "data/raw/avatars/sample.vrm",
             "/assets/liz/nozomi.vrm": ROOT / "data/avatars/liz/nozomi.vrm",
             "/assets/liz/mizore.vrm": ROOT / "data/avatars/liz/mizore.vrm",
+            "/assets/atelier/nozomi.vrm": ROOT / "data/avatars/atelier/nozomi.vrm",
+            "/assets/atelier/mizore.vrm": ROOT / "data/avatars/atelier/mizore.vrm",
+            "/assets/tripo/nozomi-h25-retopo.glb": ROOT
+            / "data/avatars/tripo/nozomi-h25-retopo.glb",
+            "/assets/tripo/mizore-h25-source.glb": ROOT
+            / "data/avatars/tripo/mizore-h25-source.glb",
         }
         if path in assets:
             target = assets[path]

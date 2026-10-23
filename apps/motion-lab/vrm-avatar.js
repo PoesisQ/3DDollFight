@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { GLTFLoader } from "./vendor/GLTFLoader.js";
 import { VRMLoaderPlugin, VRMUtils } from "./vendor/three-vrm.module.min.js";
+import { createSecondaryMotion } from "./secondary-motion.js";
 
 export const HUMAN_BONES = [
     "hips",
@@ -27,8 +28,9 @@ const PARENTS = [
     -1, 0, 1, 2, 3, 2, 5, 6, 2, 8, 9, 0, 11, 12, 13, 0, 15, 16, 17,
 ];
 
-export function inspectVRM(buffer) {
-    if (buffer.byteLength > 40 * 1024 * 1024) throw new Error("VRM 超过 40 MB");
+export function inspectEmbeddedGLB(buffer) {
+    if (buffer.byteLength < 20 || buffer.byteLength > 40 * 1024 * 1024)
+        throw new Error("模型文件大小须介于 20 字节和 40 MB");
     const v = new DataView(buffer);
     if (v.getUint32(0, true) !== 0x46546c67 || v.getUint32(4, true) !== 2)
         throw new Error("需要二进制 VRM / GLB 2.0 文件");
@@ -42,6 +44,11 @@ export function inspectVRM(buffer) {
     for (const item of [...(json.buffers || []), ...(json.images || [])])
         if (item.uri && !item.uri.startsWith("data:"))
             throw new Error("请使用资源内嵌的 VRM；不加载文件中的外部地址");
+    return json;
+}
+
+export function inspectVRM(buffer) {
+    const json = inspectEmbeddedGLB(buffer);
     if (!json.extensions?.VRMC_vrm && !json.extensions?.VRM)
         throw new Error("文件没有 VRM humanoid 扩展");
     return json;
@@ -55,8 +62,8 @@ export async function createVRMAvatar(buffer) {
     const vrm = gltf.userData.vrm;
     if (!vrm) throw new Error("VRM 解析失败");
     VRMUtils.rotateVRM0(vrm);
-    // Playback must be seekable: secondary spring simulation is not advanced
-    // from wall time (otherwise a paused frame changes every time it is viewed).
+    // Secondary motion is baked at fixed steps and sampled by animation time;
+    // wall-clock updates would make a paused/seeked frame change on every visit.
     const group = new THREE.Group();
     group.add(vrm.scene);
     group.updateMatrixWorld(true);
@@ -110,12 +117,15 @@ export async function createVRMAvatar(buffer) {
                         sign: side === "left" ? -1 : 1,
                     });
             }
+    const secondary = createSecondaryMotion(vrm, group);
+    meshes.push(...secondary.proxies);
     return {
         group,
         bones,
         skeletonHelper,
         rest,
         vrm,
+        secondary,
         info: `${vrm.meta.name || vrm.meta.title || "本地 VRM"} · ${bones.length}/19 关节 · ${meshes.length} 网格`,
         audit(frame, next, alpha = 0) {
             const inverse = group.matrixWorld.clone().invert();
@@ -165,7 +175,7 @@ export async function createVRMAvatar(buffer) {
                 };
             });
         },
-        apply(frame, next, alpha = 0) {
+        apply(frame, next, alpha = 0, secondaryEnabled = true, baking = false) {
             group.updateMatrixWorld(true);
             group.getWorldQuaternion(groupQ);
             // Canonical local rotations cannot be assigned directly to VRM:
@@ -214,6 +224,11 @@ export async function createVRMAvatar(buffer) {
             vrm.humanoid.update();
             vrm.expressionManager?.update();
             vrm.nodeConstraintManager?.update();
+            if (!baking)
+                secondary.apply(
+                    THREE.MathUtils.lerp(frame.t, next?.t ?? frame.t, alpha),
+                    secondaryEnabled,
+                );
             group.updateMatrixWorld(true);
         },
         appearance(showBones, wireframe) {

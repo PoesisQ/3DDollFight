@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="zh-CN">
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width,initial-scale=1" />
+        <title>DollFight · 皮套对照</title>
+        <script type="importmap">
+            { "imports": { "three": "/vendor/three.module.min.js" } }
+        </script>
+        <link rel="stylesheet" href="/avatar-review.css" />
+    </head>
+    <body>
+        <header>
+            <span class="brand">DF / AVATAR ATELIER</span
+            ><a href="/">返回动作实验室 ↗</a>
+        </header>
+        <main>
+            <div class="eyebrow">皮套路线对照 / 2026.10</div>
+            <h1>先让模型经得起动作。</h1>
+            <p class="intro">
+                同一套动作输入，分别按模型骨长映射。下方均为实际 3D 渲染。
+            </p>
+            <div class="toolbar">
+                <label
+                    >对照路线
+                    <select id="comparison">
+                        <option value="atelier">两套可动底模</option>
+                        <option value="tripo-nozomi">
+                            希美 · 加入 Tripo 原件
+                        </option>
+                        <option value="tripo-mizore">
+                            霙 · 加入 Tripo 原件
+                        </option>
+                    </select>
+                </label>
+                <label
+                    >检查姿态
+                    <select id="pose">
+                        <option value="bind">绑定姿态</option>
+                        <option value="2">拳击护架</option>
+                        <option value="4.95">前踢 · 4.95 s</option>
+                        <option value="7.7">下段格挡 · 7.70 s</option>
+                        <option value="9.8">回旋踢 · 9.80 s</option>
+                    </select></label
+                >
+                <label
+                    >观察角度
+                    <select id="angle">
+                        <option value="front">正面</option>
+                        <option value="three">侧前方</option>
+                        <option value="side">侧面</option>
+                        <option value="back">背面</option>
+                    </select></label
+                >
+                <label
+                    >取景
+                    <select id="crop">
+                        <option value="body">全身</option>
+                        <option value="face">面部与肩部</option>
+                    </select></label
+                >
+                <label class="check"
+                    ><input id="cloth" type="checkbox" checked /> 衣物碰撞 /
+                    发丝惯性</label
+                >
+                <label id="material-label" hidden
+                    >Tripo 材质
+                    <select id="material">
+                        <option value="matte">哑光预览</option>
+                        <option value="pbr">原始 PBR</option>
+                        <option value="texture">仅贴图 · 无光照</option>
+                    </select>
+                </label>
+            </div>
+            <p id="status" role="status">正在加载模型…</p>
+            <section class="cards">
+                <article>
+                    <div class="card-title">
+                        <span class="badge old">旧路线</span>
+                        <h2>单图生成 + 规则绑定</h2>
+                    </div>
+                    <div id="old" class="viewport"></div>
+                    <p>正面投影 · 19 骨骼<br />裙摆与双腿混合蒙皮</p>
+                </article>
+                <article>
+                    <div class="card-title">
+                        <span class="badge">新底模 A</span>
+                        <h2>希美方向 · 外观草稿</h2>
+                    </div>
+                    <div id="nozomi" class="viewport"></div>
+                    <p>完整 UV · 手指 / 扭转骨<br />独立裙布 + 腿部碰撞</p>
+                </article>
+                <article>
+                    <div class="card-title">
+                        <span class="badge">新底模 B</span>
+                        <h2>霙方向 · 外观草稿</h2>
+                    </div>
+                    <div id="mizore" class="viewport"></div>
+                    <p>同一可靠身体绑定<br />短发、白袜与校服变体</p>
+                </article>
+            </section>
+            <p class="limits">
+                新版仍是角色外观草稿：脸型、刘海与马尾需要精修。裙布限制过度拉伸，但极端高踢仍有身体穿插；没有布料自碰撞，尚未通过完整衣物验收。
+                Tripo 免费原件用于外观对照，不能作为已经完成的可动皮套。
+            </p>
+            <button id="report" disabled>导出本次皮套检查数据</button>
+            <details id="diagnostics">
+                <summary>衣物变形检查数据</summary>
+                <pre id="metrics"></pre>
+            </details>
+            <footer>
+                底模 © 2022 pixiv Inc. / VRM Public License 1.0 ·
+                校服与外观调整：DollFight · 原作角色权利归原权利人 · Tripo H2.5
+                生成原件：Tripo AI（免费方案，保留来源与使用限制）
+            </footer>
+        </main>
+        <script type="module" src="/avatar-review.js"></script>
+    </body>
+</html>

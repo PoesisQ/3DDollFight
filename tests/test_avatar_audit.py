@@ -21,7 +21,7 @@ def encode(doc, binary):
 def fixture(*, normalized=False, weights=None, joints=None):
     # Mesh occupies node 0: node indices and skin-local indices differ deliberately.
     nodes = [{"name": "mesh", "mesh": 0, "skin": 0}]
-    nodes += [{"name": name, "children": []} for name in HUMAN_BONES]
+    nodes += [{"name": name, "children": [], "translation": [0, 0.1, 0]} for name in HUMAN_BONES]
     for i, parent in enumerate(PARENTS):
         if parent >= 0:
             nodes[parent + 1]["children"].append(i + 1)
@@ -102,6 +102,18 @@ def test_names_alone_and_incomplete_vrm_are_not_ready_for_our_renderer():
     # Toes are optional in VRM; missing them is our viewer limitation, not invalid VRM.
     assert report["errors"] == []
     assert not report["motion_lab_structural_candidate"]
+
+
+def test_collapsed_named_rig_is_not_accepted_even_with_normalized_weights():
+    doc, binary = fixture()
+    for node in doc["nodes"]:
+        node.pop("translation", None)
+    report = audit_bytes(encode(doc, binary))
+    assert report["errors"] == []
+    assert report["collapsed_skin"]
+    assert report["skin_joint_spans"] == [0]
+    assert not report["motion_lab_structural_candidate"]
+    assert any("Collapsed bind" in warning for warning in report["warnings"])
 
 
 @pytest.mark.parametrize(

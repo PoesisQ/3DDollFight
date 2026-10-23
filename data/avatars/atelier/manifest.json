@@ -1,0 +1,26 @@
+[
+  {
+    "character": "nozomi",
+    "sha256": "fbdb699d57a950884e818d29bb755302c1d4ffa0bd530b06f17bbbc066b18b12",
+    "bytes": 11426176,
+    "triangles": 39317,
+    "human_bones": 54,
+    "base_sha256": "12c2b97e95e700783a6a550dc0eee2d7880aeedccef9ae67bc4c5a2f0f2631a2",
+    "likeness_approved": false,
+    "body_binding": "unchanged authored pixiv weights including fingers and twist bones",
+    "cloth": "separate 896-vertex skirt; 16 panel bone chains; browser PBD override",
+    "textures": "base UV textures preserved; no front-image projection"
+  },
+  {
+    "character": "mizore",
+    "sha256": "f2237ac0d8c44041bf19efe7573c945aab250252149e645c281790fbd0cc08fd",
+    "bytes": 11426204,
+    "triangles": 39317,
+    "human_bones": 54,
+    "base_sha256": "12c2b97e95e700783a6a550dc0eee2d7880aeedccef9ae67bc4c5a2f0f2631a2",
+    "likeness_approved": false,
+    "body_binding": "unchanged authored pixiv weights including fingers and twist bones",
+    "cloth": "separate 896-vertex skirt; 16 panel bone chains; browser PBD override",
+    "textures": "base UV textures preserved; no front-image projection"
+  }
+]

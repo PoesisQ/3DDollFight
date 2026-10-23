@@ -1,0 +1,96 @@
+{
+  "recorded_on": "2026-10-24",
+  "service": "Tripo Studio",
+  "model": "H2.5",
+  "source_attribution": "Generated with Tripo AI from the project T-pose references. Original Liz and the Blue Bird character rights remain with their owners.",
+  "rights_note": "Free Studio account outputs; attribution and plan-specific use restrictions apply. No new permissive or commercial license is granted by this repository.",
+  "terms_source": "https://www.tripo3d.ai/product-doc/getting-started/pricing-credits",
+  "assets": [
+    {
+      "file": "nozomi-h25-source.glb",
+      "character": "nozomi",
+      "stage": "original static generation",
+      "model_id": "736106ea-e25c-4c3c-af5f-381128661157",
+      "triangles": 237752,
+      "sha256": "399f4ff3336b693051951663de14033fb0e3d5945faf03bbd2be907eead20dcd",
+      "bytes": 12616920,
+      "motion_ready": false,
+      "visual_acceptance": "not accepted",
+      "reference": "../liz/nozomi-reference.png",
+      "reference_sha256": "0e0cfa4a89d12dc25bdc21ca8fb9e3c6ce914758f95b533186071afb3d6b17c7",
+      "audit": "nozomi-h25-source-audit.json"
+    },
+    {
+      "file": "nozomi-h25-retopo.glb",
+      "character": "nozomi",
+      "stage": "39996-face free export after rigging; collapsed placeholder rig",
+      "model_id": "736106ea-e25c-4c3c-af5f-381128661157",
+      "triangles": 39996,
+      "sha256": "8e994c7f4f96fcfdee973e49acdfbdb34de119c76e9b6a8c789d79526f472242",
+      "bytes": 8930128,
+      "motion_ready": false,
+      "visual_acceptance": "not accepted",
+      "reference": "../liz/nozomi-reference.png",
+      "reference_sha256": "0e0cfa4a89d12dc25bdc21ca8fb9e3c6ce914758f95b533186071afb3d6b17c7",
+      "audit": "nozomi-h25-retopo-audit.json"
+    },
+    {
+      "file": "mizore-h25-source.glb",
+      "character": "mizore",
+      "stage": "original static generation",
+      "model_id": "31892220-62dd-42bf-bd58-26ff90feefb0",
+      "triangles": 270156,
+      "sha256": "84aa58a79aae85f09b13c1b55b1f7b4ee8eda5a3344510ee5207efe4f7e2afe4",
+      "bytes": 13775364,
+      "motion_ready": false,
+      "visual_acceptance": "not accepted",
+      "reference": "../liz/mizore-reference.png",
+      "reference_sha256": "f8cd0498f736dc9aed27c7e05aa77c7c14c5b5928c7f6eca917f7eaad8af11f3",
+      "audit": "mizore-h25-source-audit.json"
+    }
+  ],
+  "free_credit_ledger": [
+    {
+      "operation": "Nozomi geometry and texture generation",
+      "credits": 40
+    },
+    {
+      "operation": "Nozomi ordinary triangular retopology, target 40000, Smart Mesh off",
+      "credits": 5
+    },
+    {
+      "operation": "Nozomi VRM 1.0 Humanoid auto rig",
+      "credits": 20
+    },
+    {
+      "operation": "Mizore geometry and texture generation",
+      "credits": 40
+    }
+  ],
+  "free_balance_observed": 95,
+  "cash_spend": 0,
+  "subscription_created": false,
+  "rig_export_result": {
+    "ui": "Export bones switch disabled; adjacent upgrade button opened subscription page. No subscription accepted.",
+    "downloaded_file": "nozomi-h25-retopo.glb",
+    "skin_joint_span": 0.0,
+    "dominant_joint_weight_fraction": 0.9999234273900226,
+    "conclusion": "The normal free export contains names and placeholder weights, not the functional Studio rig. Do not rename this file to VRM or infer successful retargeting.",
+    "mizore_rig_requested": false
+  },
+  "viewer": {
+    "path": "/avatar-review.html",
+    "modes": [
+      "tripo-nozomi",
+      "tripo-mizore"
+    ],
+    "normalization": "Uniform display scale to 1.65 m, centered in X/Z with feet at y=0. Source GLBs unchanged.",
+    "material_modes": [
+      "matte diffuse preview",
+      "unaltered source PBR",
+      "unlit texture diagnostic"
+    ],
+    "static_only": true
+  },
+  "next_step": "A functional separately licensed/obtained binding or local rigging workflow is required before motion comparison. Current authored VRM outfit studies remain the animation baseline."
+}

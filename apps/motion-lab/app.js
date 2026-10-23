@@ -85,10 +85,13 @@ async function compute({ preserveTime = false } = {}) {
         if ($("avatar-kind").value === "vrm") {
             if (!vrmBuffer) {
                 const choice = $("avatar-asset").value;
+                const atelier = choice.startsWith("atelier");
                 const url =
                     choice === "sample"
                         ? "/assets/sample.vrm"
-                        : `/assets/liz/${choice === "pair" ? "nozomi" : choice}.vrm`;
+                        : atelier
+                          ? `/assets/atelier/${choice === "atelier-mizore" ? "mizore" : "nozomi"}.vrm`
+                          : `/assets/liz/${choice === "pair" ? "nozomi" : choice}.vrm`;
                 const asset = await fetch(url);
                 if (!asset.ok)
                     throw new Error(
@@ -98,8 +101,10 @@ async function compute({ preserveTime = false } = {}) {
                     );
                 const primary = await asset.arrayBuffer();
                 let opponent = null;
-                if (choice === "pair") {
-                    const other = await fetch("/assets/liz/mizore.vrm");
+                if (choice === "pair" || choice === "atelier") {
+                    const other = await fetch(
+                        `/assets/${atelier ? "atelier" : "liz"}/mizore.vrm`,
+                    );
                     if (!other.ok)
                         throw new Error("缺少霙的 VRM：请先 git lfs pull");
                     opponent = await other.arrayBuffer();
@@ -132,7 +137,11 @@ async function compute({ preserveTime = false } = {}) {
         run = value;
         currentConfig = nextConfig;
         time = Math.min(previousTime, run.duration);
-        scene.load(run);
+        await scene.load(run);
+        const cloth = scene.avatars[0].secondary?.cache;
+        $("secondary-status").textContent = cloth
+            ? `60 Hz 固定步长缓存 · ${cloth.springBones} 个衣发辅助骨 · ${cloth.clothVertices} 个裙布顶点；暂停、拖动与变速使用同一结果。`
+            : "此模型没有可计算的独立衣物 / 发丝结构。";
         buildCombatUI();
         last = performance.now();
         const m = run.metrics;
@@ -371,7 +380,7 @@ function ui(frame, duel) {
 function animate(now) {
     const delta = Math.min((now - last) / 1000, 0.1);
     last = now;
-    if (run) {
+    if (run && !scene.loading) {
         if (playing && $("loading").hidden) {
             time = Math.min(time + delta * +$("speed").value, run.duration);
             if (time >= run.duration) setPlaying(false);
@@ -393,6 +402,7 @@ function animate(now) {
             wireframe: $("wireframe").checked,
             offaxis: $("offaxis").checked,
             eyeOffset: +$("eye-x").value / 100,
+            secondary: $("secondary-motion").checked,
         });
         if (now - lastUi > 60) {
             ui(frame, duel);

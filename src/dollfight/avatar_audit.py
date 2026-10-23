@@ -180,9 +180,34 @@ def human_mapping(doc):
     return "GLB (no VRM humanoid extension)", {}
 
 
+def joint_world_positions(nodes, parents):
+    """Read bind hierarchy transforms, including rotation/scale and matrix nodes."""
+    worlds = {}
+
+    def world(i):
+        if i not in worlds:
+            node = nodes[i]
+            if "matrix" in node:
+                local = np.asarray(node["matrix"]).reshape(4, 4).T
+            else:
+                x, y, z, w = node.get("rotation", [0, 0, 0, 1])
+                local = np.eye(4)
+                local[:3, :3] = [
+                    [1 - 2 * (y * y + z * z), 2 * (x * y - z * w), 2 * (x * z + y * w)],
+                    [2 * (x * y + z * w), 1 - 2 * (x * x + z * z), 2 * (y * z - x * w)],
+                    [2 * (x * z - y * w), 2 * (y * z + x * w), 1 - 2 * (x * x + y * y)],
+                ]
+                local[:3, :3] *= node.get("scale", [1, 1, 1])
+                local[:3, 3] = node.get("translation", [0, 0, 0])
+            worlds[i] = (world(parents[i]) if parents[i] >= 0 else np.eye(4)) @ local
+        return worlds[i]
+
+    return np.array([world(i)[:3, 3] for i in range(len(nodes))])
+
+
 def audit_bytes(payload):
     report = {
-        "version": "avatar-preflight-1",
+        "version": "avatar-preflight-2",
         "sha256": hashlib.sha256(payload).hexdigest(),
         "bytes": len(payload),
         "errors": [],
@@ -223,12 +248,18 @@ def audit_bytes(payload):
                 cursor = parents[cursor]
             if cursor != ancestor:
                 raise ValueError(f"Humanoid hierarchy mismatch at {HUMAN_BONES[i]}")
+        skin_spans = []
+        positions_world = joint_world_positions(nodes, parents)
+        collapsed_skin = False
         for skin in doc.get("skins", []):
             joints = skin.get("joints", [])
             if not joints or len(set(joints)) != len(joints):
                 raise ValueError("Empty or repeated skin joints")
             for joint in joints:
                 index(joint, len(nodes), "skin joint")
+            span = float(np.linalg.norm(np.ptp(positions_world[joints], axis=0)))
+            skin_spans.append(span)
+            collapsed_skin |= len(joints) > 1 and span < 1e-8
             if "inverseBindMatrices" in skin:
                 matrices = model.accessor(skin["inverseBindMatrices"])
                 if matrices.shape[1] != 16 or len(matrices) < len(joints):
@@ -237,6 +268,7 @@ def audit_bytes(payload):
                     raise ValueError("Singular inverse bind matrix")
         vertices, skinned, max_influences, max_weight_error = 0, 0, 0, 0.0
         uses_extra_weight_sets = False
+        influence_mass = np.zeros(len(nodes))
         for node in nodes:
             if "mesh" not in node:
                 continue
@@ -284,6 +316,11 @@ def audit_bytes(payload):
                         raise ValueError("Negative skin weight")
                     uses_extra_weight_sets |= key != "JOINTS_0" and bool(np.any(weights > 0))
                     weight_sets.append(weights)
+                    influence_mass += np.bincount(
+                        np.asarray(skin["joints"])[joint_ids].ravel(),
+                        weights=weights.ravel(),
+                        minlength=len(nodes),
+                    )
                 weights = np.concatenate(weight_sets, axis=1)
                 sums = weights.sum(axis=1)
                 if np.any(sums < 1e-8):
@@ -302,7 +339,22 @@ def audit_bytes(payload):
             max_vertex_influences=max_influences,
             max_weight_sum_error=max_weight_error,
             uses_extra_weight_sets=uses_extra_weight_sets,
+            skin_joint_spans=skin_spans,
+            collapsed_skin=bool(collapsed_skin),
+            dominant_joint_weight_fraction=(
+                float(influence_mass.max() / influence_mass.sum()) if skinned else None
+            ),
         )
+        if collapsed_skin:
+            report["warnings"].append(
+                "Collapsed bind hierarchy: all joints of a multi-joint skin occupy one point; "
+                "bone names and normalized weights do not establish an actionable rig"
+            )
+        if skinned > 100 and report["dominant_joint_weight_fraction"] > 0.995:
+            report["warnings"].append(
+                "More than 99.5% of skin influence belongs to one joint; inspect for "
+                "placeholder or rigid whole-body weights before retargeting"
+            )
         if not skinned:
             report["warnings"].append(
                 "Static geometry: a rig/skin must be created before retargeting"
@@ -325,6 +377,7 @@ def audit_bytes(payload):
             and skinned
             and max_influences <= 4
             and not uses_extra_weight_sets
+            and not collapsed_skin
         )
         report["warnings"].append(
             "Inspect T-pose, scale, shoulder/hip deformation and clothing with fixed motion clips; "
