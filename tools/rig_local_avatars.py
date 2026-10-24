@@ -277,6 +277,67 @@ def garment_region(v, colors, character):
     return (v[:, 1] > bottom) & (v[:, 1] < top) & (radial > 0.78**2), bottom, top
 
 
+def authored_hair_rig(writer, authored, names, positions, joint_nodes):
+    """Keep the artist's strand membership and hierarchy in fitted rest space.
+
+    Re-express rest frames as translation-only frames, just like our humanoid.
+    Inverse binds are rebuilt by Writer.finish; no spatial fringe/ponytail guess.
+    """
+    nodes = authored.doc["nodes"]
+    parents = node_parents(nodes)
+    worlds = world_matrices(nodes)
+    selected = {i for i, node in enumerate(nodes) if node.get("name", "").startswith("J_Sec_Hair")}
+    mapping = {}
+    pending = set(selected)
+    while pending:
+        ready = sorted(i for i in pending if parents[i] not in pending)
+        if not ready:
+            raise ValueError("Cyclic authored hair hierarchy")
+        for old in ready:
+            parent = mapping.get(parents[old], names.index("head"))
+            pos = fit(worlds[old, :3, 3][None])[0]
+            node = len(writer.doc["nodes"])
+            joint = len(joint_nodes)
+            mapping[old] = joint
+            writer.doc["nodes"].append(
+                {
+                    "name": nodes[old]["name"],
+                    "translation": (pos - np.array(positions[parent])).tolist(),
+                }
+            )
+            writer.doc["nodes"][joint_nodes[parent]].setdefault("children", []).append(node)
+            joint_nodes.append(node)
+            positions.append(pos.tolist())
+            pending.remove(old)
+    springs = []
+    for spring in authored.doc["extensions"]["VRMC_springBone"]["springs"]:
+        chain = [j for j in spring["joints"] if j["node"] in mapping]
+        if len(chain) < 2:
+            continue
+        # Front strands should retain their silhouette; back locks lag a turn.
+        strand_number = int(nodes[chain[0]["node"]]["name"].split("_")[-1])
+        is_front = strand_number <= 4
+        springs.append(
+            {
+                "name": spring.get("name", "Authored hair strand"),
+                "colliderGroups": [0],
+                "joints": [
+                    {
+                        "node": joint_nodes[mapping[j["node"]]],
+                        "hitRadius": min(j.get("hitRadius", 0.006), 0.009),
+                        "stiffness": (4.5 if is_front else 2.0)
+                        if k == 0
+                        else (2.5 if is_front else 1.0),
+                        "dragForce": 0.4,
+                        "gravityPower": 0.025,
+                    }
+                    for k, j in enumerate(chain)
+                ],
+            }
+        )
+    return mapping, springs
+
+
 def build(character, hybrid=False):
     source_path = ROOT / f"data/avatars/tripo/{character}-h25-source.glb"
     if hashlib.sha256(source_path.read_bytes()).hexdigest() != SOURCE_HASHES[character]:
@@ -332,8 +393,8 @@ def build(character, hybrid=False):
     meta = copy.deepcopy(reference.doc["extensions"]["VRMC_vrm"]["meta"])
     meta.pop("thumbnailImage", None)
     meta.update(
-        name=f"{character} · Tripo 本地绑定" + (" / 授权头部重建" if hybrid else " / 原网格"),
-        version="0.1.0",
+        name=f"{character} · Tripo 本地绑定" + (" / 手颈与发束重建" if hybrid else " / 原网格"),
+        version="0.2.0" if hybrid else "0.1.0",
         authors=["Tripo AI (source)", "pixiv Inc. (weight/face reference)", "DollFight"],
         copyrightInformation=(
             "Tripo free-plan non-commercial source. "
@@ -428,7 +489,7 @@ def build(character, hybrid=False):
     )
     hair_positions = authored_hair if authored is not None else v[hair]
     hair_chain_ids = {}
-    for side in (-1, 1):
+    for side in () if hybrid else (-1, 1):
         chain, chain_ids = [], []
         previous = names.index("head")
         for level, y in enumerate((1.49, 1.38, 1.27, 1.16)):
@@ -478,6 +539,11 @@ def build(character, hybrid=False):
             np.zeros((len(v), 2), dtype=int),
         ][selected]
         w[selected] = np.c_[1 - t, t, np.zeros((len(v), 2))][selected]
+    authored_hair_map = {}
+    if hybrid:
+        authored_hair_map, springs = authored_hair_rig(
+            writer, authored, names, positions, joint_nodes
+        )
     colliders = []
     for a, b, radius in (
         ("chest", "neck", 0.075),
@@ -509,6 +575,13 @@ def build(character, hybrid=False):
     replace_head = head | hair
     # Keep triangles together at semantic boundaries to avoid split UV cracks.
     remove = replace_head[f].sum(1) >= 2 if hybrid else np.zeros(len(f), dtype=bool)
+    if hybrid:
+        # Replace the malformed fingers with the complete authored forearm/hand,
+        # joining underneath the sleeve rather than across an exposed wrist.
+        replace_arm = (abs(v[:, 0]) > 0.325) & (v[:, 1] > 1.10)
+        # Retain an overlapping collar; the authored neck continues into the head.
+        replace_neck = (abs(v[:, 0]) < 0.075) & (v[:, 1] > 1.295) & skin_color
+        remove |= (replace_arm | replace_neck)[f].sum(1) >= 2
     body_faces = f[~remove & ~cloth_faces]
     if hybrid:
         exposed_limbs = ((abs(v[:, 0]) > 0.32) & (v[:, 1] > 1.16) & (v[:, 1] < 1.365)) | (
@@ -559,7 +632,9 @@ def build(character, hybrid=False):
                 "rows": rows,
                 "rest": cage,
                 "nodes": joint_nodes[len(names) : len(names) + len(cage)],
-                "capsuleRadii": [0.052, 0.052, 0.037, 0.037],
+                "capsuleRadii": [0.080, 0.080, 0.045, 0.045]
+                if hybrid
+                else [0.052, 0.052, 0.037, 0.037],
             },
             "dollfightBinding": (
                 "authored barycentric surface transfer, welded adjacency smoothing; "
@@ -569,6 +644,22 @@ def build(character, hybrid=False):
     )
     if hybrid:
         base_material = writer.materials(reference)
+        # This is the actual skin mesh with articulated fingers, ears and neck.
+        # Its original bind weights meet the face seam in the same rest frame.
+        body_v = fit(reference.accessor(ref_prim["attributes"]["POSITION"]))
+        include = (abs(body_v[:, 0]) > 0.295) | (
+            (abs(body_v[:, 0]) < 0.115) & (body_v[:, 1] > 1.285)
+        )
+        bj, bw = top4(rw)
+        writer.mesh(
+            "AuthoredHandsNeck",
+            body_v,
+            rf[include[rf].all(1)],
+            reference.accessor(ref_prim["attributes"]["TEXCOORD_0"]),
+            bj,
+            bw,
+            base_material + ref_prim["material"],
+        )
         # Face components share the original complete UVs; no projected image.
         for k, p in enumerate(reference.doc["meshes"][1]["primitives"]):
             pv = fit(reference.accessor(p["attributes"]["POSITION"]))
@@ -595,14 +686,11 @@ def build(character, hybrid=False):
             pw = np.zeros((len(pv), 4))
             pw[:, 0] = 1
             if label == "AuthoredHair":
-                amount = np.clip((1.49 - pv[:, 1]) / 0.11, 0, 2.9999)
-                level, mix = amount.astype(int), amount % 1
-                for side, chain in hair_chain_ids.items():
-                    selected = (pv[:, 0] * side >= 0) & (pv[:, 1] < 1.47)
-                    pj[selected, :2] = np.c_[np.array(chain)[level], np.array(chain)[level + 1]][
-                        selected
-                    ]
-                    pw[selected] = np.c_[1 - mix, mix, np.zeros((len(pv), 2))][selected]
+                old_j = authored.accessor(p["attributes"]["JOINTS_0"]).astype(int)
+                old_nodes = authored.doc["skins"][2]["joints"]
+                remap = np.array([authored_hair_map.get(n, names.index("head")) for n in old_nodes])
+                pj = remap[old_j]
+                pw = authored.accessor(p["attributes"]["WEIGHTS_0"])
             original_material = authored.doc["materials"][p["material"]]
             color = original_material["pbrMetallicRoughness"]["baseColorFactor"]
             writer.doc["materials"].append(
@@ -649,6 +737,9 @@ def build(character, hybrid=False):
         ),
         "hybrid_face": hybrid,
         "hybrid_head": hybrid,
+        "authored_hands_neck": hybrid,
+        "hair_binding": "authored strand topology" if hybrid else "two spatial chains",
+        "hair_bones": len(authored_hair_map) if hybrid else 8,
         "authored_hair_sha256": hashlib.sha256(authored_path.read_bytes()).hexdigest()
         if hybrid
         else None,

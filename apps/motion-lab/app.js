@@ -1,4 +1,5 @@
 import { LabScene } from "./scene.js";
+import { MatchRecorder } from "./match-recorder.js";
 
 const $ = (id) => document.getElementById(id);
 let scene,
@@ -12,6 +13,7 @@ let renderCount = 0,
     fpsTime = last,
     lastUi = 0;
 let requestId = 0;
+const recorder = new MatchRecorder();
 let vrmBuffer = null,
     localBuffer = null,
     opponentBuffer = null,
@@ -60,7 +62,10 @@ function config() {
         movement_gain: +$("movement-gain").value,
         initial_gap: +$("initial-gap").value,
         seed: 42,
-        target_rest: $("avatar-kind").value === "vrm" ? targetRest : null,
+        target_rest:
+            $("avatar-kind").value === "vrm"
+                ? targetRest?.map((p) => p.map((v) => +v.toFixed(6)))
+                : null,
     };
     if (value.source === "upload")
         Object.assign(value, {
@@ -71,6 +76,7 @@ function config() {
     return value;
 }
 async function compute({ preserveTime = false } = {}) {
+    if (recorder.active) recorder.stop();
     const id = ++requestId;
     const previousTime = preserveTime ? time : 0;
     $("loading").hidden = false;
@@ -165,22 +171,27 @@ async function compute({ preserveTime = false } = {}) {
             m.reference === "input_consistency_only"
                 ? "相对导入数据的一致性，无三维真值"
                 : "相对未加噪输入，非实机精度";
+        if (run.evaluation_cache)
+            $("metric-reference").textContent += " · 复用同配置回放计算";
         $("description").textContent = run.description;
         const composed = run.source === "cmu_composed_mocap";
         const assetCheck = run.source === "asset_bind_check";
         const actual = run.source === "cmu_optical_mocap" || composed,
             upload = run.source === "uploaded_poseframe";
-        $("source-badge").textContent = assetCheck
-            ? "静态绑定检查"
-            : composed
-              ? nextConfig.transition_blend
-                  ? "真人片段 · 算法衔接"
-                  : "真人片段 · 硬切对照"
-              : actual
-                ? "真实光学动捕"
-                : upload
-                  ? "外部骨架输入"
-                  : "合成验证";
+        $("source-badge").textContent =
+            nextConfig.source === "cmu_sparring"
+                ? "真人动捕 · 三回合排练"
+                : assetCheck
+                  ? "静态绑定检查"
+                  : composed
+                    ? nextConfig.transition_blend
+                        ? "真人片段 · 算法衔接"
+                        : "真人片段 · 硬切对照"
+                    : actual
+                      ? "真实光学动捕"
+                      : upload
+                        ? "外部骨架输入"
+                        : "合成验证";
         $("source-note").textContent = assetCheck
             ? "静态资产检查 · 不作为人体动作数据"
             : composed
@@ -264,8 +275,12 @@ function buildCombatUI() {
     );
     $("chapters").replaceChildren();
     for (const chapter of run.duel.chapters) {
+        if (run.name === "cmu_sparring" && chapter.time_s % 30 !== 0) continue;
         const button = document.createElement("button");
-        button.textContent = chapter.label;
+        button.textContent =
+            run.name === "cmu_sparring"
+                ? `第 ${Math.floor(chapter.time_s / 30) + 1} 回合 · ${chapter.time_s}–${chapter.time_s + 30} 秒`
+                : chapter.label;
         button.dataset.start = chapter.time_s;
         button.addEventListener("click", () => {
             time = chapter.time_s;
@@ -292,6 +307,11 @@ function buildCombatUI() {
     }
 }
 function ui(frame, duel) {
+    $("round-status").textContent =
+        run.name === "cmu_sparring"
+            ? `ROUND ${duel.round} / 3 · ${Math.ceil(30 - (duel.round_time || 0))} s`
+            : "DOLLFIGHT";
+    $("round-intent").textContent = duel.intent?.[0] || "真人动作回放";
     $("time").textContent =
         `${time.toFixed(2).padStart(5, "0")} / ${run.duration.toFixed(2)}`;
     $("timeline").value = Math.round((time / run.duration) * 1000);
@@ -413,8 +433,15 @@ function animate(now) {
             secondary: $("secondary-motion").checked,
             secondaryMode: $("secondary-mode").value,
             optimized: $("optimized").checked,
+            recording: recorder.active,
             playing,
         });
+        recorder.frame(
+            scene.renderers.map((r) => r.domElement),
+            duel,
+            time,
+        );
+        if (recorder.active && time >= run.duration) recorder.stop();
         if (now - lastUi > 60) {
             ui(frame, duel);
             lastUi = now;
@@ -431,7 +458,7 @@ function animate(now) {
 }
 
 async function start() {
-    $("three-screens").addEventListener("change", () => {
+    const arrangeViews = () => {
         document.body.classList.toggle(
             "three-screens",
             $("three-screens").checked,
@@ -440,8 +467,16 @@ async function start() {
         if ($("three-screens").checked)
             document.querySelector(".transport").after(eyes);
         else document.querySelector(".metrics").after(eyes);
-        scene.size();
+        scene?.size();
+    };
+    $("three-screens").addEventListener("change", arrangeViews);
+    document.body.classList.add("showcase");
+    $("stage-focus").addEventListener("click", () => {
+        const focus = document.body.classList.toggle("showcase");
+        $("stage-focus").textContent = focus ? "显示参数" : "专注演示";
+        scene?.size();
     });
+    arrangeViews();
     $("secondary-mode").addEventListener("change", () =>
         compute({ preserveTime: true }),
     );
@@ -469,6 +504,29 @@ async function start() {
     });
     $("apply").addEventListener("click", compute);
     $("source").addEventListener("change", compute);
+    $("restart-match").addEventListener("click", () => {
+        if (!run || scene.loading) return;
+        time = 0;
+        setPlaying(true);
+    });
+    $("record-match").addEventListener("click", () => {
+        if (recorder.active) {
+            recorder.stop();
+            return;
+        }
+        if (!run || scene.loading) return;
+        document.querySelector('[data-view="arena"]').click();
+        $("speed").value = "1";
+        time = 0;
+        setPlaying(true);
+        try {
+            recorder.start(run, (label) => {
+                $("record-match").textContent = label;
+            });
+        } catch (err) {
+            error(err.message);
+        }
+    });
     $("transition-blend").addEventListener("change", () =>
         compute({ preserveTime: true }),
     );

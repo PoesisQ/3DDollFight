@@ -1,0 +1,232 @@
+{
+  "method": "60 Hz causal cage, actual VRM weights, CPU reference of the dense GPU projection",
+  "scope": "First round, six high-kick samples per model. Vertex/capsule contact only; does not certify triangle/body or self collision. Projection edge ratios show corrective distortion.",
+  "reports": [
+    {
+      "character": "nozomi",
+      "proxy_vertices": 216,
+      "proxy_max_penetration_m": 0.048472621493161144,
+      "proxy_max_constraint_length_ratio": 20.70722680601483,
+      "checks": [
+        {
+          "time_s": 13.966666666666667,
+          "vertices": 54585,
+          "before_max_penetration_m": 0.02260968068229794,
+          "after_max_penetration_m": 0.006123950697341493,
+          "before_vertices_over5mm": 1563,
+          "after_vertices_over5mm": 8,
+          "worst_rest_position": [
+            0.12375756353139877,
+            0.6887043118476868,
+            0.010531851090490818
+          ],
+          "displacement_p95_m": 0.0056549683364874315,
+          "displacement_max_m": 0.016485729984956447,
+          "projection_edge_ratio_p99": 1.123135821464645,
+          "projection_edge_ratio_max": 1.274957366017461
+        },
+        {
+          "time_s": 14.1,
+          "vertices": 54585,
+          "before_max_penetration_m": 0.02706978878066036,
+          "after_max_penetration_m": 0.0094244306741149,
+          "before_vertices_over5mm": 1268,
+          "after_vertices_over5mm": 77,
+          "worst_rest_position": [
+            0.1092807799577713,
+            0.7290756106376648,
+            -0.029441362246870995
+          ],
+          "displacement_p95_m": 0.0049355507352148685,
+          "displacement_max_m": 0.01764535810654547,
+          "projection_edge_ratio_p99": 1.1099139905292477,
+          "projection_edge_ratio_max": 1.311842217003464
+        },
+        {
+          "time_s": 14.233333333333333,
+          "vertices": 54585,
+          "before_max_penetration_m": 0.022563208223959866,
+          "after_max_penetration_m": 0.006090956407954151,
+          "before_vertices_over5mm": 770,
+          "after_vertices_over5mm": 4,
+          "worst_rest_position": [
+            0.0759967714548111,
+            0.8566506505012512,
+            -0.038700200617313385
+          ],
+          "displacement_p95_m": 0,
+          "displacement_max_m": 0.01647225181600571,
+          "projection_edge_ratio_p99": 1.055540480011742,
+          "projection_edge_ratio_max": 1.2719492721405794
+        },
+        {
+          "time_s": 24.7,
+          "vertices": 54585,
+          "before_max_penetration_m": 0.050908275220534774,
+          "after_max_penetration_m": 0.030969195854191577,
+          "before_vertices_over5mm": 3330,
+          "after_vertices_over5mm": 358,
+          "worst_rest_position": [
+            -0.09511241316795349,
+            0.9960399866104126,
+            0.09441377222537994
+          ],
+          "displacement_p95_m": 0.009432277582141475,
+          "displacement_max_m": 0.023915516804331717,
+          "projection_edge_ratio_p99": 1.1542236903969472,
+          "projection_edge_ratio_max": 1.6629960998486135
+        },
+        {
+          "time_s": 24.833333333333332,
+          "vertices": 54585,
+          "before_max_penetration_m": 0.07412715072406571,
+          "after_max_penetration_m": 0.06538238562985743,
+          "before_vertices_over5mm": 4654,
+          "after_vertices_over5mm": 830,
+          "worst_rest_position": [
+            -0.09173239767551422,
+            0.9926788210868835,
+            0.09651605039834976
+          ],
+          "displacement_p95_m": 0.010864323409812483,
+          "displacement_max_m": 0.024128632085979693,
+          "projection_edge_ratio_p99": 1.1814338029778615,
+          "projection_edge_ratio_max": 2.4569724371335115
+        },
+        {
+          "time_s": 24.966666666666665,
+          "vertices": 54585,
+          "before_max_penetration_m": 0.06371628359811016,
+          "after_max_penetration_m": 0.046459603867738515,
+          "before_vertices_over5mm": 4796,
+          "after_vertices_over5mm": 504,
+          "worst_rest_position": [
+            -0.11893615871667862,
+            0.9960525631904602,
+            0.06870175898075104
+          ],
+          "displacement_p95_m": 0.010523097444105598,
+          "displacement_max_m": 0.020028405428635317,
+          "projection_edge_ratio_p99": 1.1673340031002681,
+          "projection_edge_ratio_max": 2.0194347376194854
+        }
+      ]
+    },
+    {
+      "character": "mizore",
+      "proxy_vertices": 216,
+      "proxy_max_penetration_m": 0.059073249719100586,
+      "proxy_max_constraint_length_ratio": 28.966070120168887,
+      "checks": [
+        {
+          "time_s": 9.133333333333333,
+          "vertices": 56050,
+          "before_max_penetration_m": 0.06003197161100965,
+          "after_max_penetration_m": 0.041468078841846515,
+          "before_vertices_over5mm": 3988,
+          "after_vertices_over5mm": 538,
+          "worst_rest_position": [
+            -0.08929023146629333,
+            0.996228814125061,
+            0.10734216868877411
+          ],
+          "displacement_p95_m": 0.010167651469363733,
+          "displacement_max_m": 0.024999999999999988,
+          "projection_edge_ratio_p99": 1.1439679728286432,
+          "projection_edge_ratio_max": 1.8909653356063323
+        },
+        {
+          "time_s": 9.266666666666667,
+          "vertices": 56050,
+          "before_max_penetration_m": 0.07582162918987698,
+          "after_max_penetration_m": 0.06936732714158675,
+          "before_vertices_over5mm": 5280,
+          "after_vertices_over5mm": 716,
+          "worst_rest_position": [
+            -0.09240588545799255,
+            0.9928550720214844,
+            0.10618402808904648
+          ],
+          "displacement_p95_m": 0.011448924103569947,
+          "displacement_max_m": 0.025,
+          "projection_edge_ratio_p99": 1.1740247909426937,
+          "projection_edge_ratio_max": 2.539072063221447
+        },
+        {
+          "time_s": 9.4,
+          "vertices": 56050,
+          "before_max_penetration_m": 0.07735556737951375,
+          "after_max_penetration_m": 0.07316981808279174,
+          "before_vertices_over5mm": 5587,
+          "after_vertices_over5mm": 643,
+          "worst_rest_position": [
+            -0.12300224602222443,
+            0.9962917566299438,
+            0.07346653193235397
+          ],
+          "displacement_p95_m": 0.011344295674776118,
+          "displacement_max_m": 0.020028343518216855,
+          "projection_edge_ratio_p99": 1.1733169058288249,
+          "projection_edge_ratio_max": 2.5548995761462434
+        },
+        {
+          "time_s": 24.366666666666667,
+          "vertices": 56050,
+          "before_max_penetration_m": 0.013805264034374015,
+          "after_max_penetration_m": 0.0004645614074105936,
+          "before_vertices_over5mm": 163,
+          "after_vertices_over5mm": 0,
+          "worst_rest_position": [
+            -0.13959388434886932,
+            0.6624824404716492,
+            -0.008249346166849136
+          ],
+          "displacement_p95_m": 0,
+          "displacement_max_m": 0.013340702626963415,
+          "projection_edge_ratio_p99": 1.024604933422176,
+          "projection_edge_ratio_max": 1.1764189038884154
+        },
+        {
+          "time_s": 24.5,
+          "vertices": 56050,
+          "before_max_penetration_m": 0.023262527518460557,
+          "after_max_penetration_m": 0.006590611116873368,
+          "before_vertices_over5mm": 122,
+          "after_vertices_over5mm": 8,
+          "worst_rest_position": [
+            -0.127899169921875,
+            0.6409183740615845,
+            -0.03559393063187599
+          ],
+          "displacement_p95_m": 0,
+          "displacement_max_m": 0.016671916401587196,
+          "projection_edge_ratio_p99": 1,
+          "projection_edge_ratio_max": 1.2510001955905306
+        },
+        {
+          "time_s": 24.633333333333333,
+          "vertices": 56050,
+          "before_max_penetration_m": 0.019721420464191168,
+          "after_max_penetration_m": 0.004132223926230763,
+          "before_vertices_over5mm": 166,
+          "after_vertices_over5mm": 0,
+          "worst_rest_position": [
+            -0.06517067551612854,
+            0.8260725736618042,
+            -0.06055065244436264
+          ],
+          "displacement_p95_m": 0,
+          "displacement_max_m": 0.01558919653796041,
+          "projection_edge_ratio_p99": 1,
+          "projection_edge_ratio_max": 1.2348131605147463
+        }
+      ]
+    }
+  ],
+  "avatar_sha256": {
+    "nozomi": "c262fecac27cbea11d9e0e52505f992b8d1366605f7e05c45dfb58d972a77534",
+    "mizore": "3544073bf844198b8a67a2be26b9776621f324c827ff6d659fcd5c3285e3a37f"
+  },
+  "contact_limits": "The waistband remains pelvis-pinned. Deep high-kick waist intersections remain; no full body or self collision certification.",
+  "corrective": "Pose-dependent guide and constraint lengths; bounded 25 mm smooth GPU SDF correction. Length ratios are relative to the original bind cage, not physical textile strain."
+}

@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { ClothSolver } from "./cloth.js";
+import { garmentProjectionGLSL } from "./garment-guide.js";
 
 // Runtime mode integrates current/history poses; review mode bakes at 60 Hz.
 // Only the cached review mode is independent of seek/playback history.
@@ -8,8 +9,12 @@ export function createSecondaryMotion(vrm, group) {
     let cloth = null;
     const proxies = [];
     let cage = null;
+    let cageObject = null;
     vrm.scene.traverse((object) => {
-        if (object.userData.dollfightCage) cage = object.userData.dollfightCage;
+        if (object.userData.dollfightCage) {
+            cage = object.userData.dollfightCage;
+            cageObject = object;
+        }
     });
     const cageBones = cage
         ? cage.rest.map((_, i) =>
@@ -19,7 +24,9 @@ export function createSecondaryMotion(vrm, group) {
           )
         : [];
     if (cage)
-        cloth = new ClothSolver(cage.rest.flat(), cage.segments, cage.rows);
+        cloth = new ClothSolver(cage.rest.flat(), cage.segments, cage.rows, {
+            shapeCorrective: true,
+        });
     const garment = vrm.scene.getObjectByName("DollFight_PleatedSkirt");
     if (garment?.userData.dollfightCloth) {
         const sourceMeshes = [];
@@ -65,9 +72,42 @@ export function createSecondaryMotion(vrm, group) {
         ["leftLowerLeg", "leftFoot", cage?.capsuleRadii[2] ?? 0.04],
         ["rightLowerLeg", "rightFoot", cage?.capsuleRadii[3] ?? 0.04],
     ];
+    const surfaceContacts = [];
+    cageObject?.traverse((mesh) => {
+        if (!mesh.isSkinnedMesh) return;
+        const uniforms = {
+            dfLegA: {
+                value: Array.from({ length: 4 }, () => new THREE.Vector4()),
+            },
+            dfLegB: {
+                value: Array.from({ length: 4 }, () => new THREE.Vector4()),
+            },
+            dfWorldToLocal: { value: new THREE.Matrix4() },
+            dfContactEnabled: { value: 1 },
+        };
+        const original = mesh.material;
+        const material = original.clone();
+        material.onBeforeCompile = (shader) => {
+            Object.assign(shader.uniforms, uniforms);
+            shader.vertexShader =
+                `uniform vec4 dfLegA[4];\nuniform vec4 dfLegB[4];\nuniform mat4 dfWorldToLocal;\nuniform float dfContactEnabled;\n` +
+                shader.vertexShader;
+            shader.vertexShader = shader.vertexShader.replace(
+                "#include <skinning_vertex>",
+                "#include <skinning_vertex>\nif (dfContactEnabled > .5) {\n" +
+                    garmentProjectionGLSL +
+                    "\n}",
+            );
+        };
+        material.customProgramCacheKey = () =>
+            `dollfight-bounded-garment-contact-v3-${cage.rest.length}`;
+        mesh.material = material;
+        surfaceContacts.push({ mesh, uniforms });
+    });
     let cache = null;
     let mode = "cache",
         liveTime = null,
+        liveAccumulator = 0,
         stepMs = 0,
         lastDraw = null,
         lastEnabled = true;
@@ -124,6 +164,18 @@ export function createSecondaryMotion(vrm, group) {
             radius,
         }));
     }
+    function updateSurfaceContacts(enabled) {
+        if (!surfaceContacts.length) return;
+        const contacts = capsules();
+        for (const { mesh, uniforms } of surfaceContacts) {
+            uniforms.dfContactEnabled.value = enabled ? 1 : 0;
+            uniforms.dfWorldToLocal.value.copy(mesh.matrixWorld).invert();
+            contacts.forEach((c, i) => {
+                uniforms.dfLegA.value[i].set(...c.a, c.radius);
+                uniforms.dfLegB.value[i].set(...c.b, 0);
+            });
+        }
+    }
     function snapshot() {
         const rotations = new Float32Array(springBones.length * 4);
         springBones.forEach((bone, i) =>
@@ -159,6 +211,7 @@ export function createSecondaryMotion(vrm, group) {
                 stepMs,
                 simulatedVertices: cloth?.rest.length / 3 || 0,
                 gpuCage: !!cage,
+                denseSurfaceProjection: surfaceContacts.length > 0,
             };
         },
         get enabled() {
@@ -260,22 +313,36 @@ export function createSecondaryMotion(vrm, group) {
                 const dt = liveTime === null ? 0 : time - liveTime;
                 group.updateMatrixWorld(true);
                 if (liveTime === null || dt < 0 || dt > 0.1) {
+                    liveAccumulator = 0;
                     manager?.reset();
-                    if (cloth) cloth.reset(transformedRest());
+                    if (cloth) {
+                        const anchors = transformedRest(),
+                            body = capsules();
+                        cloth.reset(anchors);
+                        // Initialize at the currently requested pose on seek;
+                        // a raised leg must not start inside a vertical skirt.
+                        for (let k = 0; k < 6; k++)
+                            cloth.step(1 / 60, anchors, body);
+                    }
                 } else if (dt > 1e-6 && enabled) {
-                    // At most two bounded steps; no future pose or full-clip cache.
-                    const steps = Math.min(2, Math.ceil(dt * 60));
+                    // Fixed 60 Hz simulation with 240 Hz contact substeps.
+                    // ceil(renderDelta * 60) used to oversample a 50 Hz render
+                    // loop and create a CPU slowdown feedback loop.
+                    liveAccumulator += dt;
+                    const steps = Math.min(
+                        6,
+                        Math.floor((liveAccumulator + 1e-9) * 60),
+                    );
+                    liveAccumulator -= steps / 60;
+                    const anchors = cloth ? transformedRest() : null;
+                    const body = cloth ? capsules() : null;
                     for (let k = 0; k < steps; k++) {
-                        manager?.update(Math.min(dt / steps, 1 / 60));
-                        if (cloth)
-                            cloth.step(
-                                Math.min(dt / steps, 1 / 60),
-                                transformedRest(),
-                                capsules(),
-                            );
+                        manager?.update(1 / 60);
+                        if (cloth) cloth.step(1 / 60, anchors, body);
                     }
                 }
                 liveTime = time;
+                updateSurfaceContacts(enabled);
                 if (!enabled)
                     springBones.forEach((bone, i) =>
                         bone.quaternion.copy(binds[i]),
@@ -289,6 +356,7 @@ export function createSecondaryMotion(vrm, group) {
                 return;
             }
             if (!cache) return;
+            updateSurfaceContacts(enabled);
             const at = Math.min(
                 cache.samples.length - 1,
                 Math.max(0, time * cache.hz),

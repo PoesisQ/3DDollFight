@@ -1,7 +1,11 @@
 """Loopback-only evaluation app. Launch: uv run python -m dollfight.server."""
 
 import argparse
+import gzip
+import hashlib
 import json
+import os
+import tempfile
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -14,6 +18,40 @@ from dollfight.kinematics import PROFILES
 from dollfight.pipeline import CATALOG, ROOT, export_poseframes, make_run
 
 WEB = ROOT / "apps/motion-lab"
+
+
+def replay_run(config, *, include_duel):
+    """Content-keyed cache for the long public rehearsal, never camera uploads.
+
+    Rendering/cloth stay live. Changing algorithms, clips or proportions
+    invalidates the cached offline pose/combat evaluation.
+    """
+    if config.get("source") != "cmu_sparring" or not include_duel:
+        return make_run(config, include_duel=include_duel)
+    digest = hashlib.sha256(json.dumps(config, sort_keys=True).encode())
+    for path in sorted((ROOT / "src/dollfight").glob("*.py")) + sorted(
+        (ROOT / "data/samples").glob("cmu_*.json")
+    ):
+        digest.update(path.name.encode())
+        digest.update(path.read_bytes())
+    cache = ROOT / "outputs/replay-cache" / (digest.hexdigest() + ".json.gz")
+    if cache.is_file():
+        with gzip.open(cache, "rt", encoding="utf-8") as stream:
+            run = json.load(stream)
+        run["evaluation_cache"] = "content-validated offline replay"
+        return run
+    run = make_run(config, include_duel=True)
+    cache.parent.mkdir(parents=True, exist_ok=True)
+    # A second request must never read a partially written gzip stream.
+    fd, temporary = tempfile.mkstemp(dir=cache.parent, suffix=".tmp")
+    os.close(fd)
+    try:
+        with gzip.open(temporary, "wt", encoding="utf-8") as stream:
+            json.dump(run, stream, ensure_ascii=False, separators=(",", ":"), allow_nan=False)
+        os.replace(temporary, cache)
+    finally:
+        Path(temporary).unlink(missing_ok=True)
+    return run
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -93,7 +131,7 @@ class Handler(BaseHTTPRequestHandler):
             config = json.loads(self.rfile.read(length))
             if not isinstance(config, dict):
                 raise ValueError("配置必须为 JSON 对象")
-            run = make_run(config, include_duel=self.path == "/api/run")
+            run = replay_run(config, include_duel=self.path == "/api/run")
             self.reply(
                 export_animation(run)
                 if self.path == "/api/export-unity"

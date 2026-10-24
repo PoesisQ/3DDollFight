@@ -15,16 +15,19 @@
     "method": "CPU surface transfer + adjacency smoothing + separate GPU garment cage; NOT SkinTokens",
     "hybrid_face": false,
     "hybrid_head": false,
+    "authored_hands_neck": false,
+    "hair_binding": "two spatial chains",
+    "hair_bones": 8,
     "authored_hair_sha256": null,
     "likeness_approved": false
   },
   {
     "name": "nozomi-hybrid",
-    "bytes": 21982560,
-    "sha256": "53899ca9038497a3db448c4a690d334e2df7ce474170d09ed31e2c6e2af99a68",
+    "bytes": 21727684,
+    "sha256": "c262fecac27cbea11d9e0e52505f992b8d1366605f7e05c45dfb58d972a77534",
     "source_sha256": "399f4ff3336b693051951663de14033fb0e3d5945faf03bbd2be907eead20dcd",
     "source_triangles": 237752,
-    "retained_source_triangles": 202625,
+    "retained_source_triangles": 191554,
     "human_bones": 54,
     "cage_bones": 216,
     "transfer_distance_m_p50_p95": [
@@ -34,6 +37,9 @@
     "method": "CPU surface transfer + adjacency smoothing + separate GPU garment cage; NOT SkinTokens",
     "hybrid_face": true,
     "hybrid_head": true,
+    "authored_hands_neck": true,
+    "hair_binding": "authored strand topology",
+    "hair_bones": 59,
     "authored_hair_sha256": "fbdb699d57a950884e818d29bb755302c1d4ffa0bd530b06f17bbbc066b18b12",
     "likeness_approved": false
   },
@@ -53,16 +59,19 @@
     "method": "CPU surface transfer + adjacency smoothing + separate GPU garment cage; NOT SkinTokens",
     "hybrid_face": false,
     "hybrid_head": false,
+    "authored_hands_neck": false,
+    "hair_binding": "two spatial chains",
+    "hair_bones": 8,
     "authored_hair_sha256": null,
     "likeness_approved": false
   },
   {
     "name": "mizore-hybrid",
-    "bytes": 23650660,
-    "sha256": "9e0b7cdbca804354173e40811cdfa1e2df0b4b2035d65bfd4523175a0bc44f13",
+    "bytes": 23384836,
+    "sha256": "3544073bf844198b8a67a2be26b9776621f324c827ff6d659fcd5c3285e3a37f",
     "source_sha256": "84aa58a79aae85f09b13c1b55b1f7b4ee8eda5a3344510ee5207efe4f7e2afe4",
     "source_triangles": 270156,
-    "retained_source_triangles": 236693,
+    "retained_source_triangles": 225107,
     "human_bones": 54,
     "cage_bones": 216,
     "transfer_distance_m_p50_p95": [
@@ -72,6 +81,9 @@
     "method": "CPU surface transfer + adjacency smoothing + separate GPU garment cage; NOT SkinTokens",
     "hybrid_face": true,
     "hybrid_head": true,
+    "authored_hands_neck": true,
+    "hair_binding": "authored strand topology",
+    "hair_bones": 59,
     "authored_hair_sha256": "f2237ac0d8c44041bf19efe7573c945aab250252149e645c281790fbd0cc08fd",
     "likeness_approved": false
   }

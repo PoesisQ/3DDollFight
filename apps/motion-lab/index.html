@@ -154,7 +154,7 @@
                             Tripo · 两人本地绑定 / 原网格
                         </option>
                         <option value="local-hybrid" selected>
-                            Tripo · 两人本地绑定 / 头部重建
+                            Tripo · 手颈重建 / 独立发束
                         </option>
                         <option value="atelier">新路线 · 两套校服底模</option>
                         <option value="atelier-nozomi">
@@ -232,7 +232,7 @@
                     />
                     <label class="range-label" for="initial-gap"
                         >起始间距
-                        <output id="initial-gap-value">3.2 m</output></label
+                        <output id="initial-gap-value">1.8 m</output></label
                     >
                     <input
                         id="initial-gap"
@@ -240,12 +240,12 @@
                         min="1.2"
                         max="3.5"
                         step="0.1"
-                        value="3.2"
+                        value="1.8"
                         aria-label="起始间距"
                     />
                     <p class="note">
-                        相机输入保留前后 ±0.65 m
-                        的安全范围；真人动捕按角色比例保留世界位移，不使用站位裁剪或倍率。调整后点击重新计算。
+                        三回合排练采用短步与有限的交手区域，已校正支撑脚。单段动捕保留原位移，旧版拼接供漂移对照。相机输入前后范围为
+                        ±0.65 m。
                     </p>
                     <label class="toggle"
                         ><input
@@ -318,13 +318,21 @@
                     ><button data-view="compare">骨架对比</button
                     ><button data-view="retarget">重定向检查</button
                     ><button data-view="avatar">皮套近看</button
+                    ><button id="stage-focus">显示参数</button
                     ><label class="toggle"
                         ><input
                             id="three-screens"
                             type="checkbox"
+                            checked
                         />三屏同测</label
                     ><span>拖动旋转 · 滚轮缩放</span>
                 </nav>
+                <div class="rehearsal-bar">
+                    <strong id="round-status">DOLLFIGHT</strong>
+                    <span id="round-intent">准备动作</span>
+                    <button id="restart-match">从头播放</button>
+                    <button id="record-match">录制完整演示</button>
+                </div>
                 <div id="chapters" class="chapters" aria-label="战术段落"></div>
                 <p id="chapter-detail" class="chapter-detail">
                     选择片段检查进退、攻击与防守的关系。
@@ -511,7 +519,7 @@
                 <footer>
                     <span id="description"
                         >合成轨迹用于可控实验，不代表真人准确率。</span
-                    ><span>v0.7 · 本地绑骨 / 真人步法 / 实时三屏</span>
+                    ><span>v0.8 · 三回合排练 / 手颈重建 / 高踢裙摆</span>
                 </footer>
                 <div id="error" class="error" role="alert" hidden></div>
             </div>

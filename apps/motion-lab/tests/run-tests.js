@@ -2,3 +2,4 @@
 import "./projection.test.js";
 import "./opponent-camera.test.js";
 import "./cloth.test.js";
+import "./garment-guide.test.js";

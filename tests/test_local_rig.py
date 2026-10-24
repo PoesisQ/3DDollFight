@@ -117,3 +117,38 @@ def test_hybrid_replaces_the_whole_head_without_leaving_source_eyes(character):
             for part in mesh["primitives"]:
                 positions = model.accessor(part["attributes"]["POSITION"])
                 assert positions[:, 1].max() < 1.38
+
+
+@pytest.mark.parametrize("character", ["nozomi", "mizore"])
+def test_authored_hands_neck_and_hair_keep_anatomical_membership(character):
+    path = ROOT / f"data/avatars/local/{character}-hybrid.vrm"
+    if not path.exists() or path.read_bytes()[:4] != b"glTF":
+        pytest.skip("optional LFS model not fetched")
+    model = EmbeddedGLB(path.read_bytes())
+    skin = model.doc["skins"][0]
+    names = np.array([model.doc["nodes"][n]["name"] for n in skin["joints"]])
+    parts = {m["name"]: m["primitives"][0] for m in model.doc["meshes"]}
+    body = parts["AuthoredHandsNeck"]
+    j = model.accessor(body["attributes"]["JOINTS_0"]).astype(int)
+    w = model.accessor(body["attributes"]["WEIGHTS_0"])
+    active = names[np.unique(j[w > 0.05])]
+    for side in ("left", "right"):
+        for finger in ("Thumb", "Index", "Middle", "Ring", "Little"):
+            assert any(n.startswith(side + finger) for n in active)
+    bv = model.accessor(body["attributes"]["POSITION"])
+    fv = model.accessor(parts["AuthoredFace_2"]["attributes"]["POSITION"])
+    # Shared seam positions have identical head attachment, rather than a
+    # merely adjacent neck cylinder that separates during head rotation.
+    face_points = {tuple(row) for row in np.round(fv, 5)}
+    shared = np.array([tuple(row) in face_points for row in np.round(bv, 5)])
+    assert shared.sum() >= 12
+    head_weight = np.sum(w * (names[j] == "head"), axis=1)
+    assert head_weight[shared].min() > 0.98
+    hair = parts["AuthoredHair"]
+    hj = model.accessor(hair["attributes"]["JOINTS_0"]).astype(int)
+    hw = model.accessor(hair["attributes"]["WEIGHTS_0"])
+    used = names[np.unique(hj[hw > 0.01])]
+    assert sum(n.startswith("J_Sec_Hair") for n in used) >= 35
+    assert not any(n.startswith("DF_Hair_") for n in used)
+    springs = model.doc["extensions"]["VRMC_springBone"]["springs"]
+    assert len(springs) == 12

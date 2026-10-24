@@ -15,9 +15,10 @@ from dollfight.solver import SkeletonSolver
 
 ROOT = Path(__file__).resolve().parents[2]
 CATALOG = [
+    {"id": "cmu_sparring", "label": "DollFight · 90 秒三回合攻防排练", "kind": "双人动捕编排"},
     {
         "id": "cmu_footwork",
-        "label": "真人步法衔接 · 前进 → 出拳 → 后退 → 双向侧移",
+        "label": "旧版步法拼接 · 无约束位移对照",
         "kind": "动捕编辑",
     },
     {"id": "cmu_retreat_punch", "label": "真人 · 后退后出拳（一次连续采集）", "kind": "公开动捕"},
@@ -147,13 +148,17 @@ def make_run(config, *, include_duel=False, player=0):
         )
         if name == "upload"
         else load_clip(name, bool(config.get("transition_blend", True)))
-        if name != "duel"
+        if name not in ("duel", "cmu_sparring")
         else None
     )
     if name == "duel":
         from dollfight.duel_fixture import duel_clip
 
         clip = duel_clip(player)
+    elif name == "cmu_sparring":
+        from dollfight.sparring import rehearsal_clip
+
+        clip = rehearsal_clip(player)
     sigma = np.clip(float(config.get("noise_mm", 5)), 0, 80) / 1000
     dropout = np.clip(float(config.get("dropout", 0)), 0, 0.5)
     cutoff = float(np.clip(config.get("cutoff", 1.7), 0.2, 12))
@@ -241,6 +246,7 @@ def make_run(config, *, include_duel=False, player=0):
                 "body": diagnostics,
                 "action_timing": timing_at(references, time_s),
                 "event_ids": [event["id"] for event in recognized],
+                **({"performance": clip["performance"][index]} if "performance" in clip else {}),
                 "error_mm": round(float(np.nanmean(solved_error) * 1000), 2)
                 if np.isfinite(solved_error).any()
                 else None,
@@ -265,7 +271,7 @@ def make_run(config, *, include_duel=False, player=0):
         "comparison": "raw_error_mm/solved_error_mm use the same observed joints",
     }
     run = {
-        "version": "0.5.0",
+        "version": "0.8.0",
         "source": clip["source"],
         "name": name,
         "description": clip["description"],
@@ -291,7 +297,7 @@ def make_run(config, *, include_duel=False, player=0):
     if include_duel:
         from dollfight.duel import build_duel
 
-        secondary = make_run(config, player=1) if name == "duel" else None
+        secondary = make_run(config, player=1) if name in ("duel", "cmu_sparring") else None
         run["duel"] = build_duel(run, secondary, config)
     return run
 

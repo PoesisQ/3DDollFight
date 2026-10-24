@@ -117,8 +117,28 @@ export async function createVRMAvatar(buffer) {
                         node,
                         bind: node.quaternion.clone(),
                         sign: side === "left" ? -1 : 1,
+                        curl: {
+                            Proximal: 1.05,
+                            Intermediate: 1.35,
+                            Distal: 0.75,
+                        }[segment],
                     });
             }
+    const thumbs = [];
+    for (const side of ["left", "right"])
+        for (const segment of ["Metacarpal", "Proximal", "Distal"]) {
+            const node = vrm.humanoid.getNormalizedBoneNode(
+                side + "Thumb" + segment,
+            );
+            if (node)
+                thumbs.push({
+                    node,
+                    bind: node.quaternion.clone(),
+                    sign: side === "left" ? -1 : 1,
+                    segment,
+                });
+        }
+    const thumbAxis = new THREE.Vector3(0, 1, 0);
     const secondary = createSecondaryMotion(vrm, group);
     meshes.push(...secondary.proxies);
     return {
@@ -205,17 +225,43 @@ export async function createVRMAvatar(buffer) {
             });
             // Hand shape is a display prior: canonical19 contains no fingers.
             // Keep defence open; close the four fingers during recorded kicks / attacks.
-            const closed =
-                frame.action_timing && frame.action_timing.phase !== "ready";
+            const closure = (f) =>
+                f.performance?.hand_close ??
+                f.action_timing?.hand_close ??
+                0.15;
+            const closed = THREE.MathUtils.lerp(
+                closure(frame),
+                closure(next || frame),
+                alpha,
+            );
             for (const finger of fingers)
                 finger.node.quaternion
                     .copy(finger.bind)
                     .multiply(
                         q.setFromAxisAngle(
                             fingerAxis,
-                            closed ? finger.sign * 0.85 : 0.12 * finger.sign,
+                            finger.sign * (0.1 + closed * finger.curl),
                         ),
                     );
+            for (const thumb of thumbs) {
+                thumb.node.quaternion
+                    .copy(thumb.bind)
+                    .multiply(
+                        q.setFromAxisAngle(
+                            thumbAxis,
+                            thumb.sign *
+                                closed *
+                                (thumb.segment === "Metacarpal" ? 0.4 : 0.65),
+                        ),
+                    );
+                if (thumb.segment === "Metacarpal")
+                    thumb.node.quaternion.multiply(
+                        q.setFromAxisAngle(
+                            fingerAxis,
+                            thumb.sign * closed * 0.35,
+                        ),
+                    );
+            }
             vrm.humanoid.update();
             vrm.expressionManager?.update();
             vrm.nodeConstraintManager?.update();

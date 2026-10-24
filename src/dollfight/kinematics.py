@@ -190,6 +190,7 @@ class Retargeter:
         self.anchor_weights = [0.0, 0.0]
         self.previous_quaternions = None
         self.previous_rotations = None
+        self.ground_correction = None
 
     def process(self, source, dt):
         offsets = self.rest.copy()
@@ -264,17 +265,18 @@ class Retargeter:
         # Preserve floor contact for different proportions even during a pivot:
         # vertical grounding is distinct from locking a stationary foot in XZ.
         if self.foot_lock:
-            grounded = [a for a in (13, 17) if source[a, 1] < self.source_rest[a, 1] + 0.07]
-            if grounded:
-                correction = np.mean(
-                    [
-                        self.rest[a, 1]
-                        + (source[a, 1] - self.source_rest[a, 1]) * ratio
-                        - points[a, 1]
-                        for a in grounded
-                    ]
-                )
-                points[:, 1] += np.clip(correction, -0.35, 0.35)
+            altitude = source[[13, 17], 1] - self.source_rest[[13, 17], 1]
+            fade = np.clip((altitude - 0.025) / 0.12, 0, 1)
+            weight = 1 - fade * fade * (3 - 2 * fade)
+            errors = self.rest[[13, 17], 1] + altitude * ratio - points[[13, 17], 1]
+            correction = float(weight @ errors / max(weight.sum(), 1e-9))
+            correction = float(np.clip(correction, -0.35, 0.35))
+            if self.ground_correction is None:
+                self.ground_correction = correction
+            else:
+                change = (correction - self.ground_correction) * (1 - np.exp(-dt / 0.10))
+                self.ground_correction += float(np.clip(change, -0.6 * dt, 0.6 * dt))
+            points[:, 1] += self.ground_correction
         contacts = [False, False]
         feet = source[[13, 17]].copy()
         if self.foot_lock and self.previous_feet is not None:
@@ -320,6 +322,31 @@ class Retargeter:
                     contacts[side] = bool(active and weight > 0.5)
                 else:
                     self.anchors.pop(side, None)
+        if self.foot_lock:
+            # A fast swing can be too fast for a planted-foot lock but must not
+            # tunnel through the floor. Correct that leg with fixed-length IK,
+            # rather than abruptly lifting the pelvis and the other leg.
+            for hip, knee, ankle, toe in ((11, 12, 13, 14), (15, 16, 17, 18)):
+                floor = max(0.025, self.rest[ankle, 1] - 0.015)
+                if points[ankle, 1] < floor:
+                    target = points[ankle].copy()
+                    target[1] = floor
+                    k, a = two_bone_ik(
+                        points[hip],
+                        target,
+                        np.linalg.norm(offsets[knee]),
+                        np.linalg.norm(offsets[ankle]),
+                        points[knee],
+                    )
+                    rotations[hip] = (
+                        swing_rotation(rotations[hip] @ offsets[knee], k - points[hip])
+                        @ rotations[hip]
+                    )
+                    rotations[knee] = (
+                        swing_rotation(rotations[knee] @ offsets[ankle], a - k) @ rotations[knee]
+                    )
+                    points[knee], points[ankle] = k, a
+                    points[toe] = a + rotations[ankle] @ offsets[toe]
         self.previous_feet = feet
         quaternions = []
         for i, parent in enumerate(PARENTS):

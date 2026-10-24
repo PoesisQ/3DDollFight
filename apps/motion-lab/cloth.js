@@ -1,8 +1,9 @@
 // Fixed-step position based cloth. Authored topology is independent of leg skin
 // weights. Structural/shear/bend distances and body capsules are solved together.
 // No self collision, aerodynamic model or claim of production garment simulation.
+import { skirtGuide } from "./garment-guide.js";
 export class ClothSolver {
-    constructor(rest, segments, rows) {
+    constructor(rest, segments, rows, { shapeCorrective = false } = {}) {
         if (
             !Number.isInteger(segments) ||
             !Number.isInteger(rows) ||
@@ -20,6 +21,8 @@ export class ClothSolver {
         this.segments = segments;
         this.rows = rows;
         this.constraints = [];
+        this.shapeCorrective = shapeCorrective;
+        this.correctiveLengths = null;
         const edge = (a, b, stiffness) => {
             let length = 0;
             for (let k = 0; k < 3; k++)
@@ -48,6 +51,9 @@ export class ClothSolver {
         this.previous.set(transformedRest);
         this.lastAnchors = Float64Array.from(transformedRest);
         this.lastCapsules = null;
+        this.lastGuideOffset = new Float64Array(transformedRest.length);
+        this.lastGuide = null;
+        this.correctiveLengths = null;
     }
     step(dt, anchors, capsules, iterations = 5) {
         if (!(dt > 0 && dt <= 1 / 30 + 1e-8))
@@ -58,6 +64,23 @@ export class ClothSolver {
                 ? this.lastCapsules
                 : capsules;
         const substeps = Math.max(1, Math.ceil(dt * 240 - 1e-8));
+        const guide = this.shapeCorrective
+            ? skirtGuide(anchors, this.segments, this.rows, capsules)
+            : anchors;
+        if (this.shapeCorrective) {
+            this.correctiveLengths ??= new Float64Array(
+                this.constraints.length,
+            );
+            for (let ci = 0; ci < this.constraints.length; ci++) {
+                const a = this.constraints[ci][0] * 3,
+                    b = this.constraints[ci][1] * 3;
+                const x = guide[a] - guide[b],
+                    y = guide[a + 1] - guide[b + 1],
+                    z = guide[a + 2] - guide[b + 2];
+                this.correctiveLengths[ci] = Math.sqrt(x * x + y * y + z * z);
+            }
+        }
+        const fromGuide = this.lastGuide || guide;
         let previousCapsules = fromCapsules;
         for (let sub = 1; sub <= substeps; sub++) {
             const alpha = sub / substeps;
@@ -84,6 +107,10 @@ export class ClothSolver {
                 contacts,
                 previousCapsules,
                 iterations,
+                Float64Array.from(
+                    guide,
+                    (v, i) => fromGuide[i] + alpha * (v - fromGuide[i]),
+                ),
             );
             previousCapsules = contacts;
         }
@@ -93,7 +120,9 @@ export class ClothSolver {
         // Do not permit a visually torn surface to satisfy a contact constraint.
         for (let iteration = 0; iteration < 32; iteration++) {
             let largest = 1;
-            for (const [a, b, rest] of this.constraints) {
+            for (let ci = 0; ci < this.constraints.length; ci++) {
+                const [a, b, bindRest] = this.constraints[ci];
+                const rest = this.correctiveLengths?.[ci] ?? bindRest;
                 const ia = a * 3,
                     ib = b * 3,
                     p = this.position;
@@ -127,6 +156,7 @@ export class ClothSolver {
             this.previous[i] = this.position[i] - velocity;
         }
         this.lastAnchors = Float64Array.from(anchors);
+        this.lastGuide = guide;
         this.lastCapsules = capsules.map((c) => ({
             a: [...c.a],
             b: [...c.b],
@@ -134,15 +164,28 @@ export class ClothSolver {
         }));
         return this.position;
     }
-    integrate(dt, anchors, capsules, previousCapsules, iterations) {
+    integrate(dt, anchors, capsules, previousCapsules, iterations, guide) {
         const p = this.position,
             old = this.previous,
             n = this.segments * 3;
         const before = Float64Array.from(p);
+        // Carry only the change of the pose corrective. Translation of the
+        // whole character is still handled by the moving pins and inertia.
+        if (!this.lastGuideOffset)
+            this.lastGuideOffset = new Float64Array(p.length);
+        for (let i = n; i < p.length; i++) {
+            const offset = guide[i] - anchors[i];
+            const change = offset - this.lastGuideOffset[i];
+            p[i] += change;
+            old[i] += change;
+            this.lastGuideOffset[i] = offset;
+        }
         const damping = Math.pow(0.94, dt * 60);
         for (let i = n; i < p.length; i++) {
             const current = p[i];
             p[i] += (p[i] - old[i]) * damping;
+            if (this.shapeCorrective)
+                p[i] += (guide[i] - p[i]) * (1 - Math.exp(-dt * 12));
             if (i % 3 === 1) p[i] -= 9.81 * dt * dt;
             old[i] = current;
         }
@@ -151,7 +194,9 @@ export class ClothSolver {
         };
         pin();
         for (let iteration = 0; iteration < iterations; iteration++) {
-            for (const [a, b, rest, stiffness] of this.constraints) {
+            for (let ci = 0; ci < this.constraints.length; ci++) {
+                const [a, b, bindRest, stiffness] = this.constraints[ci];
+                const rest = this.correctiveLengths?.[ci] ?? bindRest;
                 const ia = a * 3,
                     ib = b * 3;
                 const x = p[ib] - p[ia],

@@ -267,7 +267,7 @@ export class LabScene {
     setMode(mode) {
         this.mode = mode;
         this.followCenter.set(0, 0, 0);
-        if (mode === "arena") this.camera.position.set(2.5, 1.9, 4.8);
+        if (mode === "arena") this.camera.position.set(1.4, 1.65, 3.6);
         else if (mode === "avatar") this.camera.position.set(0, 1.1, 2.9);
         else
             this.camera.position.set(
@@ -351,9 +351,10 @@ export class LabScene {
     draw(frame, next, alpha, second, nextSecond, options) {
         if (!this.run || this.loading) return;
         const start = performance.now();
-        const visible = options.optimized
-            ? this.visibleViews
-            : [true, true, true];
+        const visible =
+            options.optimized && !options.recording
+                ? this.visibleViews
+                : [true, true, true];
         if (!visible.some(Boolean)) return;
         const arenaNeeded =
             visible[1] || visible[2] || (visible[0] && this.mode === "arena");

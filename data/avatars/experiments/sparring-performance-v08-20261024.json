@@ -1,0 +1,43 @@
+{
+  "source": "cmu_sparring",
+  "avatars": [
+    "nozomi · Tripo 本地绑定 / 手颈与发束重建 · 19/19 关节 · 13 网格",
+    "mizore · Tripo 本地绑定 / 手颈与发束重建 · 19/19 关节 · 13 网格"
+  ],
+  "optimized": true,
+  "secondary_mode": "live",
+  "viewport": [
+    887,
+    815
+  ],
+  "pixel_ratio": 1.5,
+  "render_target_pixels": [
+    [
+      892,
+      403
+    ],
+    [
+      433,
+      255
+    ],
+    [
+      433,
+      255
+    ]
+  ],
+  "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36",
+  "samples": 557,
+  "fps": 47.60683760683761,
+  "raf_p50_ms": 18.5,
+  "raf_p95_ms": 36.60000002384186,
+  "pose_p95_ms": 17.799999952316284,
+  "render_submit_p95_ms": 4.299999952316284,
+  "cloth_p95_ms": 16.800000071525574,
+  "triangles_per_frame": 953340,
+  "draw_calls_per_frame": 108,
+  "views": 3,
+  "animated_frames_percent": 100,
+  "frames_over_33ms_percent": 9.694793536804308,
+  "measurement": "CPU pose + render submission; RAF interval, not GPU timer or camera-to-display latency",
+  "sample_duration_s": 12.013300000071526
+}

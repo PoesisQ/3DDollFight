@@ -1,6 +1,6 @@
 [project]
 name = "dollfight"
-version = "0.7.0"
+version = "0.8.0"
 description = "Engine-independent RGB-D skeleton and motion research for a 3D vision course."
 readme = "README.md"
 requires-python = ">=3.10.19,<3.11"

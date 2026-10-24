@@ -1,0 +1,56 @@
+{
+  "date": "2026-10-24",
+  "version": "0.8.0",
+  "clip": "cmu_sparring, 3 x 30 s, independently authored public-mocap rehearsal",
+  "video": "data/avatars/experiments/dollfight-three-rounds-v08-20261024.mp4",
+  "sha256": "5aec8a6975b46893da78069534a860ae4d3e86c80447e57f7722da1b32359d05",
+  "video_metadata": {
+    "programs": [],
+    "stream_groups": [],
+    "streams": [
+      {
+        "codec_name": "h264",
+        "width": 1280,
+        "height": 1000,
+        "avg_frame_rate": "549250/22519",
+        "nb_frames": "2197"
+      }
+    ],
+    "format": {
+      "duration": "89.846000",
+      "size": "27580287"
+    }
+  },
+  "capture": "Three actual live WebGL views captured in browser, then H.264 CRF 18 / no frame synthesis / aspect preserved. Source replay is 89.97 s; captured stream begins about 0.12 s after start. Encoding overhead lowers capture rate below the 30 FPS request.",
+  "visual_checks_s": [
+    14.1,
+    38.9,
+    84.7
+  ],
+  "visual_observations": [
+    "Three views present, characters fully framed in opponent views, no stretched aspect ratio.",
+    "Root trajectories return between rounds instead of accumulating drift.",
+    "High-kick skirt lifts around the thigh but looks too stiff; extreme waist intersections persist.",
+    "Authored hands/neck and hair strands replace malformed generated parts; likeness and final art quality not accepted."
+  ],
+  "blackdetect": {
+    "duration_threshold_s": 0.3,
+    "pixel_threshold": 0.03,
+    "detected": false
+  },
+  "tests": {
+    "python": 110,
+    "javascript": 11,
+    "contracts": 2,
+    "ruff": "passed"
+  },
+  "performance_file": "sparring-performance-v08-20261024.json",
+  "geometry_file": "garment-v08-20261024.json",
+  "motion_file": "sparring-v08-20261024.json",
+  "limits": [
+    "No Gemini live input or measured camera-to-display latency.",
+    "No complete damage-reaction animation or autonomous opponent.",
+    "Skirt cloth/body and self-collision acceptance remains incomplete.",
+    "Current measured three-view rendering is about 48 FPS, not stable 60 FPS."
+  ]
+}

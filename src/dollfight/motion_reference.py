@@ -91,6 +91,13 @@ def timing_at(actions, time_s):
                 "phase_label": PHASE_LABELS[phase],
                 "label": action["label"],
                 "basis": action["basis"],
+                "hand_close": float(
+                    min(
+                        1,
+                        (time_s - action["time_s"]) / 0.18,
+                        (action["recovery_end"] - time_s) / 0.25,
+                    )
+                ),
             }
     return (
         {

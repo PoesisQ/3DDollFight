@@ -34,8 +34,17 @@ def build_duel(primary, secondary, config):
     event_maps = [{event["id"]: event for event in run["events"]} for run in (primary, second)]
     references = [run.get("reference_actions", []) for run in (primary, second)]
     combat = CombatResolver()
+    completed_events = []
+    rounds = []
+    current_round = 1
     frames = []
     for i, frame in enumerate(primary["frames"]):
+        round_number = frame.get("performance", {}).get("round", 1)
+        if round_number != current_round:
+            rounds.append({"round": current_round, "health": combat.health.copy()})
+            completed_events.extend(combat.events)
+            combat = CombatResolver()
+            current_round = round_number
         delay = 0 if paired else round(4.5 * primary["fps"])
         other_index = min(max(0, i - delay), len(second["frames"]) - 1)
         sources = [frame, second["frames"][other_index]]
@@ -75,9 +84,24 @@ def build_duel(primary, secondary, config):
                         else second["frames"][max(0, other_index - 1)]["t"]
                     )
                 )
-                attacks[p] = [e for e in references[p] if previous_t < e["time_s"] <= source_t]
+                # Reference kick windows must not suppress every recognized punch
+                # elsewhere in a composed recording.
+                annotated = {e["action"] for e in references[p]}
+                attacks[p] = [e for e in attacks[p] if e["action"] not in annotated] + [
+                    e for e in references[p] if previous_t < e["time_s"] <= source_t
+                ]
+            intent = source_frame.get("performance", {}).get("intent")
+            if intent in ("guard", "advance", "retreat", "side", "low_block"):
+                attacks[p] = []  # Authored rehearsal intent, never a classifier label.
+            elif intent:
+                attacks[p] = [e for e in attacks[p] if "basis" in e]
         states = [f["recognition"] for f in sources]
         result, _ = combat.process(world, states, attacks, valid, frame["t"])
+        for event in combat.events:
+            if "round" not in event:
+                event["round"] = current_round
+                event["id"] = f"r{current_round}-{event['id']}"
+        result["event_ids"] = [f"r{current_round}-{event_id}" for event_id in result["event_ids"]]
         frames.append(
             {
                 "t": frame["t"],
@@ -89,19 +113,26 @@ def build_duel(primary, secondary, config):
                 "distance_m": round(
                     float(np.linalg.norm((positions[0] - positions[1])[[0, 2]])), 3
                 ),
+                "round": current_round,
+                "round_time": frame.get("performance", {}).get("round_time"),
+                "intent": [f.get("performance", {}).get("label", "") for f in sources],
                 "defense": [
                     state.get("defense", {"mode": "open", "label": "未设防"}) for state in states
                 ],
                 **result,
             }
         )
+    completed_events.extend(combat.events)
+    rounds.append({"round": current_round, "health": combat.health.copy()})
+    rehearsal = primary["name"] == "cmu_sparring"
     return {
         "frames": frames,
-        "events": combat.events,
+        "events": completed_events,
+        "rounds": rounds,
         "opponent_frames": second["frames"] if paired else None,
         "opponent_events": second["events"],
         "chapters": CHAPTERS
-        if paired
+        if primary["name"] == "duel"
         else primary.get("chapters")
         or [
             {
@@ -117,10 +148,12 @@ def build_duel(primary, secondary, config):
         ]
         or REVIEW_CHAPTERS.get(primary["name"], []),
         "paired": paired,
-        "summary": dict(Counter(event["outcome"] for event in combat.events)),
+        "summary": dict(Counter(event["outcome"] for event in completed_events)),
         "movement_gain": float(config.get("movement_gain", 1.5)),
         "initial_gap": float(config.get("initial_gap", 2.2)),
-        "description": "独立双人合成输入"
+        "description": "90 秒 / 三回合双人排练 · 真人动捕经轨迹与步幅编辑 · 非实机采集"
+        if rehearsal
+        else "独立双人合成输入"
         if paired
         else (
             "真人动作回放 · P2 延后 4.5 s · 攻击窗口为参考标注"
