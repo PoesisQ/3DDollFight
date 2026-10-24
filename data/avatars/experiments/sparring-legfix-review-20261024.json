@@ -1,0 +1,57 @@
+{
+  "revision_label": "v0.8 leg correction 2026-10-24",
+  "video": {
+    "path": "data/avatars/experiments/dollfight-three-rounds-legfix-20261024.mp4",
+    "sha256": "e2b4955c49b22d639bb1a67e852a345a2c2702b0a527d3877d2bbc7e842ec72f",
+    "probe": {
+      "programs": [],
+      "stream_groups": [],
+      "streams": [
+        {
+          "codec_name": "h264",
+          "width": 1280,
+          "height": 1000,
+          "avg_frame_rate": "2090000/89791",
+          "nb_frames": "2090"
+        }
+      ],
+      "format": {
+        "duration": "89.744000",
+        "size": "27181806"
+      }
+    },
+    "capture": "Uninterrupted actual DollFight three-canvas MediaRecorder capture; 1x playback; no generated intermediate frames.",
+    "transcode": "H.264 CRF18, variable timestamps preserved, no frame interpolation.",
+    "timeline_note": "Media time differs slightly from HUD simulation time; use the HUD timestamp for frame comparisons."
+  },
+  "source_capture_sha256": "97c578220ce3172c8684274cf249a3ddd49692947f090064bf4ca53ac1b3f799",
+  "reviewed_video_positions_s": [
+    1.5,
+    6.75,
+    8.3,
+    14.1,
+    38.9,
+    74.1
+  ],
+  "whole_video_contact_sheet_interval_s": 7.5,
+  "ui_comparison_screenshots": [
+    "dollfight-legfix-step-20261024.png",
+    "dollfight-legfix-kick-20261024.png"
+  ],
+  "automated_checks": {
+    "python_passed": 124,
+    "javascript_passed": 11,
+    "ruff_check": "pass",
+    "ruff_format": "pass",
+    "protocol_fixtures": 2
+  },
+  "geometry_report": "legs-legfix-20261024.json",
+  "sparring_report": "sparring-legfix-20261024.json",
+  "garment_report": "garment-legfix-20261024.json",
+  "remaining_limits": [
+    "Geometry screening is not a naturalness score. Some guard bouncing, sliding and edited joins still need visual improvement.",
+    "Extreme high front kicks still intersect the pinned waistband. Skirt/body and self collision are not certified.",
+    "Recorded video is about 23.3 frames/s under capture overhead, not evidence of stable 60 FPS rendering.",
+    "This is edited public mocap rehearsal, not live Gemini input or simultaneous human players."
+  ]
+}

@@ -1,0 +1,294 @@
+{
+  "date": "2026-10-24",
+  "application_version": "0.6.0",
+  "status": "partial improvement; full visual acceptance failed",
+  "source": "Actual local WebGL rendering; CMU flow replay, not camera input",
+  "validation": {
+    "python_tests": 96,
+    "javascript_tests": 8,
+    "ruff": "passed",
+    "protocol_fixtures": 2,
+    "unity_editor": "not available; not validated",
+    "browser_console_errors_observed": 0,
+    "same_pose_seek_return_full_page_screenshot_identical": true,
+    "seek_sequence_seconds": [
+      7.7,
+      9.8,
+      7.7
+    ]
+  },
+  "asset_hashes": [
+    {
+      "character": "nozomi",
+      "sha256": "fbdb699d57a950884e818d29bb755302c1d4ffa0bd530b06f17bbbc066b18b12",
+      "bytes": 11426176,
+      "triangles": 39317,
+      "human_bones": 54,
+      "base_sha256": "12c2b97e95e700783a6a550dc0eee2d7880aeedccef9ae67bc4c5a2f0f2631a2",
+      "likeness_approved": false,
+      "body_binding": "unchanged authored pixiv weights including fingers and twist bones",
+      "cloth": "separate 896-vertex skirt; 16 panel bone chains; browser PBD override",
+      "textures": "base UV textures preserved; no front-image projection"
+    },
+    {
+      "character": "mizore",
+      "sha256": "f2237ac0d8c44041bf19efe7573c945aab250252149e645c281790fbd0cc08fd",
+      "bytes": 11426204,
+      "triangles": 39317,
+      "human_bones": 54,
+      "base_sha256": "12c2b97e95e700783a6a550dc0eee2d7880aeedccef9ae67bc4c5a2f0f2631a2",
+      "likeness_approved": false,
+      "body_binding": "unchanged authored pixiv weights including fingers and twist bones",
+      "cloth": "separate 896-vertex skirt; 16 panel bone chains; browser PBD override",
+      "textures": "base UV textures preserved; no front-image projection"
+    }
+  ],
+  "observations": {
+    "body_and_face": "Authored body weights, face geometry and UVs preserved; functional humanoid mapping. Character likeness still a draft.",
+    "garment": "Independent skirt no longer blends between both thighs. Length limiting avoids exploding triangles. Extreme kicks retain capsule/body penetration; collision acceptance failed.",
+    "camera": "Observed both opponent viewports displaying the full opponent at root spacing 0.96 m in main demo.",
+    "tripo": "Both H2.5 appearances loaded locally. Full UVs improve back coverage; source PBR is shiny and face/neck geometry and texture remain unsuitable as final assets. Matte/unlit toggles isolate shading effects.",
+    "rigging": "Nozomi Studio rig exists but the free export lacks actionable joint transforms/weights. Static appearance only; Mizore not rigged.",
+    "projection": "Screenshots are qualitative route comparisons with different geometry and bone proportions; not a same-mesh weight benchmark."
+  },
+  "limitations": [
+    "No character likeness approval",
+    "No cloth self-collision or continuous triangle collision",
+    "No full torso/hand clothing collision",
+    "No cloth inertia from stage X/Z translation",
+    "No live Gemini or simultaneous two-player capture",
+    "Unity does not run this browser cloth solver"
+  ],
+  "measurements": {
+    "pose": "7.7",
+    "angle": "three",
+    "secondary": true,
+    "comparison": "atelier",
+    "tripo_material_preview": "texture",
+    "visual_acceptance": "requires human review",
+    "models": [
+      {
+        "id": "old",
+        "name": "伞木希美 · Hunyuan / 规则蒙皮实验 · 19/19 关节 · 2 网格",
+        "static_only": false,
+        "cloth": null
+      },
+      {
+        "id": "nozomi",
+        "name": "希美方向 · 校服底模 / 外观草稿 · 19/19 关节 · 22 网格",
+        "static_only": false,
+        "cloth": {
+          "hz": 60,
+          "vertices": 896,
+          "max_constraint_length_ratio": 1.1539603138145258,
+          "worst_constraint": {
+            "t": 4.616666666666666,
+            "a": 497,
+            "b": 498,
+            "rest": 0.03322787492700331,
+            "length": 0.03834364897815456,
+            "positionA": [
+              -0.15152618968315898,
+              0.5149899570386904,
+              -0.05103239562914365
+            ],
+            "positionB": [
+              -0.1295266607481668,
+              0.5199843132555335,
+              -0.020027354916742453
+            ],
+            "capsules": [
+              {
+                "a": [
+                  0.07332183424962231,
+                  0.6899140578180215,
+                  0.010641926157855943
+                ],
+                "b": [
+                  0.08998256671737052,
+                  0.47766005951438717,
+                  0.2921885398429382
+                ],
+                "radius": 0.103
+              },
+              {
+                "a": [
+                  -0.07249760037253274,
+                  0.7054067285320232,
+                  -0.03740889584225184
+                ],
+                "b": [
+                  -0.0923895536348423,
+                  0.41233476052141826,
+                  -0.2331407946839332
+                ],
+                "radius": 0.103
+              },
+              {
+                "a": [
+                  0.08998256671737052,
+                  0.47766005951438717,
+                  0.2921885398429382
+                ],
+                "b": [
+                  0.11160888568911076,
+                  0.10056674852294256,
+                  0.1190757712751245
+                ],
+                "radius": 0.051
+              },
+              {
+                "a": [
+                  -0.0923895536348423,
+                  0.41233476052141826,
+                  -0.2331407946839332
+                ],
+                "b": [
+                  -0.08364626121475344,
+                  0.12633394428391181,
+                  -0.5344084142339834
+                ],
+                "radius": 0.051
+              }
+            ]
+          },
+          "worst_capsule_contact": {
+            "maxPenetration": 0.09780236177956982,
+            "fractionOver5mm": 0.05889423076923077,
+            "t": 4.95
+          },
+          "mean_absolute_constraint_strain": 0.02806975377777863
+        }
+      },
+      {
+        "id": "mizore",
+        "name": "霙方向 · 校服底模 / 外观草稿 · 19/19 关节 · 22 网格",
+        "static_only": false,
+        "cloth": {
+          "hz": 60,
+          "vertices": 896,
+          "max_constraint_length_ratio": 1.1539603138145258,
+          "worst_constraint": {
+            "t": 4.616666666666666,
+            "a": 497,
+            "b": 498,
+            "rest": 0.03322787492700331,
+            "length": 0.03834364897815456,
+            "positionA": [
+              -0.15152618968315898,
+              0.5149899570386904,
+              -0.05103239562914365
+            ],
+            "positionB": [
+              -0.1295266607481668,
+              0.5199843132555335,
+              -0.020027354916742453
+            ],
+            "capsules": [
+              {
+                "a": [
+                  0.07332183424962231,
+                  0.6899140578180215,
+                  0.010641926157855943
+                ],
+                "b": [
+                  0.08998256671737052,
+                  0.47766005951438717,
+                  0.2921885398429382
+                ],
+                "radius": 0.103
+              },
+              {
+                "a": [
+                  -0.07249760037253274,
+                  0.7054067285320232,
+                  -0.03740889584225184
+                ],
+                "b": [
+                  -0.0923895536348423,
+                  0.41233476052141826,
+                  -0.2331407946839332
+                ],
+                "radius": 0.103
+              },
+              {
+                "a": [
+                  0.08998256671737052,
+                  0.47766005951438717,
+                  0.2921885398429382
+                ],
+                "b": [
+                  0.11160888568911076,
+                  0.10056674852294256,
+                  0.1190757712751245
+                ],
+                "radius": 0.051
+              },
+              {
+                "a": [
+                  -0.0923895536348423,
+                  0.41233476052141826,
+                  -0.2331407946839332
+                ],
+                "b": [
+                  -0.08364626121475344,
+                  0.12633394428391181,
+                  -0.5344084142339834
+                ],
+                "radius": 0.051
+              }
+            ]
+          },
+          "worst_capsule_contact": {
+            "maxPenetration": 0.09780236177956982,
+            "fractionOver5mm": 0.05889423076923077,
+            "t": 4.95
+          },
+          "mean_absolute_constraint_strain": 0.02806975377777863
+        }
+      }
+    ]
+  },
+  "proofs": [
+    {
+      "file": "avatar-guard-v06-20261024.png",
+      "sha256": "6810d8ec43f89d8d899bae9a1ca866bec30d850371dd7ddfff767649af0f348a"
+    },
+    {
+      "file": "avatar-kick-v06-20261024.png",
+      "sha256": "e635a1d75b0c750d9c49494b32254ae380cf1f603f534eaa4588b5fb85f3df59"
+    },
+    {
+      "file": "avatar-roundhouse-v06-20261024.png",
+      "sha256": "4192bb084a13430ebf10ae7ba8be5264127a27a8c6cc2c1852cb656933617405"
+    },
+    {
+      "file": "nozomi-tripo-matte-20261024.png",
+      "sha256": "df70ebd4d6934a6308b033084f11099140b796ab1ace7aad1e018fb7b95a9719"
+    },
+    {
+      "file": "nozomi-tripo-face-20261024.png",
+      "sha256": "dccb214cef1d5db7e148972022f0a316abe446b664d34b5f78311400f0fe1d60"
+    },
+    {
+      "file": "mizore-tripo-matte-20261024.png",
+      "sha256": "7c584b7f3861119a73bd89c6f3cddc7783a5ded0d691d39f8e42575c9c3de9f8"
+    },
+    {
+      "file": "mizore-tripo-face-20261024.png",
+      "sha256": "7f82fbd63780f9b2cede54a6c2bf74573b03aae51c453980a9cf8ae11e2564d7"
+    },
+    {
+      "file": "mizore-tripo-texture-face-20261024.png",
+      "sha256": "815cdb59660018a881f832bbb3f5e5a61cbae32d285e4bfbc4e8390ee24a7aa1"
+    },
+    {
+      "file": "mizore-tripo-back-20261024.png",
+      "sha256": "5d2833f1eb5f883df3a4cbb1e7844d2971d7f43b105c673a08bfac8976f8c6ed"
+    },
+    {
+      "file": "motion-lab-v06-20261024.png",
+      "sha256": "92d90db2114987ce672cfdc575eb372c42b83df03eca941e5a5a8b2576277774"
+    }
+  ]
+}

@@ -1,0 +1,290 @@
+{
+  "created_at": "2026-10-24T03:13:59.684737+08:00",
+  "scope": "Local CPU binding of both Tripo sources; actual CMU full-body replay, footwork and browser realtime secondary motion.",
+  "method": "Authored-surface barycentric weight transfer, welded adjacency smoothing, physically separated garment boundary, GPU garment cage. NOT SkinTokens inference.",
+  "assets": [
+    {
+      "name": "nozomi",
+      "bytes": 15895880,
+      "sha256": "775c9c8b03d95e627f05c9e26afe9b29839d0475e866f5a074dca8afd8b7cf0a",
+      "source_sha256": "399f4ff3336b693051951663de14033fb0e3d5945faf03bbd2be907eead20dcd",
+      "source_triangles": 237752,
+      "retained_source_triangles": 237752,
+      "human_bones": 54,
+      "cage_bones": 216,
+      "transfer_distance_m_p50_p95": [
+        0.01529038814930983,
+        0.06505098692554086
+      ],
+      "method": "CPU surface transfer + adjacency smoothing + separate GPU garment cage; NOT SkinTokens",
+      "hybrid_face": false,
+      "hybrid_head": false,
+      "authored_hair_sha256": null,
+      "likeness_approved": false
+    },
+    {
+      "name": "nozomi-hybrid",
+      "bytes": 21982560,
+      "sha256": "53899ca9038497a3db448c4a690d334e2df7ce474170d09ed31e2c6e2af99a68",
+      "source_sha256": "399f4ff3336b693051951663de14033fb0e3d5945faf03bbd2be907eead20dcd",
+      "source_triangles": 237752,
+      "retained_source_triangles": 202625,
+      "human_bones": 54,
+      "cage_bones": 216,
+      "transfer_distance_m_p50_p95": [
+        0.01529038814930983,
+        0.06505098692554086
+      ],
+      "method": "CPU surface transfer + adjacency smoothing + separate GPU garment cage; NOT SkinTokens",
+      "hybrid_face": true,
+      "hybrid_head": true,
+      "authored_hair_sha256": "fbdb699d57a950884e818d29bb755302c1d4ffa0bd530b06f17bbbc066b18b12",
+      "likeness_approved": false
+    },
+    {
+      "name": "mizore",
+      "bytes": 17479584,
+      "sha256": "aec752f5ad081879c186ee4c80eed0dc0e15cd384c4999ad8aa07e1fabd08c5a",
+      "source_sha256": "84aa58a79aae85f09b13c1b55b1f7b4ee8eda5a3344510ee5207efe4f7e2afe4",
+      "source_triangles": 270156,
+      "retained_source_triangles": 270156,
+      "human_bones": 54,
+      "cage_bones": 216,
+      "transfer_distance_m_p50_p95": [
+        0.019751840870580843,
+        0.07226660097036613
+      ],
+      "method": "CPU surface transfer + adjacency smoothing + separate GPU garment cage; NOT SkinTokens",
+      "hybrid_face": false,
+      "hybrid_head": false,
+      "authored_hair_sha256": null,
+      "likeness_approved": false
+    },
+    {
+      "name": "mizore-hybrid",
+      "bytes": 23650660,
+      "sha256": "9e0b7cdbca804354173e40811cdfa1e2df0b4b2035d65bfd4523175a0bc44f13",
+      "source_sha256": "84aa58a79aae85f09b13c1b55b1f7b4ee8eda5a3344510ee5207efe4f7e2afe4",
+      "source_triangles": 270156,
+      "retained_source_triangles": 236693,
+      "human_bones": 54,
+      "cage_bones": 216,
+      "transfer_distance_m_p50_p95": [
+        0.019751840870580843,
+        0.07226660097036613
+      ],
+      "method": "CPU surface transfer + adjacency smoothing + separate GPU garment cage; NOT SkinTokens",
+      "hybrid_face": true,
+      "hybrid_head": true,
+      "authored_hair_sha256": "f2237ac0d8c44041bf19efe7573c945aab250252149e645c281790fbd0cc08fd",
+      "likeness_approved": false
+    }
+  ],
+  "hardware": {
+    "gpu": "NVIDIA GeForce RTX 4060 Laptop GPU",
+    "vram_mib": 8188,
+    "driver": "596.49",
+    "os": "Windows"
+  },
+  "checks": {
+    "python_pytest": {
+      "passed": 104,
+      "failed": 0
+    },
+    "javascript": {
+      "passed": 8,
+      "failed": 0
+    },
+    "ruff": "passed",
+    "synthetic_protocol_fixtures": 2,
+    "camera_used": false
+  },
+  "movement_report": "local-rig-pipeline-20261024.json",
+  "performance_reports": [
+    "performance-baseline-20261024.json",
+    "performance-optimized-20261024.json",
+    "performance-hybrid-20261024.json"
+  ],
+  "visual_checks": {
+    "characters": [
+      "nozomi",
+      "mizore"
+    ],
+    "source": "cmu_flow",
+    "front_kick_s": 4.95,
+    "roundhouse_s": 9.8,
+    "guard_s": 2.0,
+    "continuous_playback": "Also exercised in review/main UI; cached review and causal live cloth are distinct modes."
+  },
+  "quality": {
+    "source_rig": "Animated; source topology and UV retained in original variants.",
+    "head_route": "Complete authored head and edited hair replaces generated head in hybrid variants. Partial face swaps rejected for leftover eyes and fringe fragments.",
+    "likeness_approved": false,
+    "cloth_collision_approved": false,
+    "cloth_note": "Proxy point penetration exceeds 5 mm; high-resolution surface/self collisions are not fully tested.",
+    "remaining": [
+      "Head/neck seam and coarse hair-lock dynamics",
+      "Generated hand topology and detailed fist deformation",
+      "High-kick garment contact and cloth self-collision",
+      "Universal live movement/attack transitions and foot sliding beyond tested sequence"
+    ],
+    "live_Gemini_validation": "not performed",
+    "Unity_Editor_validation": "not performed",
+    "true_two_person_capture": "not performed; opponent uses delayed replay"
+  },
+  "screenshots": [
+    "nozomi-local-kick-20261024.png",
+    "nozomi-local-turn-20261024.png",
+    "nozomi-local-face-20261024.png",
+    "mizore-local-kick-20261024.png",
+    "mizore-local-turn-20261024.png",
+    "mizore-local-face-20261024.png",
+    "nozomi-local-kick-side-20261024.png",
+    "local-rig-three-views-20261024.png"
+  ],
+  "cloth_reports": [
+    "nozomi-local-cloth-20261024.json",
+    "mizore-local-cloth-20261024.json"
+  ],
+  "screenshot_sha256": {
+    "nozomi-local-kick-20261024.png": "ba7e015140206a7fe9ad0883e100fd59e8386f8caf39b2c1e0dffb9fea788320",
+    "nozomi-local-turn-20261024.png": "1a3964ade1042cc8ec624e4ac8742ac9c7ff1dba5398333bc5c4550651cf531f",
+    "nozomi-local-face-20261024.png": "40700a8f55ad043242efbd5b499d2f525d0888f949a8e6964299ab88eb85a907",
+    "mizore-local-kick-20261024.png": "858fb92b4c99f49ef3e1bfc92110af07ebb2c82b7319d5176d079b99db3a448b",
+    "mizore-local-turn-20261024.png": "90d1b626f3271167d0a56452f988d82221b07cba6c5e354f2c8ff8ab515e6664",
+    "mizore-local-face-20261024.png": "21c3c9b663242342547137dc14c6a8c0740d037c1b8c49756dc5b5fad75e3c0a",
+    "nozomi-local-kick-side-20261024.png": "7bd1ffe7b3f2d304f230a87845a4ef430b07e9e512de40bfce5b51c3ba6f5751",
+    "local-rig-three-views-20261024.png": "d49effd49e759f65116adbec831110703a3e8eb6710a4d626a5fa838a3946a0a"
+  },
+  "performance_summary": {
+    "performance-baseline-20261024.json": {
+      "source": "cmu_footwork",
+      "avatars": [
+        "nozomi · Tripo 本地绑定 / 原网格 · 19/19 关节 · 2 网格",
+        "mizore · Tripo 本地绑定 / 原网格 · 19/19 关节 · 2 网格"
+      ],
+      "optimized": false,
+      "secondary_mode": "live",
+      "viewport": [
+        1280,
+        720
+      ],
+      "pixel_ratio": 1.5,
+      "render_target_pixels": [
+        [
+          1390,
+          403
+        ],
+        [
+          684,
+          255
+        ],
+        [
+          684,
+          255
+        ]
+      ],
+      "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36",
+      "samples": 748,
+      "fps": 62.33177503858584,
+      "raf_p50_ms": 15.199999928474426,
+      "raf_p95_ms": 25.09999990463257,
+      "pose_p95_ms": 18.700000047683716,
+      "render_submit_p95_ms": 3.299999952316284,
+      "cloth_p95_ms": 17.699999809265137,
+      "triangles_per_frame": 1017394,
+      "draw_calls_per_frame": 60,
+      "views": 3,
+      "animated_frames_percent": 100,
+      "frames_over_33ms_percent": 0.40106951871657753,
+      "measurement": "CPU pose + render submission; RAF interval, not GPU timer or camera-to-display latency",
+      "sample_duration_s": 12.0085
+    },
+    "performance-optimized-20261024.json": {
+      "source": "cmu_footwork",
+      "avatars": [
+        "nozomi · Tripo 本地绑定 / 原网格 · 19/19 关节 · 2 网格",
+        "mizore · Tripo 本地绑定 / 原网格 · 19/19 关节 · 2 网格"
+      ],
+      "optimized": true,
+      "secondary_mode": "live",
+      "viewport": [
+        1280,
+        720
+      ],
+      "pixel_ratio": 1.5,
+      "render_target_pixels": [
+        [
+          1390,
+          403
+        ],
+        [
+          684,
+          255
+        ],
+        [
+          684,
+          255
+        ]
+      ],
+      "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36",
+      "samples": 1155,
+      "fps": 96.27085868623996,
+      "raf_p50_ms": 9.399999976158142,
+      "raf_p95_ms": 17.399999976158142,
+      "pose_p95_ms": 7.900000095367432,
+      "render_submit_p95_ms": 3,
+      "cloth_p95_ms": 7.200000047683716,
+      "triangles_per_frame": 1017394,
+      "draw_calls_per_frame": 60,
+      "views": 3,
+      "animated_frames_percent": 100,
+      "frames_over_33ms_percent": 0,
+      "measurement": "CPU pose + render submission; RAF interval, not GPU timer or camera-to-display latency",
+      "sample_duration_s": 12.002299999952315
+    },
+    "performance-hybrid-20261024.json": {
+      "source": "cmu_footwork",
+      "avatars": [
+        "nozomi · Tripo 本地绑定 / 授权头部重建 · 19/19 关节 · 12 网格",
+        "mizore · Tripo 本地绑定 / 授权头部重建 · 19/19 关节 · 12 网格"
+      ],
+      "optimized": true,
+      "secondary_mode": "live",
+      "viewport": [
+        1280,
+        720
+      ],
+      "pixel_ratio": 1.5,
+      "render_target_pixels": [
+        [
+          1390,
+          403
+        ],
+        [
+          684,
+          255
+        ],
+        [
+          684,
+          255
+        ]
+      ],
+      "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36",
+      "samples": 1144,
+      "fps": 95.37148192572465,
+      "raf_p50_ms": 9.600000023841858,
+      "raf_p95_ms": 16.5,
+      "pose_p95_ms": 9.199999928474426,
+      "render_submit_p95_ms": 4.299999952316284,
+      "cloth_p95_ms": 8.200000047683716,
+      "triangles_per_frame": 980518,
+      "draw_calls_per_frame": 100,
+      "views": 3,
+      "animated_frames_percent": 100,
+      "frames_over_33ms_percent": 0,
+      "measurement": "CPU pose + render submission; RAF interval, not GPU timer or camera-to-display latency",
+      "sample_duration_s": 12.003300000071526
+    }
+  }
+}

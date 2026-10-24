@@ -1,0 +1,46 @@
+{
+  "date": "2026-10-24",
+  "route": "licensed authored VRM base plus independently modeled garments; not Tripo or SkinTokens output",
+  "base": {
+    "name": "VRM1_Constraint_Twist_Sample v1.0.1",
+    "author": "pixiv Inc.",
+    "copyright": "(c) 2022 pixiv Inc.",
+    "url": "https://raw.githubusercontent.com/vrm-c/vrm-specification/master/samples/VRM1_Constraint_Twist_Sample/vrm/VRM1_Constraint_Twist_Sample.vrm",
+    "sha256": "12c2b97e95e700783a6a550dc0eee2d7880aeedccef9ae67bc4c5a2f0f2631a2",
+    "license": "VRM Public License 1.0",
+    "license_url": "https://vrm.dev/licenses/1.0/",
+    "permissions_from_embedded_meta": {
+      "avatarPermission": "everyone",
+      "allowRedistribution": true,
+      "modification": "allowModificationRedistribution",
+      "allowExcessivelyViolentUsage": true,
+      "creditNotation": "unnecessary"
+    },
+    "purpose": "Temporary avatar for coursework mapping evaluation; not a final character design. Model license is separate from code MIT licenses."
+  },
+  "build_script": "tools/build_template_avatars.py",
+  "modified": [
+    "shirt shape and sleeve width",
+    "explicit sailor collar and scarf",
+    "fitted socks with clipped top edge",
+    "hair silhouette and matching bone locations",
+    "separate pleated skirt and portable panel bone chains",
+    "hair MToon colors without the base brown texture"
+  ],
+  "unchanged": [
+    "body and facial vertex positions",
+    "body and face UV coordinates",
+    "body skin weights and original inverse bind matrices",
+    "embedded source image bytes",
+    "humanoid semantic mapping and finger bones"
+  ],
+  "runtime": "browser 60 Hz secondary-motion cache; independent PBD skirt and VRM hair/top spring bones",
+  "not_claimed": [
+    "approved Nozomi/Mizore likeness",
+    "production cloth self-collision",
+    "Unity cloth runtime validation",
+    "real-time webcam input",
+    "learned automatic rigging"
+  ],
+  "rights": "Base: (c) 2022 pixiv Inc., VRM Public License 1.0 with modification/redistribution permission. Original character designs belong to their respective rightsholders. Repository code licensing does not grant commercial rights to those characters."
+}

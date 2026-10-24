@@ -1,0 +1,24 @@
+[
+  {
+    "character": "nozomi",
+    "source_mesh_sha256": "c78ae5e11ea35e3b386af645bc6af598e3d35b45030daceb15455eb02330db09",
+    "reference_sha256": "0e0cfa4a89d12dc25bdc21ca8fb9e3c6ce914758f95b533186071afb3d6b17c7",
+    "vrm_sha256": "f1cc469a1ac291179018ff3c28c3d0dda771187985e9f44fd2cef81b0b904f23",
+    "vertices": 69545,
+    "faces": 193130,
+    "binding": "region-distance baseline; not SkinTokens",
+    "texture": "unchanged front reference projection + procedural back colors",
+    "quality": "experimental; clothing penetration and back/side likeness need inspection"
+  },
+  {
+    "character": "mizore",
+    "source_mesh_sha256": "10bd3a24ac5f5bf842eac97b31a1ecd072fb750269b5e81f6f041c522c4997a4",
+    "reference_sha256": "f8cd0498f736dc9aed27c7e05aa77c7c14c5b5928c7f6eca917f7eaad8af11f3",
+    "vrm_sha256": "f9ef5c22d8083acfb651f906f97d8c610c7bc15661f7e0c1e2c349b71a407473",
+    "vertices": 76048,
+    "faces": 205288,
+    "binding": "region-distance baseline; not SkinTokens",
+    "texture": "unchanged front reference projection + procedural back colors",
+    "quality": "experimental; clothing penetration and back/side likeness need inspection"
+  }
+]

@@ -1,0 +1,170 @@
+"""Loopback-only evaluation app. Launch: uv run python -m dollfight.server."""
+
+import argparse
+import gzip
+import hashlib
+import json
+import os
+import tempfile
+import webbrowser
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+from urllib.parse import unquote, urlparse
+
+from jsonschema import ValidationError
+
+from dollfight.animation_export import export_animation
+from dollfight.kinematics import PROFILES
+from dollfight.pipeline import CATALOG, ROOT, export_poseframes, make_run
+
+WEB = ROOT / "apps/motion-lab"
+
+
+def replay_run(config, *, include_duel):
+    """Content-keyed cache for the long public rehearsal, never camera uploads.
+
+    Rendering/cloth stay live. Changing algorithms, clips or proportions
+    invalidates the cached offline pose/combat evaluation.
+    """
+    if config.get("source") != "cmu_sparring" or not include_duel:
+        return make_run(config, include_duel=include_duel)
+    digest = hashlib.sha256(json.dumps(config, sort_keys=True).encode())
+    for path in sorted((ROOT / "src/dollfight").glob("*.py")) + sorted(
+        (ROOT / "data/samples").glob("cmu_*.json")
+    ):
+        digest.update(path.name.encode())
+        digest.update(path.read_bytes())
+    cache = ROOT / "outputs/replay-cache" / (digest.hexdigest() + ".json.gz")
+    if cache.is_file():
+        with gzip.open(cache, "rt", encoding="utf-8") as stream:
+            run = json.load(stream)
+        run["evaluation_cache"] = "content-validated offline replay"
+        return run
+    run = make_run(config, include_duel=True)
+    cache.parent.mkdir(parents=True, exist_ok=True)
+    # A second request must never read a partially written gzip stream.
+    fd, temporary = tempfile.mkstemp(dir=cache.parent, suffix=".tmp")
+    os.close(fd)
+    try:
+        with gzip.open(temporary, "wt", encoding="utf-8") as stream:
+            json.dump(run, stream, ensure_ascii=False, separators=(",", ":"), allow_nan=False)
+        os.replace(temporary, cache)
+    finally:
+        Path(temporary).unlink(missing_ok=True)
+    return run
+
+
+class Handler(BaseHTTPRequestHandler):
+    def reply(self, value, status=200):
+        payload = json.dumps(
+            value, ensure_ascii=False, allow_nan=False, separators=(",", ":")
+        ).encode()
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(payload)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(payload)
+
+    def do_GET(self):
+        path = unquote(urlparse(self.path).path)
+        if path == "/api/catalog":
+            self.reply({"sources": CATALOG, "profiles": PROFILES})
+            return
+        assets = {
+            **{
+                f"/assets/local/{name}.vrm": ROOT / f"data/avatars/local/{name}.vrm"
+                for name in ("nozomi", "mizore", "nozomi-hybrid", "mizore-hybrid")
+            },
+            "/assets/sample.vrm": ROOT / "data/raw/avatars/sample.vrm",
+            "/assets/liz/nozomi.vrm": ROOT / "data/avatars/liz/nozomi.vrm",
+            "/assets/liz/mizore.vrm": ROOT / "data/avatars/liz/mizore.vrm",
+            "/assets/atelier/nozomi.vrm": ROOT / "data/avatars/atelier/nozomi.vrm",
+            "/assets/atelier/mizore.vrm": ROOT / "data/avatars/atelier/mizore.vrm",
+            "/assets/tripo/nozomi-h25-retopo.glb": ROOT
+            / "data/avatars/tripo/nozomi-h25-retopo.glb",
+            "/assets/tripo/mizore-h25-source.glb": ROOT
+            / "data/avatars/tripo/mizore-h25-source.glb",
+        }
+        if path in assets:
+            target = assets[path]
+            if not target.is_file():
+                self.send_error(
+                    404,
+                    "Fetch sample.vrm with tools/fetch_avatar.py; for Liz avatars run git lfs pull",
+                )
+                return
+            payload = target.read_bytes()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/octet-stream")
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers()
+            self.wfile.write(payload)
+            return
+        target = (WEB / ("index.html" if path == "/" else path.lstrip("/"))).resolve()
+        if not target.is_relative_to(WEB.resolve()) or not target.is_file():
+            self.send_error(404)
+            return
+        types = {
+            ".html": "text/html; charset=utf-8",
+            ".js": "text/javascript; charset=utf-8",
+            ".css": "text/css; charset=utf-8",
+            ".json": "application/json",
+            ".txt": "text/plain",
+        }
+        payload = target.read_bytes()
+        self.send_response(200)
+        self.send_header("Content-Type", types.get(target.suffix, "application/octet-stream"))
+        self.send_header("Content-Length", str(len(payload)))
+        self.send_header("Cache-Control", "no-cache")
+        self.end_headers()
+        self.wfile.write(payload)
+
+    def do_POST(self):
+        if self.path not in ("/api/run", "/api/export", "/api/export-unity"):
+            self.send_error(404)
+            return
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+            if not 0 < length <= 20 * 1024 * 1024:
+                raise ValueError("请求体应为 1 B–20 MB")
+            config = json.loads(self.rfile.read(length))
+            if not isinstance(config, dict):
+                raise ValueError("配置必须为 JSON 对象")
+            run = replay_run(config, include_duel=self.path == "/api/run")
+            self.reply(
+                export_animation(run)
+                if self.path == "/api/export-unity"
+                else run
+                if self.path == "/api/run"
+                else {"frames": export_poseframes(run)}
+            )
+        except ValidationError as exc:
+            self.reply({"error": f"协议字段 {list(exc.path)}: {exc.message}"}, 400)
+        except (ValueError, KeyError, TypeError) as exc:
+            self.reply({"error": str(exc)}, 400)
+        except Exception as exc:
+            self.log_error("Processing failed: %s", exc)
+            self.reply({"error": f"处理失败：{type(exc).__name__}: {exc}"}, 500)
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--port", type=int, default=18943)
+    parser.add_argument("--open", action="store_true", help="Open the local lab in your browser")
+    args = parser.parse_args()
+    server = ThreadingHTTPServer(("127.0.0.1", args.port), Handler)
+    print(f"DollFight Motion Lab: http://127.0.0.1:{args.port}", flush=True)
+    print(f"Serving {Path(WEB)}; algorithms run locally on CPU.", flush=True)
+    if args.open:
+        webbrowser.open(f"http://127.0.0.1:{args.port}/")
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        server.server_close()
+
+
+if __name__ == "__main__":
+    main()

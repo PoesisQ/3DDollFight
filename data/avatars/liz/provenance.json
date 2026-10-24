@@ -1,0 +1,108 @@
+{
+  "date": "2026-10-23",
+  "official_references": [
+    {
+      "character": "mizore",
+      "url": "https://liz-bluebird.com/img/character/mizore.png",
+      "sha256": "328dfd3aa7f3519464a2d8860474cee25389a6b82075816cd08fc784eee3ac1f",
+      "bytes": 33409
+    },
+    {
+      "character": "nozomi",
+      "url": "https://liz-bluebird.com/img/character/nozomi.png",
+      "sha256": "10b4f25a9a0a9c936b6fe6ddf684f64f7adcc8b389ec7b7c131eff1fc7023c64",
+      "bytes": 35229
+    }
+  ],
+  "image_generation": {
+    "tool": "built-in image_gen",
+    "output_files": [
+      "nozomi-reference.png",
+      "mizore-reference.png"
+    ],
+    "prompt_summary_not_verbatim": "Single full-body front T-pose on white, preserve the referenced character hair and summer sailor uniform; hands separated, no props, neutral standing; cel shaded character reference for 3D reconstruction.",
+    "original_png_unchanged": true
+  },
+  "hosted_generation": [
+    {
+      "provider": "tencent/Hunyuan3D-2",
+      "character": "nozomi",
+      "input_sha256": "0e0cfa4a89d12dc25bdc21ca8fb9e3c6ce914758f95b533186071afb3d6b17c7",
+      "started_utc": "20261023T124857981910Z",
+      "status": "downloaded_unvalidated",
+      "seed": 231023,
+      "steps": 20,
+      "octree_resolution": 256,
+      "hosted_revision_verified": false,
+      "rigged": false,
+      "textured": false,
+      "client_postprocess_error": "TypeError: expected str, bytes or os.PathLike object, not dict",
+      "recovered_from_download": true,
+      "output": "data/avatars/liz/nozomi-shape.glb",
+      "output_sha256": "c78ae5e11ea35e3b386af645bc6af598e3d35b45030daceb15455eb02330db09"
+    },
+    {
+      "provider": "tencent/Hunyuan3D-2",
+      "character": "mizore",
+      "input_sha256": "f8cd0498f736dc9aed27c7e05aa77c7c14c5b5928c7f6eca917f7eaad8af11f3",
+      "started_utc": "20261023T125410019165Z",
+      "status": "downloaded_unvalidated",
+      "seed": 231023,
+      "steps": 20,
+      "octree_resolution": 256,
+      "hosted_revision_verified": false,
+      "rigged": false,
+      "textured": false,
+      "output": "data/avatars/liz/mizore-shape.glb",
+      "output_sha256": "10bd3a24ac5f5bf842eac97b31a1ecd072fb750269b5e81f6f041c522c4997a4",
+      "stats": {
+        "model": {
+          "shapegen": "tencent/Hunyuan3D-2/hunyuan3d-dit-v2-0",
+          "texgen": "tencent/Hunyuan3D-2"
+        },
+        "params": {
+          "caption": null,
+          "steps": 20,
+          "guidance_scale": 5.0,
+          "seed": 231023,
+          "octree_resolution": 256,
+          "check_box_rembg": true,
+          "num_chunks": 8000
+        },
+        "number_of_faces": 205288,
+        "number_of_vertices": 76048,
+        "time": {
+          "remove background": 1.0358150005340576,
+          "shape generation": 4.7573323249816895,
+          "export to trimesh": 0.03287863731384277,
+          "total": 5.828541278839111
+        }
+      }
+    },
+    {
+      "provider": "tencent/Hunyuan3D-2",
+      "character": "nozomi",
+      "input_sha256": "0e0cfa4a89d12dc25bdc21ca8fb9e3c6ce914758f95b533186071afb3d6b17c7",
+      "started_utc": "20261023T132144750760Z",
+      "status": "failed",
+      "seed": 231023,
+      "steps": 20,
+      "octree_resolution": 256,
+      "hosted_revision_verified": false,
+      "rigged": false,
+      "textured": false,
+      "requested_texture": true,
+      "error": "AppError: 'NameError'"
+    }
+  ],
+  "processing": "tools/build_liz_avatars.py; 19 manually placed bones, distance weights, topology diffusion; original reference front projection; procedural back colors. Not Tripo or SkinTokens output.",
+  "rights": "Fan coursework experiment based on Liz and the Blue Bird. Original character and official reference artwork rights belong to their respective owners. No original-character ownership or independent commercial/reuse grant is asserted by this repository.",
+  "not_verified": [
+    "Unity Editor import",
+    "formal VRM spec validation",
+    "cloth collision",
+    "finger articulation",
+    "face expressions",
+    "production-ready likeness"
+  ]
+}

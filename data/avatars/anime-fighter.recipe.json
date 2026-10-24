@@ -1,0 +1,65 @@
+{
+  "version": "dollfight-avatar-recipe-1",
+  "id": "anime-fighter-01",
+  "status": "prepared_not_submitted",
+  "description": "First original anime fighter for deformation tests. This recipe is not a generated asset.",
+  "appearance": {
+    "style": "Original adult anime martial artist, short hair, teal and charcoal sportswear",
+    "pose": "Symmetric neutral T-pose; straight separated arms, separated fingers, feet apart",
+    "clothing": "Fitted short jacket, trousers, fingerless gloves, short boots",
+    "target_height_m": 1.72,
+    "reason": "Start with visible shoulder, hip and knee articulation; compare long clothing later."
+  },
+  "tripo": {
+    "base_url": "https://openapi.tripo3d.ai/v3",
+    "generation_endpoint": "/generation/text-to-model",
+    "generation_body": {
+      "prompt": "A single original adult anime martial artist for a 3D fighting game, full body, short dark hair, expressive face, teal fitted short sports jacket, charcoal trousers, fingerless gloves and short boots. Symmetric neutral T-pose, arms straight sideways, palms down, fingers separated, feet shoulder-width apart. Athletic believable proportions, clearly separated limbs, clean shoulder and hip topology, opaque cel-friendly base colors, no background or pedestal. Intended character height 1.72 meters.",
+      "negative_prompt": "long skirt, cape, flowing coat, long hair, weapons, props, pedestal, action pose, bent arms, crossed legs, fused limbs, fused fingers, extra limbs, multiple characters, text, logos, baked hard shadows",
+      "model": "v3.1-20260211",
+      "model_seed": 20261023,
+      "image_seed": 20261023,
+      "texture_seed": 20261023,
+      "face_limit": 30000,
+      "texture": true,
+      "pbr": false,
+      "texture_quality": "standard",
+      "texture_version": "v3.0-20250812",
+      "geometry_quality": "standard",
+      "auto_size": true,
+      "quad": false
+    },
+    "rig_check_endpoint": "/animations/rig-check",
+    "rig_check_body_template": {"input": "<generated_task_id>"},
+    "rig_endpoint": "/animations/rig",
+    "rig_body_template": {
+      "input": "<generated_task_id>",
+      "model": "v3.0-20260909",
+      "rig_type": "biped",
+      "spec": "vrm",
+      "out_format": "glb"
+    },
+    "note": "spec=vrm selects skeleton naming; inspect whether the actual output has VRMC_vrm metadata. Do not merely rename GLB to VRM. No credentials or paid execution are included here."
+  },
+  "binding_experiments": [
+    {"id": "tripo-rig", "status": "pending_generation", "input": "same generated mesh"},
+    {"id": "tokenrig-full", "status": "pending_generation_and_gpu", "input": "same generated mesh without source rig"},
+    {"id": "tokenrig-skin-only", "status": "pending_generation_and_gpu", "input": "same mesh and fixed reference skeleton"}
+  ],
+  "playback_samples": [
+    "cmu_boxing", "cmu_front_kick", "cmu_roundhouse", "cmu_low_block", "cmu_knife_guard"
+  ],
+  "inspection": {
+    "playback_speed": 0.25,
+    "views": ["front", "side", "back", "both_player_views"],
+    "focus": ["shoulder collapse", "hip collapse", "elbow and knee bending", "foot sliding", "clothing penetration", "torso twist", "facing direction"],
+    "same_motion_and_camera_for_all_variants": true,
+    "human_visual_acceptance_required": true
+  },
+  "reviewed_sources": [
+    "https://developers.tripo3d.ai/en/docs/generation-text-to-model/standard",
+    "https://developers.tripo3d.ai/en/docs/animations-rig",
+    "https://developers.tripo3d.ai/en/docs/animations-rig-check",
+    "https://github.com/VAST-AI-Research/SkinTokens/tree/273b691d35989d71cd17ff2895fdc735097b92d1"
+  ]
+}

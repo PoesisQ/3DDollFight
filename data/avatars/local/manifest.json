@@ -1,0 +1,90 @@
+[
+  {
+    "name": "nozomi",
+    "bytes": 15895880,
+    "sha256": "775c9c8b03d95e627f05c9e26afe9b29839d0475e866f5a074dca8afd8b7cf0a",
+    "source_sha256": "399f4ff3336b693051951663de14033fb0e3d5945faf03bbd2be907eead20dcd",
+    "source_triangles": 237752,
+    "retained_source_triangles": 237752,
+    "human_bones": 54,
+    "cage_bones": 216,
+    "transfer_distance_m_p50_p95": [
+      0.01529038814930983,
+      0.06505098692554086
+    ],
+    "method": "CPU surface transfer + adjacency smoothing + separate GPU garment cage; NOT SkinTokens",
+    "hybrid_face": false,
+    "hybrid_head": false,
+    "authored_hands_neck": false,
+    "hair_binding": "two spatial chains",
+    "hair_bones": 8,
+    "authored_hair_sha256": null,
+    "likeness_approved": false
+  },
+  {
+    "name": "nozomi-hybrid",
+    "bytes": 21727684,
+    "sha256": "c262fecac27cbea11d9e0e52505f992b8d1366605f7e05c45dfb58d972a77534",
+    "source_sha256": "399f4ff3336b693051951663de14033fb0e3d5945faf03bbd2be907eead20dcd",
+    "source_triangles": 237752,
+    "retained_source_triangles": 191554,
+    "human_bones": 54,
+    "cage_bones": 216,
+    "transfer_distance_m_p50_p95": [
+      0.01529038814930983,
+      0.06505098692554086
+    ],
+    "method": "CPU surface transfer + adjacency smoothing + separate GPU garment cage; NOT SkinTokens",
+    "hybrid_face": true,
+    "hybrid_head": true,
+    "authored_hands_neck": true,
+    "hair_binding": "authored strand topology",
+    "hair_bones": 59,
+    "authored_hair_sha256": "fbdb699d57a950884e818d29bb755302c1d4ffa0bd530b06f17bbbc066b18b12",
+    "likeness_approved": false
+  },
+  {
+    "name": "mizore",
+    "bytes": 17479584,
+    "sha256": "aec752f5ad081879c186ee4c80eed0dc0e15cd384c4999ad8aa07e1fabd08c5a",
+    "source_sha256": "84aa58a79aae85f09b13c1b55b1f7b4ee8eda5a3344510ee5207efe4f7e2afe4",
+    "source_triangles": 270156,
+    "retained_source_triangles": 270156,
+    "human_bones": 54,
+    "cage_bones": 216,
+    "transfer_distance_m_p50_p95": [
+      0.019751840870580843,
+      0.07226660097036613
+    ],
+    "method": "CPU surface transfer + adjacency smoothing + separate GPU garment cage; NOT SkinTokens",
+    "hybrid_face": false,
+    "hybrid_head": false,
+    "authored_hands_neck": false,
+    "hair_binding": "two spatial chains",
+    "hair_bones": 8,
+    "authored_hair_sha256": null,
+    "likeness_approved": false
+  },
+  {
+    "name": "mizore-hybrid",
+    "bytes": 23384836,
+    "sha256": "3544073bf844198b8a67a2be26b9776621f324c827ff6d659fcd5c3285e3a37f",
+    "source_sha256": "84aa58a79aae85f09b13c1b55b1f7b4ee8eda5a3344510ee5207efe4f7e2afe4",
+    "source_triangles": 270156,
+    "retained_source_triangles": 225107,
+    "human_bones": 54,
+    "cage_bones": 216,
+    "transfer_distance_m_p50_p95": [
+      0.019751840870580843,
+      0.07226660097036613
+    ],
+    "method": "CPU surface transfer + adjacency smoothing + separate GPU garment cage; NOT SkinTokens",
+    "hybrid_face": true,
+    "hybrid_head": true,
+    "authored_hands_neck": true,
+    "hair_binding": "authored strand topology",
+    "hair_bones": 59,
+    "authored_hair_sha256": "f2237ac0d8c44041bf19efe7573c945aab250252149e645c281790fbd0cc08fd",
+    "likeness_approved": false
+  }
+]

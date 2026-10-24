@@ -1,0 +1,43 @@
+{
+  "source": "cmu_footwork",
+  "avatars": [
+    "nozomi · Tripo 本地绑定 / 授权头部重建 · 19/19 关节 · 12 网格",
+    "mizore · Tripo 本地绑定 / 授权头部重建 · 19/19 关节 · 12 网格"
+  ],
+  "optimized": true,
+  "secondary_mode": "live",
+  "viewport": [
+    1280,
+    720
+  ],
+  "pixel_ratio": 1.5,
+  "render_target_pixels": [
+    [
+      1390,
+      403
+    ],
+    [
+      684,
+      255
+    ],
+    [
+      684,
+      255
+    ]
+  ],
+  "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36",
+  "samples": 1144,
+  "fps": 95.37148192572465,
+  "raf_p50_ms": 9.600000023841858,
+  "raf_p95_ms": 16.5,
+  "pose_p95_ms": 9.199999928474426,
+  "render_submit_p95_ms": 4.299999952316284,
+  "cloth_p95_ms": 8.200000047683716,
+  "triangles_per_frame": 980518,
+  "draw_calls_per_frame": 100,
+  "views": 3,
+  "animated_frames_percent": 100,
+  "frames_over_33ms_percent": 0,
+  "measurement": "CPU pose + render submission; RAF interval, not GPU timer or camera-to-display latency",
+  "sample_duration_s": 12.003300000071526
+}

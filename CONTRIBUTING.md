@@ -11,16 +11,20 @@ GitHub 远端为 [PoesisQ/3DDollFight](https://github.com/PoesisQ/3DDollFight)�
 当前实际目录：
 
 ```text
-src/dollfight/          几何基础、协议校验与 schemas
-tests/fixtures/         小型合成消息
-tools/                 本地校验入口
-docs/                  技术设计、选型、接口
+src/dollfight/          协议、几何、骨架约束、识别、重定向与本地回放服务
+apps/motion-lab/        Three.js 评估界面、固定渲染依赖与投影测试
+unity/                 UniVRM / Humanoid 适配包、.meta 与导入步骤
+data/avatars/          临时皮套来源、许可、下载地址与哈希
+data/samples/           可再分发的小型公开动捕与来源记录
+tests/fixtures/         小型合成协议消息
+tools/                 校验、数据转换、消融评估与资产重建
+docs/                  技术设计、选型、接口和评估记录
 .github/               CI 与 PR 模板
 pyproject.toml         Python 直接依赖与工具配置
 uv.lock                已解析依赖版本
 ```
 
-以后按需增加 `apps/unity/` 或 `apps/godot/` 中的一条正式路线，增加采集适配、约束求解、识别和回放模块。不要为了目录看上去完整提前复制大量空工程。
+Motion Lab 用浏览器完成数值与视觉联调；`unity/` 已提供独立适配包，尚待 Editor 编译和播放验收。正式引擎工程由团队决定。算法不依赖引擎对象；更换引擎后保留同一输入回放与 FK/事件回归。
 
 ## 分支与评审
 
@@ -89,6 +93,10 @@ Godot 提交 project.godot、`.tscn/.tres/.gd`、`.uid` 和需要的导入配置
 
 ## 自动化与复现实验
 
-当前 CI 在 Windows/Linux 上配置了 uv 锁文件同步、ruff、pytest、合成 fixture 校验；本机执行结果以交付记录为准，远端 CI 需要推送后实际触发。以后增加与改动相关的 IK/识别回归，以及具有图形上下文的渲染测试；不让所有纯算法 PR 都依赖摄像头和 GPU。
+当前 CI 在 Windows/Linux 上配置了 uv 锁文件同步、ruff、pytest、fixture 校验与前端投影数值测试。Python 测试包括 IK、三个体型的 FK/骨长、遮挡、动作回收、转向、体型缩放、真实 CMU 输入及协议往返。本机执行结果以交付记录为准，远端 CI 需推送后实际确认。图形效果还需在 Motion Lab 检查；数值测试不能替代截图与实际操作。
+
+`apps/motion-lab/vendor/` 固定 Three.js/three-vrm 版本、MIT 许可证与哈希，不手工编辑压缩库；升级要一起更新 manifest 并复验。GLTFLoader 的扁平目录导入路径补丁由重建脚本记录。`data/samples/cmu_*.json` 是带来源的小型公开测试输入，允许跟随普通 Git；原始 AMC 与个人录制继续放在忽略目录。Python 服务本身不联网；启动脚本首次通过 `fetch_avatar.py` 获取并校验固定 VRM，以后复用已校验的本地文件。
+
+角色资产的责任包括许可、骨架表、bind pose、版本哈希与验证片段。改皮套时需要重新检查目标骨长、转髋、支撑脚和衣物穿插；不能只看正面静态截图。实时 PoseFrame、动作识别结果、参考动画时序与离线 Humanoid 回放分别版本化，避免采集组误把 UI 内部 JSON 当作正式协议。
 
 每次实验关联 Git commit、依赖 lock、配置、数据划分、相机/标定版本、模型 hash 和随机种子。不要只上传最漂亮的一段视频；同一录制能反复重现改进前后的差别，才适合多人协作和课程答辩。

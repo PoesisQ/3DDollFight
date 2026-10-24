@@ -1,0 +1,129 @@
+{
+  "version": "0.9.0",
+  "review_date": "2026-10-24",
+  "branch": "feat/motion-lab",
+  "purpose": "Expanded full-body combat and isolated own-limb rendering in both player views.",
+  "source": "Authored public CMU mocap, not live camera input or autonomous gameplay.",
+  "video": {
+    "path": "data/avatars/experiments/dollfight-three-rounds-v09-20261024.mp4",
+    "sha256": "c7c585f6bcbeab9e6e775d533c53887ba3451dc372f7b74e33642c1e6fee7f7f",
+    "bytes": 28277015,
+    "duration_s": 89.809,
+    "width": 1280,
+    "height": 1000,
+    "frames": 2437,
+    "average_frame_rate": "2437000/89809",
+    "encoding": "Actual three-canvas browser recording, H.264 CRF 18, variable frame rate, no interpolated frames. Encoding/capture throughput is not live rendering FPS."
+  },
+  "screenshots": [
+    {
+      "path": "data/avatars/experiments/dollfight-v09-punch-20261024.png",
+      "sha256": "820797f5f4a2f27ac0e28f8da036119f9cacaffc140ae17c25d2c3608b197771",
+      "bytes": 24335
+    },
+    {
+      "path": "data/avatars/experiments/dollfight-v09-sidekick-20261024.png",
+      "sha256": "6bbdf5897de748bcf6e5eadfa1c1a948dfbe286ea55814bb1e3efb5b5b4eaf2f",
+      "bytes": 85710
+    },
+    {
+      "path": "data/avatars/experiments/dollfight-v09-spin-20261024.png",
+      "sha256": "bf5fe8568a4e63e47f7d6641d7222b82c2486d6aa615c20a4ac7ac55cd4e3a48",
+      "bytes": 85455
+    },
+    {
+      "path": "data/avatars/experiments/self-limbs-main-on-20261024.png",
+      "sha256": "e57e566806c8627ae9eba831569e45b4dcdda13bfd9e14e28abd17507f4c6803",
+      "bytes": 35406
+    },
+    {
+      "path": "data/avatars/experiments/self-limbs-main-off-20261024.png",
+      "sha256": "e57e566806c8627ae9eba831569e45b4dcdda13bfd9e14e28abd17507f4c6803",
+      "bytes": 35406
+    }
+  ],
+  "reviewed_video_times_s": [
+    14.1,
+    24.5,
+    48.9,
+    84.3,
+    85.2
+  ],
+  "highlight_buttons_s": {
+    "side_kick": 13,
+    "roundhouse_kick": 23,
+    "lunge_punch": 32,
+    "empi_combination": 48,
+    "aerial_spin_kick": 83
+  },
+  "main_view_isolation": {
+    "scene_time_s": 2.79,
+    "paused": true,
+    "live_secondary_motion": true,
+    "image_size": [
+      834,
+      288
+    ],
+    "changed_pixels": 0,
+    "method": "Same paused frame and main-canvas crop, toggle own-limb rendering only; RGB pixel difference. This proves this representative frame, not every possible configuration."
+  },
+  "tests": {
+    "python_passed": 128,
+    "javascript_passed": 13,
+    "ruff_check": "passed",
+    "ruff_format_check": "57 files passed",
+    "protocol_fixtures": "2 passed",
+    "diff_whitespace": "passed",
+    "commands": [
+      "uv run --offline --locked --group assets pytest -q",
+      "node apps/motion-lab/tests/run-tests.js",
+      "uv run --offline --locked ruff check .",
+      "uv run --offline --locked ruff format --check .",
+      "uv run --offline --locked python tools/check_contracts.py"
+    ]
+  },
+  "leg_screening": {
+    "candidate_leg_samples": 0,
+    "total_leg_samples": 10800,
+    "report": "data/avatars/experiments/legs-v09-20261024.json",
+    "limit": "Geometric screening only, not a naturalness rating or independent ground truth."
+  },
+  "performance": {
+    "report": "data/avatars/experiments/sparring-performance-v09-20261024.json",
+    "sample_duration_s": 12.0115,
+    "fps": 74.50380635830382,
+    "raf_p95_ms": 19,
+    "viewport": [
+      887,
+      815
+    ],
+    "render_target_pixels": [
+      [
+        892,
+        403
+      ],
+      [
+        433,
+        255
+      ],
+      [
+        433,
+        255
+      ]
+    ],
+    "pixel_ratio": 1.5,
+    "own_limbs": true,
+    "secondary_mode": "live",
+    "limit": "Short three-window browser measurement, not three Full-HD monitors, sustained 60 FPS or end-to-end camera latency."
+  },
+  "assets_changed": false,
+  "known_limits": [
+    "Captured full-body motion with authored timing, root adjustment, inertial joins and IK; not dynamic muscle or balance simulation.",
+    "Some transition foot slide, pose stiffness and limited hit reactions remain.",
+    "Side-kick recognition has missed and knee-confused events in later source repetitions; spin and combinations are not validated real-time recognition classes.",
+    "Own limbs use a view-only translation and 68-degree FOV in full-opponent mode; physical-eye experiment uses unchanged world pose and its actual projection.",
+    "Close-up hands expose existing model skinning and finger-prior limitations; shoulder/hip fades reduce hard cuts but extreme turns can still look detached.",
+    "Extreme kicks can still intersect the skirt waist; no claim of clothing collision completion.",
+    "No Gemini camera, Unity Editor or real multi-monitor hardware validation in this review."
+  ]
+}

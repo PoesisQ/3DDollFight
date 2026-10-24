@@ -1,0 +1,8 @@
+{
+  "name": "dollfight-motion-lab",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node tests/run-tests.js"
+  }
+}

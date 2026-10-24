@@ -1,0 +1,29 @@
+{
+  "started_utc": "20261023T113533692222Z",
+  "provider": "VAST-AI/SkinTokens",
+  "client": "gradio-client==2.7.2",
+  "endpoint": "https://vast-ai-skintokens.hf.space/",
+  "api_name": "/run_gradio",
+  "input_source": "https://raw.githubusercontent.com/vrm-c/vrm-specification/master/samples/VRM1_Constraint_Twist_Sample/vrm/VRM1_Constraint_Twist_Sample.vrm",
+  "input_sha256": "12c2b97e95e700783a6a550dc0eee2d7880aeedccef9ae67bc4c5a2f0f2631a2",
+  "parameters": {
+    "top_k": 5,
+    "top_p": 0.95,
+    "temperature": 1.0,
+    "repetition_penalty": 2.0,
+    "num_beams": 10,
+    "use_skeleton": true,
+    "use_transfer": true,
+    "use_postprocess": false,
+    "model_ckpt": "experiments/articulation_xl_quantization_256_token_4/grpo_1400.ckpt",
+    "hf_path": "None"
+  },
+  "status": "failed",
+  "generated_appearance": false,
+  "note": "Hosted revision/seed are not fixed by this API. This is a binding experiment.",
+  "error": "AppError: The requested GPU duration (450s) is larger than the maximum allowed",
+  "reviewed_source_revision": "273b691d35989d71cd17ff2895fdc735097b92d1",
+  "hosted_revision_verified": false,
+  "failure_stage": "hosted_gpu_allocation",
+  "outputs": []
+}
