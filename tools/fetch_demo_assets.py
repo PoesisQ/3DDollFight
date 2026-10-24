@@ -93,9 +93,22 @@ def main():
         raw.mkdir(parents=True, exist_ok=True)
         for subject, filenames in (
             ("14", ("14.asf", "14_01.amc")),
-            ("135", ("135.asf", "135_04.amc", "135_05.amc", "135_07.amc", "135_10.amc")),
+            (
+                "135",
+                (
+                    "135.asf",
+                    "135_02.amc",
+                    "135_04.amc",
+                    "135_05.amc",
+                    "135_07.amc",
+                    "135_09.amc",
+                    "135_10.amc",
+                    "135_11.amc",
+                ),
+            ),
             ("08", ("08.asf", "08_04.amc")),
-            ("76", ("76.asf", "76_01.amc", "76_09.amc")),
+            ("76", ("76.asf", "76_01.amc", "76_04.amc", "76_09.amc")),
+            ("88", ("88.asf", "88_06.amc")),
             ("69", ("69.asf", "69_42.amc")),
         ):
             for filename in filenames:

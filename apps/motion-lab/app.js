@@ -288,6 +288,28 @@ function buildCombatUI() {
         });
         $("chapters").append(button);
     }
+    $("move-highlights").replaceChildren();
+    if (run.name === "cmu_sparring") {
+        for (const [label, keyword] of [
+            ["侧踹", "侧踹"],
+            ["回旋踢", "回旋踢与前踢"],
+            ["踏步冲拳", "踏步双冲拳"],
+            ["连续组合", "提手、冲拳"],
+            ["腾空旋踢", "腾空旋踢"],
+        ]) {
+            const chapter = run.duel.chapters.find((c) =>
+                c.label.includes(keyword),
+            );
+            if (!chapter) continue;
+            const button = document.createElement("button");
+            button.textContent = `${label} · ${chapter.time_s.toFixed(0)}s`;
+            button.addEventListener("click", () => {
+                time = chapter.time_s;
+                setPlaying(true);
+            });
+            $("move-highlights").append(button);
+        }
+    }
     $("combat-source").textContent = run.duel.description;
     $("combat-events").replaceChildren();
     for (const event of run.duel.events) {
@@ -403,7 +425,9 @@ function ui(frame, duel) {
         );
     $("projection-label").textContent = $("offaxis").checked
         ? "严格眼位 · 需标定"
-        : "全身取景 · 保留反应空间";
+        : $("self-limbs").checked
+          ? "对手全身 · 自身手脚"
+          : "全身取景 · 保留反应空间";
 }
 function animate(now) {
     const delta = Math.min((now - last) / 1000, 0.1);
@@ -430,6 +454,7 @@ function animate(now) {
             wireframe: $("wireframe").checked,
             offaxis: $("offaxis").checked,
             eyeOffset: +$("eye-x").value / 100,
+            selfLimbs: $("self-limbs").checked,
             secondary: $("secondary-motion").checked,
             secondaryMode: $("secondary-mode").value,
             optimized: $("optimized").checked,

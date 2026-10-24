@@ -22,6 +22,26 @@ TIMINGS = {
         (4.30, 4.77, 4.97, 5.57, "left"),
         (6.27, 6.67, 6.87, 7.43, "right"),
     ],
+    "cmu_side_kick": [
+        (2.35, 2.80, 3.04, 3.70, "right"),
+        (4.55, 4.96, 5.18, 5.90, "right"),
+        (6.83, 7.25, 7.48, 8.15, "right"),
+        (10.40, 10.80, 11.06, 11.70, "left"),
+        (12.65, 13.04, 13.29, 13.98, "left"),
+    ],
+    "cmu_spin_kick": [(0.38, 1.12, 1.42, 2.50, "left")],
+    "cmu_lunge_punch": [
+        (2.05, 2.38, 2.64, 3.45, "right"),
+        (4.03, 4.43, 4.70, 5.42, "left"),
+        (6.17, 6.56, 6.82, 7.50, "right"),
+    ],
+}
+REFERENCE_TYPES = {
+    "cmu_front_kick": ("kick", "前踢"),
+    "cmu_roundhouse": ("roundhouse_kick", "回旋踢"),
+    "cmu_side_kick": ("side_kick", "侧踹"),
+    "cmu_spin_kick": ("spin_kick", "腾空旋踢"),
+    "cmu_lunge_punch": ("straight", "踏步冲拳"),
 }
 PHASE_LABELS = {
     "ready": "就绪",
@@ -54,10 +74,9 @@ REVIEW_CHAPTERS = {
 def reference_actions(name):
     result = []
     for i, (start, active, end, recovery, side) in enumerate(TIMINGS.get(name, [])):
-        action = side + ("_roundhouse_kick" if name == "cmu_roundhouse" else "_kick")
-        label = ("左" if side == "left" else "右") + (
-            "回旋踢" if name == "cmu_roundhouse" else "前踢"
-        )
+        action_type, action_label = REFERENCE_TYPES[name]
+        action = side + "_" + action_type
+        label = ("左" if side == "left" else "右") + action_label
         result.append(
             {
                 "id": f"reference-{i}",

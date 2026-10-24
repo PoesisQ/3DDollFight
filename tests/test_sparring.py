@@ -19,11 +19,17 @@ def test_three_rounds_have_independent_streams_and_return_without_root_drift(pai
         p = clip["points"]
         assert p.shape == (2700, 19, 3)
         assert np.isfinite(p).all()
-        assert np.ptp(p[:, 0, 0]) < 0.35
+        # Up to 12 cm of captured weight transfer on each side of the path.
+        assert np.ptp(p[:, 0, 0]) < 0.50
         assert 0.5 < np.ptp(p[:, 0, 2]) < 0.8
         for start in (0, 900, 1800):
             np.testing.assert_allclose(p[start, 0, [0, 2]], [0, 0], atol=1e-5)
-        assert max(np.linalg.norm(np.diff(p[:, 0], axis=0), axis=1)) < 0.06
+        delta = np.diff(p[:, 0], axis=0)
+        assert np.linalg.norm(delta[:, [0, 2]], axis=1).max() < 0.06
+        # The new jumping kick has real vertical take-off / landing velocity.
+        flight = np.array([m["intent"] == "spin_kick" for m in clip["performance"][:-1]])
+        assert np.linalg.norm(delta[~flight], axis=1).max() < 0.06
+        assert np.abs(delta[:, 1]).max() < 0.09
 
 
 def test_rehearsal_changes_reach_and_contacts_without_stretching_limbs(pair):

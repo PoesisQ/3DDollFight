@@ -8,6 +8,8 @@ import numpy as np
 from dollfight.kinematics import body_basis, unit
 
 LABELS = {
+    "left_side_kick": "左侧踹",
+    "right_side_kick": "右侧踹",
     "left_roundhouse_kick": "左回旋踢",
     "right_roundhouse_kick": "右回旋踢",
     "left_spin_backfist": "左转身鞭拳",
@@ -305,7 +307,22 @@ class ActionRecognizer:
                 and foot_height > 0.20
                 and extension_speed > 0.25
             ):
-                action = side + ("_roundhouse_kick" if abs(foot_lateral) > 0.30 else "_kick")
+                # A side thrust extends mainly across the body's lateral plane,
+                # with the torso leaning away. A roundhouse continues forward
+                # as it sweeps. This is a conservative geometric candidate, not
+                # a trained martial-arts classifier or a replay-label lookup.
+                side_thrust = (
+                    abs(foot_lateral) > 0.45
+                    and abs(foot_lateral) > 1.6 * max(foot_forward, 0)
+                    and (local[ankle, 1] - local[hip, 1]) / scale < -0.10
+                )
+                action = side + (
+                    "_side_kick"
+                    if side_thrust
+                    else "_roundhouse_kick"
+                    if abs(foot_lateral) > 0.30
+                    else "_kick"
+                )
                 self.knee_candidate_since[side] = None
             elif (
                 not rotating

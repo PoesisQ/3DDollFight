@@ -1,5 +1,19 @@
 # 可离线回放的输入
 
+v0.9 新增的真实全身片段：
+
+| 文件 | 原始试验 | 原站名称 | 源采样率 → 回放 | 帧数 |
+| --- | --- | --- | --- | --- |
+| `cmu_side_kick.json` | 135_11 | Yokogeri | 120 → 30 Hz | 612 |
+| `cmu_lunge_punch.json` | 135_09 | Oiduki | 120 → 30 Hz | 538 |
+| `cmu_empi.json` | 135_02 | Empi | 120 → 30 Hz | 1301 |
+| `cmu_guard.json` | 76_04 | defensive guard pose | 120 → 30 Hz | 105 |
+| `cmu_spin_kick.json` | 88_06 | jump and spin kick | 60 → 30 Hz | 115 |
+
+[135 官方目录](https://mocap.cs.cmu.edu/search.php?subjectnumber=135)、[76 官方目录](https://mocap.cs.cmu.edu/search.php?subjectnumber=76)、[88 官方目录](https://mocap.cs.cmu.edu/search.php?subjectnumber=88)。下载原件后运行 `uv run --locked python tools/convert_cmu.py --expanded` 重建。原始 SHA-256、FPS、单位与坐标转换都写入每个 JSON；腾空旋踢不能沿用其他片段的 120 Hz 假设。
+
+侧踹的参考攻击窗口由伸展峰值人工检查后标注；Empi 中的出拳窗口用离线伸展峰值定位，不声称每一帧有武术类别真值。新的侧踹规则只读骨架几何，尚会漏掉完整片段后半部分的困难重复；不要将演示命中次数当成识别准确率。
+
 v0.7 新增真实步法（均为 120 → 30 Hz，文件内固定原始 hash）：
 
 | 文件 | 原始试验 | 原站动作名称 | 帧数 |

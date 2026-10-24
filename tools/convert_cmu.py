@@ -111,12 +111,21 @@ def forward(bones, hierarchy, frame):
     return np.array([positions[name] for name in names]) * (2.54 / 100 / 0.45)
 
 
-def convert(subject="14", trial="14_01", name="cmu_boxing", seconds=24, description=None):
+def convert(
+    subject="14", trial="14_01", name="cmu_boxing", seconds=24, description=None, source_fps=120
+):
     raw = ROOT / "data" / "raw" / "cmu"
     bones, hierarchy = read_asf(raw / f"{subject}.asf")
     frames = read_amc(raw / f"{trial}.amc")
-    # First 24 seconds; 120 Hz source to 30 Hz display, no interpolation.
-    points = np.array([forward(bones, hierarchy, f) for f in frames[: int(seconds * 120) : 4]])
+    # CMU's acrobatic trials can be 60 Hz; assuming 120 doubles their speed.
+    if source_fps not in (60, 120):
+        raise ValueError("Supported CMU source rates are 60 and 120 Hz")
+    points = np.array(
+        [
+            forward(bones, hierarchy, f)
+            for f in frames[: int(seconds * source_fps) : source_fps // 30]
+        ]
+    )
     initial = points[0, 0].copy()
     initial[1] = 0
     points -= initial
@@ -142,7 +151,7 @@ def convert(subject="14", trial="14_01", name="cmu_boxing", seconds=24, descript
         "fps": 30,
         "description": description
         or "CMU 14_01 真实光学拳击动捕；不是深度相机输入，无逐拳类别真值。",
-        "source_fps": 120,
+        "source_fps": source_fps,
         "source_units_to_m": 2.54 / 100 / 0.45,
         "source_url": f"https://mocap.cs.cmu.edu/search.php?subjectnumber={subject}",
         "source_hashes": {
@@ -169,8 +178,20 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--martial", action="store_true")
     parser.add_argument("--locomotion", action="store_true")
+    parser.add_argument(
+        "--expanded", action="store_true", help="Side kick, lunge punch, kata, guard and spin"
+    )
     args = parser.parse_args()
-    if args.locomotion:
+    if args.expanded:
+        for subject, trial, name, label, rate in (
+            ("135", "135_11", "cmu_side_kick", "侧踹 / 横向收膝与蹬伸", 120),
+            ("135", "135_09", "cmu_lunge_punch", "踏步冲拳 / 蹬地转髋", 120),
+            ("135", "135_02", "cmu_empi", "Empi 套路 / 连续换重心", 120),
+            ("76", "76_04", "cmu_guard", "防御护架 / 自然呼吸与重心调整", 120),
+            ("88", "88_06", "cmu_spin_kick", "腾空旋踢 / 全身旋转与落地", 60),
+        ):
+            convert(subject, trial, name, 60, f"CMU {trial} 真人光学动捕 · {label}。", rate)
+    elif args.locomotion:
         for subject, trial, name, seconds, label in (
             ("08", "08_04", "cmu_walk", 12, "慢步前进"),
             ("76", "76_01", "cmu_retreat_punch", 20, "后退然后出拳 · 一次连续采集"),

@@ -5,6 +5,7 @@ import { createAvatar, createStick } from "./avatar.js";
 import { createVRMAvatar } from "./vrm-avatar.js";
 import { CombatVisuals } from "./combat-visuals.js";
 import { FrameMeter } from "./performance.js";
+import { SelfLimbs } from "./self-limbs.js";
 
 function renderer(container) {
     const instance = new THREE.WebGLRenderer({ antialias: true, alpha: false });
@@ -114,6 +115,10 @@ export class LabScene {
             document.getElementById(id),
         );
         this.renderers = this.containers.map(renderer);
+        this.renderers.forEach((r) => {
+            r.info.autoReset = false;
+        });
+        this.selfLimbs = [];
         this.visibleViews = [true, true, true];
         this.meter = new FrameMeter();
         const observer = new IntersectionObserver((entries) => {
@@ -194,6 +199,7 @@ export class LabScene {
     }
     async load(run, secondaryMode = "cache") {
         this.loading = true;
+        this.selfLimbs.forEach((view) => view.dispose());
         this.avatars.forEach((a) => {
             a.group.removeFromParent();
             a.dispose();
@@ -210,6 +216,7 @@ export class LabScene {
         ];
         this.pendingAvatars = null;
         const [p1, p2, target] = this.avatars;
+        this.selfLimbs = [p1, p2].map((a) => new SelfLimbs(a));
         try {
             for (const [avatar, frames] of [
                 [p1, run.frames],
@@ -255,6 +262,13 @@ export class LabScene {
             avatars: this.avatars.slice(0, 2).map((a) => a.info),
             optimized: document.getElementById("optimized").checked,
             secondary_mode: document.getElementById("secondary-mode").value,
+            self_limbs: document.getElementById("self-limbs").checked,
+            self_limb_triangles: this.selfLimbs.map((v) =>
+                v.parts.reduce(
+                    (sum, p) => sum + p.mesh.geometry.index.count / 3,
+                    0,
+                ),
+            ),
             viewport: [innerWidth, innerHeight],
             pixel_ratio: this.renderers[0].getPixelRatio(),
             render_target_pixels: this.renderers.map((r) => [
@@ -316,6 +330,7 @@ export class LabScene {
             this.containers[index + 1].clientWidth /
             this.containers[index + 1].clientHeight;
         camera.position.copy(eye);
+        camera.aspect = aspect;
         camera.near = 0.04;
         camera.far = 35;
         if (offaxis) {
@@ -351,6 +366,7 @@ export class LabScene {
     draw(frame, next, alpha, second, nextSecond, options) {
         if (!this.run || this.loading) return;
         const start = performance.now();
+        this.renderers.forEach((r) => r.info.reset());
         const visible =
             options.optimized && !options.recording
                 ? this.visibleViews
@@ -458,6 +474,12 @@ export class LabScene {
             this.avatars[i].group.visible = false;
             this.avatars[i].skeletonHelper.visible = false;
             this.renderers[i + 1].render(this.arena, this.eyeCameras[i]);
+            if (options.selfLimbs)
+                this.selfLimbs[i].draw(
+                    this.renderers[i + 1],
+                    this.eyeCameras[i],
+                    options.offaxis,
+                );
             this.avatars[i].group.visible = true;
             this.avatars[i].skeletonHelper.visible = options.bones;
         }

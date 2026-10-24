@@ -49,11 +49,44 @@ MOTIONS = {
     "side": ("cmu_strafe", 0.8, 1.6),
     "boxing_a": ("cmu_boxing", 1.65, 4.85),
     "boxing_b": ("cmu_boxing", 4.5, 7.9),
-    "guard": ("cmu_boxing", 20.4, 21.2),
+    "guard": ("cmu_guard", 1.55, 2.10),
     "front_kick": ("cmu_front_kick", 1.7, 4.1),
     "roundhouse": ("cmu_roundhouse", 5.0, 7.9),
     "low_block": ("cmu_low_block", 1.0, 3.8),
+    "side_kick": ("cmu_side_kick", 4.1, 6.2),
+    "spin_kick": ("cmu_spin_kick", 0.05, 2.90),
+    "lunge_punch": ("cmu_lunge_punch", 1.7, 5.6),
+    "empi": ("cmu_empi", 8.0, 11.4),
+    "knife_guard": ("cmu_knife_guard", 0.5, 3.2),
 }
+
+
+def exchange_plan(rnd):
+    """Different exchanges per round, with complete preparation and recovery."""
+    changes = (
+        {
+            5: ("side_kick", "low_block", "侧踹 · 收膝、蹬伸与回收"),
+            9: ("roundhouse", "front_kick", "回旋踢与前踢 · 横扫与直线送腿"),
+        },
+        {
+            1: ("lunge_punch", "guard", "踏步双冲拳 · 蹬地与转髋"),
+            3: ("guard", "side_kick", "反侧侧踹 · 护头等待回收"),
+            5: ("roundhouse", "knife_guard", "回旋踢 · 转髋与手刀架防"),
+            7: ("guard", "empi", "提手、冲拳与换步 · 连续套路"),
+            9: ("roundhouse", "side_kick", "回旋踢与侧踹 · 两种发力路线"),
+        },
+        {
+            3: ("guard", "roundhouse", "回旋踢 · 侧向扫击"),
+            5: ("side_kick", "knife_guard", "侧踹 · 侧身蹬伸"),
+            7: ("guard", "lunge_punch", "踏步冲拳 · 重心随出拳前送"),
+            9: ("spin_kick", "retreat", "腾空旋踢 · 蓄力、转身与落地"),
+        },
+    )[rnd % 3]
+    result = []
+    for i, (duration, first, second, a, b, label) in enumerate(EXCHANGES):
+        first, second, label = changes.get(i, (first, second, label))
+        result.append((duration, first, second, a, b, label))
+    return result
 
 
 def smoothstep(t):
@@ -79,6 +112,8 @@ def excerpt(kind, variant=0):
         begin, end = 7.9, 10.8
     if kind == "front_kick" and variant == 1:
         begin, end = 3.65, 6.05
+    if kind == "side_kick" and variant == 1:
+        begin, end = 10.0, 12.1
     p, q = normalized_clip(name)
     start, stop = round(begin * FPS), round(end * FPS)
     p, q = p[start:stop].copy(), q[start:stop].copy()
@@ -92,12 +127,13 @@ def excerpt(kind, variant=0):
         # A fighter stands obliquely. Align the recorded strike's travel to the
         # opponent, not the hips during that oblique preparation stance.
         a = attack_refs[0]
-        joint = 13 if a["action"].startswith("left") else 17
+        left = a["action"].startswith("left")
+        joint = (13 if left else 17) if a["action"].endswith("kick") else (7 if left else 10)
         lo, hi = round((a["active_at"] - begin) * FPS), round((a["active_end"] - begin) * FPS)
         vectors = p[lo : hi + 1, joint] - p[lo : hi + 1, 0]
         direction = vectors[np.argmax(np.linalg.norm(vectors[:, [0, 2]], axis=1))]
         yaw = np.arctan2(direction[0], direction[2])
-    elif kind.startswith("boxing"):
+    elif kind.startswith("boxing") or kind == "empi":
         reaches = (p[:, [7, 10]] - p[:, None, 0]).reshape(-1, 3)
         reaches = reaches[
             (reaches[:, 2] > 0.30) & (np.linalg.norm(reaches[:, [0, 2]], axis=1) > 0.4)
@@ -120,7 +156,7 @@ def excerpt(kind, variant=0):
                     },
                 }
             )
-    if kind.startswith("boxing"):
+    if kind.startswith("boxing") or kind == "empi":
         # Replay-only timing annotation from extension extrema. This is kept
         # separate from the causal recognizer, whose event timing is also shown.
         # Starting a hit window after retraction made visually touching punches
@@ -142,7 +178,8 @@ def excerpt(kind, variant=0):
                 {
                     "id": f"extension-{index}",
                     "action": side + "_straight",
-                    "label": ("左" if side == "left" else "右") + "拳击",
+                    "label": ("左" if side == "left" else "右")
+                    + ("套路冲拳" if kind == "empi" else "拳击"),
                     "time_s": active - 0.18,
                     "active_at": active,
                     "active_end": active + 0.15,
@@ -201,7 +238,9 @@ def compose_player(player, rounds):
     goal = np.zeros(2)
     guard_p, guard_q, _ = excerpt("guard")
     for rnd in range(rounds):
-        for stage, (duration, first, second, goal_a, goal_b, label) in enumerate(EXCHANGES):
+        for stage, (duration, first, second, goal_a, goal_b, label) in enumerate(
+            exchange_plan(rnd)
+        ):
             actor = player ^ (rnd % 2)
             kind = (first, second)[actor]
             target = np.array((goal_a, goal_b)[actor], dtype=float)
@@ -241,7 +280,7 @@ def compose_player(player, rounds):
                 np.clip(
                     np.linalg.norm(target - goal)
                     / max(0.01, np.linalg.norm((p[-1, 0] - p[0, 0])[[0, 2]])),
-                    0.35,
+                    0.12,
                     1.05,
                 )
                 if moving
@@ -251,9 +290,10 @@ def compose_player(player, rounds):
             for k in range(count):
                 t = k / FPS
                 if kind == "guard" or (moving and t > move_time):
-                    # Smooth ping-pong in a quiet captured guard window; no jump
-                    # at its loop seam. This isn't generated attack motion.
-                    phase = (1 - np.cos(t * np.pi / 1.2)) / 2
+                    # Dedicated planted defensive capture, not the stepping
+                    # interval in the boxing take. Slow weight transfer closes
+                    # the loop without reversing a lifted walking foot.
+                    phase = (1 - np.cos(t * np.pi / 2.0)) / 2
                     sp, sq = sample(guard_p, guard_q, phase * (len(guard_p) - 1))
                 else:
                     phase = min(1, t / (move_time if moving else duration))
@@ -264,6 +304,11 @@ def compose_player(player, rounds):
                         sq[5:11] = guard_q[len(guard_q) // 2, 5:11]
                 path = initial_goal + smoothstep(t / move_time) * (target - initial_goal)
                 root = np.array([path[1], sp[0, 1], path[0]])
+                if kind == "guard" or (moving and t > move_time):
+                    # Remove the drift of this captured lean; preserve its
+                    # small acceleration rather than repeatedly stepping back.
+                    local_shift = sp[0] - ((1 - phase) * guard_p[0, 0] + phase * guard_p[-1, 0])
+                    root[[0, 2]] += 0.025 * np.tanh(local_shift[[0, 2]] / 0.025)
                 if moving and t <= move_time:
                     pose, _ = fk(root, sq, rest)
                     targets = {}
@@ -275,11 +320,14 @@ def compose_player(player, rounds):
                         targets[ankle] = (root + relative, 1)
                     sq = constrain_feet(root, sq, rest, targets)
                 if kind not in ("guard", "advance", "retreat", "side"):
-                    # Keep small local weight shifts, remove long capture-room
-                    # travel. Zero displacement at both ends prevents drift.
+                    # Preserve the captured shift over the supporting leg. A
+                    # smooth bound prevents travel accumulating across clips;
+                    # the former 3 cm hard clamp erased most of the wind-up.
                     u = t / duration
                     deviation = sp[0] - ((1 - u) * p[0, 0] + u * p[-1, 0])
-                    root[[0, 2]] += np.clip(deviation[[0, 2]], -0.03, 0.03) * np.sin(np.pi * u)
+                    root[[0, 2]] += (
+                        0.12 * np.tanh(deviation[[0, 2]] / 0.12) * np.sin(np.pi * u) ** 2
+                    )
                 speed = (
                     np.full(2, 1.0)
                     if previous_source is None

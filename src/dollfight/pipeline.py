@@ -29,6 +29,11 @@ CATALOG = [
     {"id": "bind_pose", "label": "皮套检查 · 静态 T-pose", "kind": "资产检查"},
     {"id": "cmu_roundhouse", "label": "真人 · 回旋踢（转髋 / 支撑脚）", "kind": "公开动捕"},
     {"id": "cmu_front_kick", "label": "真人 · 前踢（提膝 / 回收）", "kind": "公开动捕"},
+    {"id": "cmu_side_kick", "label": "真人 · 侧踹（收膝 / 蹬伸 / 回收）", "kind": "公开动捕"},
+    {"id": "cmu_spin_kick", "label": "真人 · 腾空旋踢（60 Hz 原始采集）", "kind": "公开动捕"},
+    {"id": "cmu_lunge_punch", "label": "真人 · 踏步冲拳（全身蹬转）", "kind": "公开动捕"},
+    {"id": "cmu_empi", "label": "真人 · Empi 套路（连续组合）", "kind": "公开动捕"},
+    {"id": "cmu_guard", "label": "真人 · 防御护架（呼吸 / 重心微调）", "kind": "公开动捕"},
     {"id": "cmu_low_block", "label": "真人 · 下段格挡（步法 / 躯干）", "kind": "公开动捕"},
     {"id": "cmu_knife_guard", "label": "真人 · 手刀防御（全身协同）", "kind": "公开动捕"},
     {"id": "duel", "label": "旧版合成攻防 · 仅逻辑回归", "kind": "双人合成"},
@@ -271,7 +276,7 @@ def make_run(config, *, include_duel=False, player=0):
         "comparison": "raw_error_mm/solved_error_mm use the same observed joints",
     }
     run = {
-        "version": "0.8.0",
+        "version": "0.9.0",
         "source": clip["source"],
         "name": name,
         "description": clip["description"],

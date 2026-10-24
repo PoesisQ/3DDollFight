@@ -1,4 +1,4 @@
-import * as THREE from "three";
+import * as THREE from "./vendor/three.module.min.js";
 
 const V = (p) => new THREE.Vector3(...p);
 

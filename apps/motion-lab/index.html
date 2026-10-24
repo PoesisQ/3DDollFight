@@ -285,6 +285,16 @@
                             >需标定</span
                         ></label
                     >
+                    <label class="toggle"
+                        ><input
+                            id="self-limbs"
+                            type="checkbox"
+                            checked
+                        />玩家视窗显示自身手脚</label
+                    >
+                    <p class="source-note">
+                        跟随实际骨骼，仅调整玩家窗中的显示位置；主画面和命中判定不变。
+                    </p>
                     <label class="range-label" for="eye-x"
                         >眼位左右偏移
                         <output id="eye-value">0 cm</output></label
@@ -334,6 +344,11 @@
                     <button id="record-match">录制完整演示</button>
                 </div>
                 <div id="chapters" class="chapters" aria-label="战术段落"></div>
+                <div
+                    id="move-highlights"
+                    class="chapters"
+                    aria-label="招式直达"
+                ></div>
                 <p id="chapter-detail" class="chapter-detail">
                     选择片段检查进退、攻击与防守的关系。
                 </p>
@@ -519,7 +534,7 @@
                 <footer>
                     <span id="description"
                         >合成轨迹用于可控实验，不代表真人准确率。</span
-                    ><span>v0.8 · 腿部修正：膝向 / 步幅 / 脚锁 / 过渡速度</span>
+                    ><span>v0.9 · 全身招式 / 重心转移 / 玩家自身手脚</span>
                 </footer>
                 <div id="error" class="error" role="alert" hidden></div>
             </div>

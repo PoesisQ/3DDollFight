@@ -675,7 +675,7 @@ body.showcase .eye-viewport {
         margin: 5px 0;
     }
     body.showcase.three-screens .hero-viewport {
-        height: clamp(280px, calc(100vh - 490px), 450px);
+        height: clamp(260px, calc(100vh - 525px), 450px);
     }
     body.showcase.three-screens .eye-viewport {
         height: 180px;
