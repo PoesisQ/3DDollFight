@@ -161,9 +161,43 @@ def sample(p, q, at):
     return p[i] * (1 - a) + p[j] * a, slerp_array(q[i], q[j], a)
 
 
+def inertialize_track(roots, rotations, boundaries, duration=0.4):
+    """Join edited samples using the outgoing-minus-incoming velocity.
+
+    Keeping only outgoing velocity adds the new clip's velocity a second time
+    and overshoots knees during step-to-guard transitions. This is offline
+    composition, so the next incoming sample is available without live latency.
+    """
+    roots, rotations = np.array(roots), np.array(rotations)
+    raw_roots, raw_q = roots.copy(), rotations.copy()
+    for begin in boundaries:
+        if begin < 2 or begin + 1 >= len(roots):
+            continue
+        incoming = multiply(raw_q[begin + 1], inverse(raw_q[begin]))
+        outgoing = multiply(rotations[begin - 1], inverse(rotations[begin - 2]))
+        predicted = multiply(outgoing, rotations[begin - 1])
+        incoming_previous = multiply(inverse(incoming), raw_q[begin])
+        offset = log_rotation(multiply(predicted, inverse(raw_q[begin])))
+        previous_offset = log_rotation(multiply(rotations[begin - 1], inverse(incoming_previous)))
+        velocity = (offset - previous_offset) / DT
+        old_height_speed = (roots[begin - 1, 1] - roots[begin - 2, 1]) / DT
+        new_height_speed = (raw_roots[begin + 1, 1] - raw_roots[begin, 1]) / DT
+        height_offset = roots[begin - 1, 1] + old_height_speed * DT - raw_roots[begin, 1]
+        for i in range(begin, min(len(roots), begin + round(duration * FPS))):
+            elapsed = (i - begin) * DT
+            rotations[i] = multiply(
+                exp_rotation(inertial_offset(offset, velocity, elapsed, duration)), raw_q[i]
+            )
+            roots[i, 1] = raw_roots[i, 1] + inertial_offset(
+                height_offset, old_height_speed - new_height_speed, elapsed, duration
+            )
+    return roots, rotations
+
+
 def compose_player(player, rounds):
     rest = rest_pose()
     roots, rotations, contacts, chapters, actions, metadata = [], [], [], [], [], []
+    boundaries = []
     goal = np.zeros(2)
     guard_p, guard_q, _ = excerpt("guard")
     for rnd in range(rounds):
@@ -256,20 +290,7 @@ def compose_player(player, rounds):
                 # Inertialize every change of excerpt, including step -> guard.
                 boundary = k == 0 or (moving and k == int(move_time * FPS) + 1)
                 if boundary and rotations:
-                    offset = log_rotation(multiply(rotations[-1], inverse(sq)))
-                    velocity = (
-                        log_rotation(multiply(rotations[-1], inverse(rotations[-2]))) / DT
-                        if len(rotations) > 1
-                        else np.zeros_like(offset)
-                    )
-                    height_offset = roots[-1][1] - root[1]
-                    height_velocity = (roots[-1][1] - roots[-2][1]) / DT if len(roots) > 1 else 0
-                    blend_start = t
-                if (k or roots) and "blend_start" in locals() and 0 <= t - blend_start < 0.4:
-                    sq = multiply(
-                        exp_rotation(inertial_offset(offset, velocity, t - blend_start, 0.4)), sq
-                    )
-                    root[1] += inertial_offset(height_offset, height_velocity, t - blend_start, 0.4)
+                    boundaries.append(len(roots))
                 roots.append(root)
                 rotations.append(sq)
                 contacts.append(contact)
@@ -283,7 +304,8 @@ def compose_player(player, rounds):
                     }
                 )
             goal = target
-    return np.array(roots), np.array(rotations), np.array(contacts), actions, chapters, metadata
+    roots, rotations = inertialize_track(roots, rotations, boundaries)
+    return roots, rotations, np.array(contacts), actions, chapters, metadata
 
 
 @lru_cache(maxsize=2)
@@ -296,18 +318,44 @@ def rehearsal_pair(rounds=ROUND_COUNT):
         other = tracks[1 - player][0]
         yaw = -np.arctan2(roots[:, 0] + other[:, 0], 1.8 - roots[:, 2] - other[:, 2])
         points, anchors, weights = [], {}, np.zeros(2)
+        previous_feet = None
         for i, (root, q, contact) in enumerate(zip(roots, rotations, contacts, strict=True)):
             q = q.copy()
             q[0] = multiply(quaternion(rotation_y(yaw[i])), q[0])
-            pose, _ = fk(root, q, rest)
+            pose, global_rotations = fk(root, q, rest)
+            hinge_targets = {}
+            for hip, knee, ankle in ((11, 12, 13), (15, 16, 17)):
+                axis = pose[ankle] - pose[hip]
+                pole = pose[knee] - pose[hip]
+                pole -= axis * (pole @ axis) / (axis @ axis)
+                if pole @ global_rotations[hip][:, 2] < -1e-5:
+                    # Inertial decay may overshoot through a straight knee.
+                    # Project back to its anatomical hinge half-plane while
+                    # preserving the edited ankle target and both bone lengths.
+                    hinge_targets[ankle] = (pose[ankle].copy(), 1)
+            if hinge_targets:
+                q = constrain_feet(root, q, rest, hinge_targets)
+                pose, _ = fk(root, q, rest)
+            feet = pose[[13, 17]].copy()
+            # Captured contact labels no longer suffice after trajectory and
+            # transition edits. An old guard anchor must not drag a new kick's
+            # planted foot across the other leg. Observe the edited world pose
+            # and only correct small residual motion while it remains planted.
+            speed = (
+                np.full(2, np.inf)
+                if previous_feet is None
+                else np.linalg.norm(feet - previous_feet, axis=1) / DT
+            )
+            previous_feet = feet
             locked = {}
             for side, ankle in enumerate((13, 17)):
-                if contact[side] and side not in anchors:
+                active = bool(contact[side] and speed[side] < 0.30)
+                if side in anchors and np.linalg.norm(pose[ankle] - anchors[side]) > 0.10:
+                    active = False
+                if active and side not in anchors:
                     anchors[side] = pose[ankle].copy()
                     anchors[side][1] = rest[ankle, 1]
-                weights[side] = np.clip(
-                    weights[side] + DT / (0.08 if contact[side] else -0.10), 0, 1
-                )
+                weights[side] = np.clip(weights[side] + DT / (0.08 if active else -0.10), 0, 1)
                 if side in anchors:
                     if weights[side] > 0:
                         locked[ankle] = (anchors[side], float(smoothstep(weights[side])))

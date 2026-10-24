@@ -13,6 +13,7 @@ import numpy as np
 from dollfight.kinematics import (
     PARENTS,
     Retargeter,
+    leg_ik_hint,
     quaternion,
     rest_pose,
     rotation_y,
@@ -109,7 +110,13 @@ def constrain_feet(root, rotations, rest, anchors):
             target,
             np.linalg.norm(rest[knee] - rest[hip]),
             np.linalg.norm(rest[ankle] - rest[knee]),
-            points[knee],
+            leg_ik_hint(
+                points[hip],
+                points[knee],
+                points[ankle],
+                target,
+                globals_[hip] @ np.array([0.0, 0.0, 1.0]),
+            ),
         )
         hip_rot = swing_rotation(points[knee] - points[hip], k - points[hip]) @ globals_[hip]
         knee_rot = swing_rotation(points[ankle] - points[knee], a - k) @ globals_[knee]

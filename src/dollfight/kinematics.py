@@ -120,6 +120,25 @@ def two_bone_ik(root, target, length_a, length_b, hint):
     return middle, root + direction * distance
 
 
+def leg_ik_hint(hip, knee, ankle, target, forward):
+    """Transport the current bend plane when editing a foot's destination.
+
+    Reusing the old knee *position* as the pole can move it behind the new
+    hip-to-foot axis and make a shortened stride bend the knee backwards.
+    Near extension the joint positions do not observe that plane reliably;
+    use the continuous thigh frame instead.
+    """
+    axis = unit(ankle - hip)
+    pole = knee - hip - axis * ((knee - hip) @ axis)
+    anterior = forward - axis * (forward @ axis)
+    if np.linalg.norm(pole) < 0.025 or pole @ anterior < 0:
+        # A negative hinge bend can arise from inertial overshoot. Do not
+        # preserve that invalid solution when re-solving the same foot goal.
+        pole = anterior
+    pole = swing_rotation(axis, unit(target - hip)) @ unit(pole, forward)
+    return hip + pole
+
+
 def body_basis(points):
     up = unit(points[2] - points[0])
     left = points[5] - points[8]
@@ -191,6 +210,16 @@ class Retargeter:
         self.previous_quaternions = None
         self.previous_rotations = None
         self.ground_correction = None
+        self.limb_rest_poles = {}
+        for start in (5, 8, 11, 15):
+            upper = unit(self.rest[start + 1] - self.rest[start])
+            lower = self.rest[start + 2] - self.rest[start + 1]
+            pole = lower - upper * (lower @ upper)
+            # The observed pole is the LOWER segment projected off the upper
+            # segment, not the direction in which the knee points. A forward
+            # knee therefore has a backward pole. Using +Z for both elbows
+            # and knees turns a bent thigh inside out even when FK is exact.
+            self.limb_rest_poles[start] = unit(pole, (0, 0, -1) if start in (11, 15) else (0, 0, 1))
 
     def process(self, source, dt):
         offsets = self.rest.copy()
@@ -225,6 +254,7 @@ class Retargeter:
                     parent_rotation,
                     None if self.previous_rotations is None else self.previous_rotations[start],
                     dt,
+                    rest_pole=self.limb_rest_poles[start],
                 )
             elif start in (13, 17):
                 # Toe direction observes pitch/yaw; foot roll is ambiguous.
@@ -308,7 +338,13 @@ class Retargeter:
                         target,
                         np.linalg.norm(offsets[knee]),
                         np.linalg.norm(offsets[ankle]),
-                        points[knee],
+                        leg_ik_hint(
+                            points[hip],
+                            points[knee],
+                            points[ankle],
+                            target,
+                            -rotations[hip] @ self.limb_rest_poles[hip],
+                        ),
                     )
                     rotations[hip] = (
                         swing_rotation(rotations[hip] @ offsets[knee], k - points[hip])
@@ -336,7 +372,13 @@ class Retargeter:
                         target,
                         np.linalg.norm(offsets[knee]),
                         np.linalg.norm(offsets[ankle]),
-                        points[knee],
+                        leg_ik_hint(
+                            points[hip],
+                            points[knee],
+                            points[ankle],
+                            target,
+                            -rotations[hip] @ self.limb_rest_poles[hip],
+                        ),
                     )
                     rotations[hip] = (
                         swing_rotation(rotations[hip] @ offsets[knee], k - points[hip])

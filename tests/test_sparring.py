@@ -3,8 +3,9 @@
 import numpy as np
 import pytest
 
-from dollfight.kinematics import EDGES
-from dollfight.sparring import EXCHANGES, rehearsal_pair
+from dollfight.kinematics import EDGES, segment_basis
+from dollfight.sparring import EXCHANGES, inertialize_track, rehearsal_pair
+from dollfight.transitions import exp_rotation, inverse, log_rotation, multiply
 
 
 @pytest.fixture(scope="module")
@@ -57,3 +58,32 @@ def test_replay_annotations_include_both_punches_and_kicks_without_becoming_grou
         assert any("roundhouse" in a["action"] for a in actions)
         for a in actions:
             assert 0 <= a["time_s"] < a["active_at"] < a["active_end"] < a["recovery_end"] < 90
+
+
+def test_reported_step_and_kick_preparation_do_not_fold_or_cross_legs(pair):
+    # User-reported 1.5 s: shortening the trailing step used to reverse its
+    # knee pole. Inspect geometry, not the contact labels produced by the IK.
+    for clip in pair:
+        pose = clip["points"][45]
+        forward = segment_basis(pose[11] - pose[15], pose[1] - pose[0])[:, 2]
+        for h, k, a in ((11, 12, 13), (15, 16, 17)):
+            axis = pose[a] - pose[h]
+            pole = pose[k] - pose[h] - axis * ((pose[k] - pose[h]) @ axis) / (axis @ axis)
+            assert pole @ forward > 0.015
+    # User-reported 8.3 s: an anchor from the preceding step pulled the new
+    # kick stance's feet almost on top of each other (11 mm lateral spacing).
+    pose = pair[1]["points"][249]
+    left = segment_basis(pose[11] - pose[15], pose[1] - pose[0])[:, 0]
+    assert (pose[13] - pose[17]) @ left > 0.20
+
+
+def test_join_predicts_outgoing_velocity_instead_of_adding_incoming_velocity():
+    angles = np.r_[np.arange(10) * 0.02, 1 + np.arange(20) * 0.05]
+    q = exp_rotation(np.stack((angles, angles * 0, angles * 0), axis=1))[:, None]
+    roots = np.zeros((30, 3))
+    roots[:, 1] = angles
+    roots, joined = inertialize_track(roots, q, [10])
+    delta = log_rotation(multiply(joined[10], inverse(joined[9])))
+    np.testing.assert_allclose(delta, [[0.02, 0, 0]], atol=1e-9)
+    assert roots[10, 1] - roots[9, 1] == pytest.approx(0.02)
+    np.testing.assert_allclose(joined[22:], q[22:], atol=1e-9)

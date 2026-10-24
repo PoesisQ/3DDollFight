@@ -4,7 +4,10 @@ import fs from "node:fs";
 import { createHash } from "node:crypto";
 import { ClothSolver } from "../apps/motion-lab/cloth.js";
 import { projectGarmentPoint } from "../apps/motion-lab/garment-guide.js";
-const run = JSON.parse(fs.readFileSync("outputs/sparring-latest.json", "utf8"));
+const framesPath = process.argv[2] || "outputs/sparring-latest.json";
+const reportPath =
+    process.argv[3] || "data/avatars/experiments/garment-v08-20261024.json";
+const run = JSON.parse(fs.readFileSync(framesPath, "utf8"));
 const mul = (a, b) => [
     a[3] * b[0] + b[3] * a[0] + a[1] * b[2] - a[2] * b[1],
     a[3] * b[1] + b[3] * a[1] + a[2] * b[0] - a[0] * b[2],
@@ -268,6 +271,10 @@ for (const [player, character] of ["nozomi", "mizore"].entries()) {
     });
 }
 const report = {
+    replay_frames_path: framesPath,
+    replay_frames_sha256: createHash("sha256")
+        .update(fs.readFileSync(framesPath))
+        .digest("hex"),
     avatar_sha256: Object.fromEntries(
         ["nozomi", "mizore"].map((name) => [
             name,
@@ -286,7 +293,4 @@ const report = {
     scope: "First round, six high-kick samples per model. Vertex/capsule contact only; does not certify triangle/body or self collision. Projection edge ratios show corrective distortion.",
     reports,
 };
-fs.writeFileSync(
-    "data/avatars/experiments/garment-v08-20261024.json",
-    JSON.stringify(report, null, 2),
-);
+fs.writeFileSync(reportPath, JSON.stringify(report, null, 2));

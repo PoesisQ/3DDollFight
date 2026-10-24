@@ -21,6 +21,7 @@ data/processed/
 data/private/
 models/weights/
 outputs/
+.codex-remote-attachments/
 logs/
 *.log
 

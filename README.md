@@ -15,7 +15,9 @@ uv run --locked python -m dollfight.server --open
 
 打开 <http://127.0.0.1:18943/>。首次拉取 LFS 角色、同步 Python 依赖、下载官方对照样例需要网络；之后本机 CPU 算法与浏览器渲染均可离线运行。无需摄像头、训练服务器或 Unity。端口占用时加 `--port 18944`。
 
-[观看本轮完整三回合录像（约 90 秒，27.6 MB）](data/avatars/experiments/dollfight-three-rounds-v08-20261024.mp4) · [动态验收与限制](data/avatars/experiments/sparring-review-v08-20261024.json)
+[观看腿部修正后的完整三回合录像（约 90 秒，27.2 MB）](data/avatars/experiments/dollfight-three-rounds-legfix-20261024.mp4) · [腿部对照评估](data/avatars/experiments/legs-legfix-20261024.json) · [录像验收与限制](data/avatars/experiments/sparring-legfix-review-20261024.json)
+
+本轮修复旧录像中 1.5 秒的反折站姿和 8.3 秒的交叉腿：纠正大腿轴向扭转，缩短步幅时保留膝盖弯曲平面，释放跨动作残留的脚锁，并约束过渡过冲造成的反向屈膝。完整骨骼朝向和用户报告的时刻均加入回归检查。[旧 90 秒录像](data/avatars/experiments/dollfight-three-rounds-v08-20261024.mp4) 保留作失败对照；原先的骨长与支撑速度自检没有覆盖这些人体姿态错误。
 
 默认进入 **DollFight 三回合 / 90 秒双人排练**，显示本地绑定 Tripo 皮套的手、颈与发束重建版。两路动作独立编排：短步接近、退步让距、侧移、拳击、前踢、回旋踢、护架、降低重心、拉开再接近；第二回合换边和换踢腿，第三回合换拳击片段。命中、格挡、挥空和前后摇由时序与空间接触结算。它是公开真人动捕的编辑排练，尚不是实时相机双人游戏或自主对手。
 
