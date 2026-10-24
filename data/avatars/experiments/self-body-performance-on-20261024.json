@@ -1,0 +1,51 @@
+{
+  "source": "cmu_sparring",
+  "avatars": [
+    "nozomi · Tripo 本地绑定 / 手颈与发束重建 · 19/19 关节 · 13 网格",
+    "mizore · Tripo 本地绑定 / 手颈与发束重建 · 19/19 关节 · 13 网格"
+  ],
+  "optimized": true,
+  "secondary_mode": "live",
+  "self_limbs": true,
+  "self_view_mode": "connected-body / head-attached presentation camera",
+  "self_body_triangles": [
+    194724,
+    227578
+  ],
+  "viewport": [
+    887,
+    815
+  ],
+  "pixel_ratio": 1.5,
+  "render_target_pixels": [
+    [
+      892,
+      403
+    ],
+    [
+      433,
+      255
+    ],
+    [
+      433,
+      255
+    ]
+  ],
+  "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36",
+  "samples": 981,
+  "fps": 82.08930245029097,
+  "raf_p50_ms": 13.399999976158142,
+  "raf_p95_ms": 17.5,
+  "pose_p95_ms": 9.299999952316284,
+  "render_submit_p95_ms": 4.300000071525574,
+  "cloth_p95_ms": 8.5,
+  "triangles_per_frame": 2176393,
+  "draw_calls_per_frame": 173,
+  "self_body_triangles_p50": 271675,
+  "self_body_culled_meshes_p50": 25,
+  "views": 3,
+  "animated_frames_percent": 100,
+  "frames_over_33ms_percent": 0.3058103975535168,
+  "measurement": "CPU pose + render submission; RAF interval, not GPU timer or camera-to-display latency",
+  "sample_duration_s": 12.002600000023842
+}

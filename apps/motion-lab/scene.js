@@ -263,9 +263,15 @@ export class LabScene {
             optimized: document.getElementById("optimized").checked,
             secondary_mode: document.getElementById("secondary-mode").value,
             self_limbs: document.getElementById("self-limbs").checked,
-            self_limb_triangles: this.selfLimbs.map((v) =>
+            self_view_mode:
+                "connected-body / head-attached presentation camera",
+            self_body_triangles: this.selfLimbs.map((v) =>
                 v.parts.reduce(
-                    (sum, p) => sum + p.mesh.geometry.index.count / 3,
+                    (sum, p) =>
+                        sum +
+                        (p.mesh.geometry.index?.count ??
+                            p.mesh.geometry.attributes.position.count) /
+                            3,
                     0,
                 ),
             ),
@@ -368,7 +374,7 @@ export class LabScene {
         const start = performance.now();
         this.renderers.forEach((r) => r.info.reset());
         const visible =
-            options.optimized && !options.recording
+            options.optimized && !options.recording && !this.meter.benchmark
                 ? this.visibleViews
                 : [true, true, true];
         if (!visible.some(Boolean)) return;
@@ -501,6 +507,21 @@ export class LabScene {
             triangles: info.reduce((s, i) => s + i.triangles, 0),
             calls: info.reduce((s, i) => s + i.calls, 0),
             views: visible.filter(Boolean).length,
+            selfTriangles: options.selfLimbs
+                ? this.selfLimbs.reduce(
+                      (sum, view, i) =>
+                          sum +
+                          (visible[i + 1] ? view.stats.submittedTriangles : 0),
+                      0,
+                  )
+                : 0,
+            selfCulled: options.selfLimbs
+                ? this.selfLimbs.reduce(
+                      (sum, view, i) =>
+                          sum + (visible[i + 1] ? view.stats.culledMeshes : 0),
+                      0,
+                  )
+                : 0,
         });
     }
 }

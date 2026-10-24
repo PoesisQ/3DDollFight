@@ -197,6 +197,7 @@ export function createAvatar(rest, parents, tint = "#76e3ca") {
         group,
         mesh,
         bones,
+        rest,
         skeletonHelper,
         apply(frame, next, alpha = 0) {
             const q = new THREE.Quaternion();

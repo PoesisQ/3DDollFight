@@ -15,11 +15,11 @@ uv run --locked python -m dollfight.server --open
 
 打开 <http://127.0.0.1:18943/>。首次拉取 LFS 角色、同步 Python 依赖、下载官方对照样例需要网络；之后本机 CPU 算法与浏览器渲染均可离线运行。无需摄像头、训练服务器或 Unity。端口占用时加 `--port 18944`。
 
-[观看 v0.9 完整三回合录像：新增招式与自身手脚](data/avatars/experiments/dollfight-three-rounds-v09-20261024.mp4) · [动作与碰撞评估](data/avatars/experiments/sparring-v09-20261024.json) · [视觉验收记录](data/avatars/experiments/sparring-v09-review-20261024.json)
+[观看最新三回合录像：完整身体分身与近景手脚](data/avatars/experiments/dollfight-self-body-20261024.mp4) · [玩家视角修订与性能对照](data/avatars/experiments/self-body-review-20261024.json) · [动作与碰撞评估](data/avatars/experiments/sparring-v09-20261024.json) · [视觉验收记录](data/avatars/experiments/sparring-v09-review-20261024.json)
 
 v0.9 加入真实 **侧踹、腾空旋踢、踏步冲拳、Empi 连续组合、手刀架防**，保留前踢、回旋踢和拳击。三回合使用不同组合，上方“招式直达”可从完整前摇开始查看。新增护架片段替换会抬脚的拳击循环；出招骨盆保留最多 12 cm 的平滑重心偏移，继续使用膝向约束、接地 IK 与惯性衔接。腾空动作保留真实高度，60 Hz 源数据按正确速度转换。
 
-玩家窗默认显示自身手臂和抬起的腿：复用角色的蒙皮骨骼、手指与贴图，只抽取肢体三角形，在独立视图中渲染。为兼顾对手全身可见与自身出招感，手脚在玩家视窗内有显示偏移；碰撞仍用主场景的真实位置。参数里的“玩家视窗显示自身手脚”可即时开关。它是屏幕格斗取景，不是已经标定的 VR 眼位或新增手指追踪。
+玩家窗默认显示自身手臂和抬起的腿：保留躯干、肩臂和衣服连接的身体分身，只在本玩家窗口绘制。共享原角色骨骼、顶点与贴图，跳过头发/脸，镜头跟随头部并作近景取景调整；完整肩膀取代旧版截断四肢与淡出。骨骼包围体只剔除完全在镜头外的网格，不按脚踝高度突然隐藏腿。主画面、碰撞和衣发求解不变。参数里的“玩家视窗显示自身手脚”可即时开关。对手全身相机仍保持稳定，自身视图使用独立投影；这是屏幕格斗取景，不是已经标定的 VR 眼位或新增手指追踪。
 
 [v0.8 腿部修正录像](data/avatars/experiments/dollfight-three-rounds-legfix-20261024.mp4) 与 [腿部对照评估](data/avatars/experiments/legs-legfix-20261024.json) 保留供回看。
 
