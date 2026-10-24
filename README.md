@@ -6,6 +6,8 @@
 
 双击 `Start-Unity.cmd`，或用 Unity Hub 打开 `unity/`。固定 **Unity 6000.3.27f1 LTS + UniVRM 0.131.4**，使用 90 秒双人真人动捕排练和三个观察视窗。已接入组员提供的 FBX（含手指、12,200 三角面），**T 切换 FBX / 原霙 VRM**；已有本机构建可双击 `Play-DollFight-Unity.cmd`。修正长时间前俯护架，增加落脚朝向约束、姿态引导裙布和独立的近景手臂 IK。骨骼算法继续由 Python/uv 管理。完整启动、协作与验证边界见 [Unity 工程说明](unity/README.md)。
 
+[观看 Unity 完整三回合：组员模型](data/avatars/experiments/dollfight-unity-team-20261025.mp4) · [原双 VRM 对照](data/avatars/experiments/dollfight-unity-classic-20261025.mp4) · [原生验证报告](data/avatars/experiments/unity-review-20261025.json)。原生画面直接捕获，保留移动、出拳、侧踹、回旋踢、格挡和腾空旋踢的整段过程；是公开动捕的编辑排练，尚未接 Gemini 实机输入。
+
 ## 浏览器历史对照
 
 Windows 双击 `Start-MotionLab.cmd`，或运行：

@@ -1,0 +1,174 @@
+{
+  "date": "2026-10-25",
+  "code_commit": "75444c33edeb385a64f61962d722b0a45b057b30",
+  "engine": "Unity 6000.3.27f1 / Built-in Render Pipeline / UniVRM 0.131.4",
+  "capture_method": "Native composed game frame / ScreenCapture + triple-buffered AsyncGPUReadback / FFmpeg H.264, 30 fps. Actual real-time playback, no offline motion interpolation.",
+  "benchmark_conditions": "Windows development standalone, 1280x1000, one player process, three views plus two own-limb overlays, 4x MSAA, shadows, original mesh/texture detail. Editor open with Play Mode stopped. Recording disabled for each separate 90-second benchmark. Other desktop/agent tools remain open; not an isolated laboratory benchmark.",
+  "validation": {
+    "python_tests_passed": 131,
+    "unity_editmode_tests_passed": 6,
+    "windows_build": "succeeded"
+  },
+  "variants": {
+    "team": {
+      "video": "dollfight-unity-team-20261025.mp4",
+      "sha256": "c6713668dd2cae302b814fef0d073fc276fc789b63523ac9522df6fc6c0cd2c9",
+      "media": {
+        "programs": [],
+        "stream_groups": [],
+        "streams": [
+          {
+            "width": 1280,
+            "height": 1000,
+            "nb_frames": "2699"
+          }
+        ],
+        "format": {
+          "duration": "89.966667",
+          "size": "31282564"
+        }
+      },
+      "real_time": {
+        "replaySeconds": 89.96667,
+        "wallSeconds": 89.98564
+      },
+      "capture": {
+        "capturedFrames": 2694,
+        "repeatedFrames": 5
+      },
+      "benchmark": "unity-performance-team-20261025.json",
+      "screenshots": [
+        {
+          "time_s": 4.1,
+          "file": "unity-team-guard-20261025.png",
+          "sha256": "313a0664ffd4fcf899bb6cd21db0a5a56fe6722f34609caeeb483d1700bb1aaa"
+        },
+        {
+          "time_s": 13.7,
+          "file": "unity-team-sidekick-20261025.png",
+          "sha256": "0ed88d2ca31744be972f9d5bde1b526b5e46b595fc6787f13be56eaf2bec6faf"
+        },
+        {
+          "time_s": 84.2,
+          "file": "unity-team-spinkick-20261025.png",
+          "sha256": "b224108579bebb172b2420591496d44305435a1ee55b26b47f4b30385cc7d70a"
+        }
+      ]
+    },
+    "classic": {
+      "video": "dollfight-unity-classic-20261025.mp4",
+      "sha256": "aa38a59bcb5b6c13accf42bd3f21a1f8e65dbccebba524f792ba7c504cafb77b",
+      "media": {
+        "programs": [],
+        "stream_groups": [],
+        "streams": [
+          {
+            "width": 1280,
+            "height": 1000,
+            "nb_frames": "2699"
+          }
+        ],
+        "format": {
+          "duration": "89.966667",
+          "size": "22348089"
+        }
+      },
+      "real_time": {
+        "replaySeconds": 89.96667,
+        "wallSeconds": 89.99796
+      },
+      "capture": {
+        "capturedFrames": 2695,
+        "repeatedFrames": 4
+      },
+      "benchmark": "unity-performance-classic-20261025.json",
+      "screenshots": [
+        {
+          "time_s": 4.1,
+          "file": "unity-classic-guard-20261025.png",
+          "sha256": "535e56f233596cd6e20aa8338db2905e9761b0a7d0c9f36793c007ac6427e2d8"
+        },
+        {
+          "time_s": 13.7,
+          "file": "unity-classic-sidekick-20261025.png",
+          "sha256": "940f356853ce507aae052b1f4eed510cc682c23de1daad3993000e36a2e46144"
+        },
+        {
+          "time_s": 84.2,
+          "file": "unity-classic-spinkick-20261025.png",
+          "sha256": "407014042a1c5b75c682122d68566a2d373cbb6b9b5e01427ed7b3e34b537fbc"
+        }
+      ]
+    }
+  },
+  "visual_inspection": [
+    {
+      "time_s": 4.1,
+      "observation": "Both variants show upright guard, readable opponent body and own forearms entering from the bottom edge. Team shoulder ornament remains large at the lower-left of P2 view. Finger silhouette remains an art limitation."
+    },
+    {
+      "time_s": 13.7,
+      "observation": "Side-kick chamber and own foot are visible. Guided skirt retains connected pleats rather than the former collapsed cage; lift is still stylized/stiff and does not prove no penetration."
+    },
+    {
+      "time_s": 84.2,
+      "observation": "Airborne spinning kick is visible in the arena and both player windows. Waist/interior black seams and local intersections remain visible, especially in the opponent window."
+    },
+    {
+      "scope": "These are spot checks extracted from the two complete real-time videos, not a quantified naturalness score or a frame-by-frame clothing collision audit."
+    }
+  ],
+  "limits": [
+    "Edited public CMU motion rehearsal, not live Gemini camera input or two autonomous players.",
+    "The native demo replays standard-skeleton combat outcomes; teammate armour has not been fitted to independent hit volumes.",
+    "No zero-penetration guarantee. High kick waist, sleeves, fingers and generated mesh seams remain imperfect; skirt shape guides can look stiff.",
+    "First-person limbs use a separate projection and view-only IK; this is a screen-game view, not calibrated VR. The large FBX shoulder ornament still appears along the lower-left edge.",
+    "Finger closure is a pose prior, not measured finger tracking. Team FBX hat and long ornaments follow existing skin weights; no independent secondary-motion rig was supplied.",
+    "Sole-height check is nine static samples, not a continuous slip metric. Performance was measured only on this RTX 4060 Laptop GPU; camera, tracking, network latency and lower-end hardware remain unmeasured.",
+    "The two dense VRMs averaged 58 fps with 23.24 ms p95 frame time here; a stable 60 fps target is not yet met for that configuration. The teammate FBX result must not be substituted for it."
+  ],
+  "rehearsal": {
+    "source": "cmu_composed_mocap",
+    "duration": 89.96666666666667,
+    "frames": 2700,
+    "combat_summary": {
+      "block": 10,
+      "recovery": 6,
+      "miss": 4,
+      "hit": 8
+    },
+    "rounds": [
+      {
+        "round": 1,
+        "health": [
+          88,
+          88
+        ]
+      },
+      {
+        "round": 2,
+        "health": [
+          86,
+          72
+        ]
+      },
+      {
+        "round": 3,
+        "health": [
+          100,
+          70
+        ]
+      }
+    ],
+    "initial_gap_m": 1.8,
+    "payload_sha256": {
+      "duel.json": "6cec3b936b5193902f6f77d8e860627ba9d0f88c391f491204ecef7a7b97473e",
+      "mizore-cloth.json": "074b8f69439bf2a219f8df510d567ce42668acbd6f79fd72bcd158835ec8e8a1",
+      "mizore-motion.json": "770088c975836adb49a192adef14dcfd3847a8e3a82b2530864bee3872a9df4a",
+      "nozomi-cloth.json": "71816e89490a14f1c1162af38f0d3962a3b984f44ce1a8c68f8aa714da4d50d8",
+      "nozomi-motion.json": "f4796a8769c9e8199e2951d91e267c25fec0ee248d30fa94e1c5853c2c0c068d",
+      "provenance.json": "82e797ddd5289a84d6715913aa2a83713661f6d1d1f08e580c515c35d947c906"
+    }
+  },
+  "sole_audit": "unity-sole-audit-20261025.json"
+}
