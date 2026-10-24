@@ -97,9 +97,18 @@ def main():
                 "target_rest": assets[0]["rest"],
                 "noise_mm": 0,
                 "dropout": 0,
+                # Match the authored rehearsal / Motion Lab defaults. The
+                # generic 2.2 m camera-station gap makes every attack miss on
+                # these shorter avatars despite otherwise valid animation.
+                "initial_gap": 1.8,
+                "movement_gain": 1.0,
             },
             include_duel=True,
         )
+        if not run["duel"]["summary"].get("hit"):
+            raise ValueError(
+                "Default rehearsal has no scored contacts; check spacing and attack timing"
+            )
     players, timeline = export_duel(run)
     for name, clip in zip(("nozomi", "mizore"), players, strict=True):
         write_json(destination / f"{name}-motion.json", clip)
@@ -113,6 +122,8 @@ def main():
             "config": run["config"],
             "duration": run["duration"],
             "frames": len(run["frames"]),
+            "combat_summary": run["duel"]["summary"],
+            "rounds": run["duel"]["rounds"],
             "note": "Offline public CMU rehearsal. Finger closure is a display prior.",
         },
     )
