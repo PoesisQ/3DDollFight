@@ -9,6 +9,7 @@ from functools import lru_cache
 
 import numpy as np
 
+from dollfight.foot_contact import FootHeadingLock
 from dollfight.kinematics import quaternion, rest_pose, rotation_y
 from dollfight.motion_reference import reference_actions
 from dollfight.transitions import (
@@ -49,12 +50,14 @@ MOTIONS = {
     "side": ("cmu_strafe", 0.8, 1.6),
     "boxing_a": ("cmu_boxing", 1.65, 4.85),
     "boxing_b": ("cmu_boxing", 4.5, 7.9),
-    "guard": ("cmu_guard", 1.55, 2.10),
+    # 76_04 is a progressively deep forward duck, not an idle guard. Holding
+    # its 30-degree pelvis pitch made every pause look like a prolonged bow.
+    "guard": ("cmu_boxing", 1.75, 2.10),
     "front_kick": ("cmu_front_kick", 1.7, 4.1),
     "roundhouse": ("cmu_roundhouse", 5.0, 7.9),
     "low_block": ("cmu_low_block", 1.0, 3.8),
     "side_kick": ("cmu_side_kick", 4.1, 6.2),
-    "spin_kick": ("cmu_spin_kick", 0.05, 2.90),
+    "spin_kick": ("cmu_spin_kick", 0.05, 3.10),
     "lunge_punch": ("cmu_lunge_punch", 1.7, 5.6),
     "empi": ("cmu_empi", 8.0, 11.4),
     "knife_guard": ("cmu_knife_guard", 0.5, 3.2),
@@ -198,7 +201,7 @@ def sample(p, q, at):
     return p[i] * (1 - a) + p[j] * a, slerp_array(q[i], q[j], a)
 
 
-def inertialize_track(roots, rotations, boundaries, duration=0.4):
+def inertialize_track(roots, rotations, boundaries, duration=0.30):
     """Join edited samples using the outgoing-minus-incoming velocity.
 
     Keeping only outgoing velocity adds the new clip's velocity a second time
@@ -263,9 +266,15 @@ def compose_player(player, rounds):
                 )
             # One short captured step, then settle into guard. Do not stretch a
             # 0.8-second walking step into four seconds of slow-motion skating.
-            move_time = min(1.3, duration - 0.35) if moving else duration
-            active_time = len(p) / FPS if not moving and kind != "guard" else move_time
-            scale = duration / active_time if not moving and kind != "guard" else 1
+            move_time = min(len(p) / FPS, duration - 0.35) if moving else duration
+            active_time = min(len(p) / FPS, duration) if kind != "guard" else duration
+            if not moving and duration - active_time < 0.35:
+                # Do not insert a 0.1 s guard that is interrupted by the next
+                # exchange halfway through its inertial blend.
+                active_time = duration
+            # Keep preparation, impact and recovery at captured speed. Spare
+            # exchange time belongs to guard, not slow-motion anticipation.
+            scale = active_time / (len(p) / FPS)
             if kind not in ("guard", "advance", "retreat", "side"):
                 for action in refs:
                     event = {**action, "id": f"r{rnd}-s{stage}-p{player}-{action['id']}"}
@@ -289,14 +298,15 @@ def compose_player(player, rounds):
             previous_source = None
             for k in range(count):
                 t = k / FPS
-                if kind == "guard" or (moving and t > move_time):
+                settling = (moving and t > move_time) or (not moving and t >= active_time)
+                if kind == "guard" or settling:
                     # Dedicated planted defensive capture, not the stepping
                     # interval in the boxing take. Slow weight transfer closes
                     # the loop without reversing a lifted walking foot.
                     phase = (1 - np.cos(t * np.pi / 2.0)) / 2
                     sp, sq = sample(guard_p, guard_q, phase * (len(guard_p) - 1))
                 else:
-                    phase = min(1, t / (move_time if moving else duration))
+                    phase = min(1, t / (move_time if moving else active_time))
                     sp, sq = sample(p, q, phase * (len(p) - 1))
                     if moving:
                         # Mask only the arms: retain captured pelvis, spine,
@@ -304,7 +314,7 @@ def compose_player(player, rounds):
                         sq[5:11] = guard_q[len(guard_q) // 2, 5:11]
                 path = initial_goal + smoothstep(t / move_time) * (target - initial_goal)
                 root = np.array([path[1], sp[0, 1], path[0]])
-                if kind == "guard" or (moving and t > move_time):
+                if kind == "guard" or settling:
                     # Remove the drift of this captured lean; preserve its
                     # small acceleration rather than repeatedly stepping back.
                     local_shift = sp[0] - ((1 - phase) * guard_p[0, 0] + phase * guard_p[-1, 0])
@@ -319,11 +329,11 @@ def compose_player(player, rounds):
                         relative[axis] = neutral[axis] + (relative[axis] - neutral[axis]) * stride
                         targets[ankle] = (root + relative, 1)
                     sq = constrain_feet(root, sq, rest, targets)
-                if kind not in ("guard", "advance", "retreat", "side"):
+                if kind not in ("guard", "advance", "retreat", "side") and not settling:
                     # Preserve the captured shift over the supporting leg. A
                     # smooth bound prevents travel accumulating across clips;
                     # the former 3 cm hard clamp erased most of the wind-up.
-                    u = t / duration
+                    u = t / active_time
                     deviation = sp[0] - ((1 - u) * p[0, 0] + u * p[-1, 0])
                     root[[0, 2]] += (
                         0.12 * np.tanh(deviation[[0, 2]] / 0.12) * np.sin(np.pi * u) ** 2
@@ -336,7 +346,10 @@ def compose_player(player, rounds):
                 contact = (sp[[13, 17], 1] < rest[[13, 17], 1] + 0.065) & (speed < 0.38)
                 previous_source = sp
                 # Inertialize every change of excerpt, including step -> guard.
-                boundary = k == 0 or (moving and k == int(move_time * FPS) + 1)
+                end_motion = move_time if moving else active_time
+                boundary = k == 0 or (
+                    settling and k == int(end_motion * FPS) + (1 if moving else 0)
+                )
                 if boundary and rotations:
                     boundaries.append(len(roots))
                 roots.append(root)
@@ -348,7 +361,9 @@ def compose_player(player, rounds):
                         "round_time": round((begin + t) % ROUND_SECONDS, 4),
                         "intent": kind,
                         "label": label,
-                        "hand_close": 0.8 if kind != "low_block" else 0.25,
+                        "hand_close": 0.65
+                        if settling or kind == "guard"
+                        else (0.15 if kind in ("low_block", "knife_guard") else 0.80),
                     }
                 )
             goal = target
@@ -367,6 +382,7 @@ def rehearsal_pair(rounds=ROUND_COUNT):
         yaw = -np.arctan2(roots[:, 0] + other[:, 0], 1.8 - roots[:, 2] - other[:, 2])
         points, anchors, weights = [], {}, np.zeros(2)
         previous_feet = None
+        headings = [FootHeadingLock(), FootHeadingLock()]
         for i, (root, q, contact) in enumerate(zip(roots, rotations, contacts, strict=True)):
             q = q.copy()
             q[0] = multiply(quaternion(rotation_y(yaw[i])), q[0])
@@ -421,7 +437,20 @@ def rehearsal_pair(rounds=ROUND_COUNT):
                     floor_targets[ankle] = (target, 1)
             if floor_targets:
                 q = constrain_feet(root, q, rest, floor_targets)
-                pose, _ = fk(root, q, rest)
+            pose, global_rotations = fk(root, q, rest)
+            for side, ankle in enumerate((13, 17)):
+                correction = headings[side].update(
+                    pose[ankle],
+                    pose[ankle + 1],
+                    rest[ankle],
+                    rest[ankle + 1],
+                    bool(contact[side] and speed[side] < 0.30),
+                    DT,
+                )
+                q[ankle] = quaternion(
+                    global_rotations[ankle - 1].T @ correction @ global_rotations[ankle]
+                )
+            pose, _ = fk(root, q, rest)
             points.append(pose)
         output.append(
             {

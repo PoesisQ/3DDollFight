@@ -1,8 +1,8 @@
 {
   "name": "com.dollfight.humanoid",
-  "version": "0.4.0",
+  "version": "0.10.0",
   "displayName": "DollFight Humanoid Replay",
   "description": "VRM import, explicit Humanoid binding and canonical19 replay adapter.",
-  "unity": "2022.3",
-  "dependencies": {"com.vrmc.vrm": "0.128.0"}
+  "unity": "6000.3",
+  "dependencies": {"com.vrmc.vrm": "0.131.4"}
 }

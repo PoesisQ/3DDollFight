@@ -1,0 +1,21 @@
+{
+  "dependencies": {
+    "com.vrmc.gltf": "file:../Vendor/com.vrmc.gltf-0.131.4.tgz",
+    "com.vrmc.vrm": "file:../Vendor/com.vrmc.vrm-0.131.4.tgz",
+    "com.unity.test-framework": "1.6.0",
+    "com.unity.modules.animation": "1.0.0",
+    "com.unity.modules.assetbundle": "1.0.0",
+    "com.unity.modules.audio": "1.0.0",
+    "com.unity.modules.cloth": "1.0.0",
+    "com.unity.modules.imageconversion": "1.0.0",
+    "com.unity.modules.imgui": "1.0.0",
+    "com.unity.modules.jsonserialize": "1.0.0",
+    "com.unity.modules.physics": "1.0.0",
+    "com.unity.modules.screencapture": "1.0.0",
+    "com.unity.modules.unitywebrequest": "1.0.0",
+    "com.unity.pipeline": "0.9.1-exp.1"
+  },
+  "testables": [
+    "com.dollfight.humanoid"
+  ]
+}

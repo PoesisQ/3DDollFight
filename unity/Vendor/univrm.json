@@ -1,0 +1,28 @@
+{
+  "source": "https://github.com/vrm-c/UniVRM/releases/download/v0.131.4/VRM-0.131.4_efd2.unitypackage",
+  "source_sha256": "8f91761bfe9cb498f29f7d66b5750e64909078569ffbb397ecbcfa1edd881f27",
+  "upstream_commit": "efd20f62f1bf0ac3fcc34de1e497324c5197d146",
+  "version": "0.131.4",
+  "note": "Official release assets repacked unchanged, with upstream MIT license added.",
+  "packages": [
+    {
+      "file": "com.vrmc.gltf-0.131.4.tgz",
+      "sha256": "e97aafe4b2f89275c7a3243d6d76ba0424b87af4df5d9eabd3b0fb5d6134f4e6",
+      "bytes": 6119548,
+      "files": 1054,
+      "licenses": [
+        "LICENSE.md",
+        "LICENSE.UniVRM.txt"
+      ]
+    },
+    {
+      "file": "com.vrmc.vrm-0.131.4.tgz",
+      "sha256": "cdabdb6f7efc915b5ef0f0b21379e723e3e3f0607df82547f60f6fe792ea3249",
+      "bytes": 292999,
+      "files": 747,
+      "licenses": [
+        "LICENSE.UniVRM.txt"
+      ]
+    }
+  ]
+}

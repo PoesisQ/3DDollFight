@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Threading;
+using System.Threading.Tasks;
 using UniVRM10;
 using UnityEngine;
 
@@ -11,6 +12,7 @@ namespace DollFight
         public float time;
         public Vector3 root;
         public Quaternion[] rotations;
+        public float handClose = 0.15f;
     }
 
     [Serializable] public class MotionClip
@@ -34,6 +36,12 @@ namespace DollFight
         [Range(0.1f, 2)] public float speed = 1;
         public float time;
         public string status = "Choose a VRM and exported replay JSON";
+        public bool externallyDriven;
+        public bool Ready => ready;
+        public Vrm10Instance Instance => instance;
+        public Transform ModelRoot => modelRoot;
+        public Transform[] Bones => bones;
+        public float Duration => clip?.frames[clip.frames.Length - 1].time ?? 0;
 
         public static readonly HumanBodyBones[] BoneOrder = {
             HumanBodyBones.Hips, HumanBodyBones.Spine, HumanBodyBones.Chest,
@@ -50,37 +58,65 @@ namespace DollFight
         Vrm10Instance instance;
         CancellationTokenSource cancellation;
         float rootScale;
+        float bindHipHeight;
+        AvatarSoleContact soles;
+        readonly Vector3[] sourcePoints = new Vector3[19];
+        readonly Quaternion[] sourceRotations = new Quaternion[19];
+        static readonly int[] Parents = { -1, 0, 1, 2, 3, 2, 5, 6, 2, 8, 9, 0, 11, 12, 13, 0, 15, 16, 17 };
+        float previousTime = -1;
         bool ready;
+        Transform[] fingerBones;
+        Quaternion[] fingerBinds;
+        Vector3[] fingerAxes;
+        float[] fingerAngles;
+        Transform[] restNodes;
+        Vector3[] restPositions;
+        Quaternion[] restRotations;
 
         async void Start()
+        {
+            if (externallyDriven) return;
+            await LoadAsync(vrmPath, replayJson != null ? replayJson.text : null);
+        }
+
+        public async Task LoadAsync(string modelPath, string json)
         {
             cancellation = new CancellationTokenSource();
             try
             {
-                if (replayJson == null) throw new InvalidOperationException("Assign an exported Unity replay JSON");
-                clip = JsonUtility.FromJson<MotionClip>(replayJson.text);
+                if (string.IsNullOrWhiteSpace(json)) throw new InvalidOperationException("Assign an exported Unity replay JSON");
+                clip = JsonUtility.FromJson<MotionClip>(json);
                 ValidateClip(clip);
                 Animator animator = existingHumanoid;
                 if (animator == null)
                 {
-                    if (!File.Exists(vrmPath)) throw new FileNotFoundException("Choose a local .vrm file", vrmPath);
-                    instance = await Vrm10.LoadPathAsync(vrmPath, showMeshes: true, ct: cancellation.Token);
+                    if (!File.Exists(modelPath)) throw new FileNotFoundException("Choose a local .vrm file", modelPath);
+                    instance = await Vrm10.LoadPathAsync(modelPath,
+                        controlRigGenerationOption: ControlRigGenerationOption.None,
+                        showMeshes: true, ct: cancellation.Token);
                     if (cancellation.IsCancellationRequested) { if (instance != null) Destroy(instance.gameObject); return; }
                     if (instance == null) throw new InvalidOperationException("UniVRM returned no model");
                     instance.transform.SetParent(transform, false);
-                    // Offline deterministic replay owns bones; do not let the
-                    // generated control rig overwrite them in LateUpdate.
-                    // Secondary spring/constraint simulation is deliberately off.
-                    instance.enabled = false;
+                    // Own body pose, then explicitly process VRM constraints,
+                    // expressions and native job-based hair springs once.
+                    instance.UpdateType = Vrm10Instance.UpdateTypes.None;
                     animator = instance.GetComponent<Animator>();
                 }
                 Bind(animator);
+                BindFingers(animator);
+                restNodes = modelRoot.GetComponentsInChildren<Transform>();
+                restPositions = Array.ConvertAll(restNodes, t => t.localPosition);
+                restRotations = Array.ConvertAll(restNodes, t => t.localRotation);
                 ready = true;
                 status = "19/19 Humanoid bones bound; deterministic replay";
                 Apply(0);
             }
             catch (OperationCanceledException) { }
-            catch (Exception error) { status = error.Message; Debug.LogException(error, this); }
+            catch (Exception error)
+            {
+                status = error.Message; Debug.LogException(error, this);
+                if (externallyDriven) throw;
+            }
         }
 
         public static void ValidateClip(MotionClip value)
@@ -122,20 +158,45 @@ namespace DollFight
                 if (bones[i] == null) throw new ArgumentException("Missing mapped bone: " + BoneOrder[i]);
                 bindWorld[i] = Quaternion.Inverse(modelRoot.rotation) * bones[i].rotation;
             }
-            rootScale = modelRoot.InverseTransformPoint(bones[0].position).y / clip.rest[0].y;
+            bindHipHeight = transform.InverseTransformPoint(bones[0].position).y;
+            float targetLeg = (Vector3.Distance(bones[11].position, bones[12].position) +
+                Vector3.Distance(bones[12].position, bones[13].position) +
+                Vector3.Distance(bones[15].position, bones[16].position) +
+                Vector3.Distance(bones[16].position, bones[17].position)) * 0.5f;
+            float sourceLeg = (Vector3.Distance(clip.rest[11], clip.rest[12]) +
+                Vector3.Distance(clip.rest[12], clip.rest[13]) +
+                Vector3.Distance(clip.rest[15], clip.rest[16]) +
+                Vector3.Distance(clip.rest[16], clip.rest[17])) * 0.5f;
+            rootScale = targetLeg / sourceLeg;
             if (!(rootScale > 0.1f && rootScale < 5f)) throw new ArgumentException("Check avatar height and model root scale");
+            if (existingHumanoid != null)
+            {
+                soles = new AvatarSoleContact(modelRoot, bones);
+                bindHipHeight += soles.RestFloorOffset;
+            }
         }
 
-        // H = diag(1,1,-1): R_unity = H R_stage H^-1.
-        public static Quaternion StageToUnity(Quaternion q) => new Quaternion(-q.x, -q.y, q.z, q.w);
-        public static Vector3 StageToUnity(Vector3 p) => new Vector3(p.x, p.y, -p.z);
+        // UniVRM 1.0 imports glTF with X reflection, not generic glTF Z
+        // reflection. Motion and bind skeleton MUST use the same convention.
+        public static Quaternion StageToUnity(Quaternion q) => new Quaternion(q.x, -q.y, -q.z, q.w);
+        public static Vector3 StageToUnity(Vector3 p) => new Vector3(-p.x, p.y, p.z);
+
+        public static Vector3 MapRoot(Vector3 root, float sourceHip, float targetHip, float legRatio)
+        {
+            Vector3 position = StageToUnity(root);
+            // Arena travel is in metres, independent of an FBX's import scale.
+            // Only vertical crouch/jump displacement follows leg proportions.
+            position.y = targetHip + (root.y - sourceHip) * legRatio;
+            return position;
+        }
 
         void LateUpdate()
         {
-            if (!ready) return;
+            if (!ready || externallyDriven) return;
             float duration = clip.frames[clip.frames.Length - 1].time;
             if (playing) time = Mathf.Repeat(time + Time.deltaTime * speed, duration);
             Apply(time);
+            ProcessSecondary();
         }
 
         public void Apply(float seconds)
@@ -145,9 +206,64 @@ namespace DollFight
             while (low < high) { int m = (low + high + 1) / 2; if (clip.frames[m].time <= seconds) low = m; else high = m - 1; }
             MotionFrame a = clip.frames[low], b = clip.frames[Math.Min(low + 1, clip.frames.Length - 1)];
             float alpha = b.time > a.time ? Mathf.Clamp01((seconds - a.time) / (b.time - a.time)) : 0;
-            bones[0].position = modelRoot.TransformPoint(StageToUnity(Vector3.Lerp(a.root, b.root, alpha)) * rootScale);
+            bones[0].position = transform.TransformPoint(MapRoot(Vector3.Lerp(a.root, b.root, alpha), clip.rest[0].y, bindHipHeight, rootScale));
+            sourcePoints[0] = Vector3.Lerp(a.root, b.root, alpha);
             for (int i = 0; i < 19; i++)
-                bones[i].rotation = modelRoot.rotation * StageToUnity(Quaternion.Slerp(a.rotations[i], b.rotations[i], alpha)) * bindWorld[i];
+            {
+                sourceRotations[i] = Quaternion.Slerp(a.rotations[i], b.rotations[i], alpha);
+                bones[i].rotation = modelRoot.rotation * StageToUnity(sourceRotations[i]) * bindWorld[i];
+                if (i > 0) sourcePoints[i] = sourcePoints[Parents[i]] + sourceRotations[Parents[i]] * (clip.rest[i] - clip.rest[Parents[i]]);
+            }
+            float delta = seconds - previousTime;
+            soles?.Apply(sourcePoints, clip.rest, rootScale, Mathf.Clamp(delta, 1f / 120, 0.1f), previousTime < 0 || delta < 0 || delta > 0.2f);
+            previousTime = seconds;
+            float close = Mathf.Clamp01(Mathf.Lerp(a.handClose, b.handClose, alpha));
+            for (int i = 0; i < fingerBones.Length; i++)
+                fingerBones[i].localRotation = fingerBinds[i] *
+                    Quaternion.AngleAxis((0.08f + close) * fingerAngles[i], fingerAxes[i]);
+        }
+
+        public void ProcessSecondary() { if (ready && instance != null) instance.Runtime.Process(); }
+
+        public void RestoreBindPose()
+        {
+            for (int i = 0; i < restNodes.Length; i++)
+            {
+                restNodes[i].localPosition = restPositions[i];
+                restNodes[i].localRotation = restRotations[i];
+            }
+        }
+
+        public void ResetSecondary()
+        {
+            if (ready && instance != null) instance.Runtime.SpringBone.RestoreInitialTransform();
+        }
+
+        void BindFingers(Animator animator)
+        {
+            var nodes = new System.Collections.Generic.List<Transform>();
+            var binds = new System.Collections.Generic.List<Quaternion>();
+            var axes = new System.Collections.Generic.List<Vector3>();
+            var angles = new System.Collections.Generic.List<float>();
+            foreach (string side in new[] { "Left", "Right" })
+                foreach (string finger in new[] { "Index", "Middle", "Ring", "Little", "Thumb" })
+                    for (int segment = 0; segment < 3; segment++)
+                    {
+                        string suffix = new[] { "Proximal", "Intermediate", "Distal" }[segment];
+                        if (!Enum.TryParse(side + finger + suffix, out HumanBodyBones id)) continue;
+                        Transform node = animator.GetBoneTransform(id);
+                        if (node == null) continue;
+                        Vector3 axis = finger == "Thumb" ? Vector3.up : Vector3.forward;
+                        axis *= side == "Left" ? -1 : 1;
+                        axis = new Vector3(axis.x, -axis.y, -axis.z);
+                        // Display prior, not inferred finger tracking. Map its
+                        // canonical axis into the imported raw bone basis.
+                        axes.Add(node.InverseTransformDirection(modelRoot.TransformDirection(axis)));
+                        angles.Add(finger == "Thumb" ? 32 : new[] { 82f, 98f, 58f }[segment]);
+                        nodes.Add(node); binds.Add(node.localRotation);
+                    }
+            fingerBones = nodes.ToArray(); fingerBinds = binds.ToArray();
+            fingerAxes = axes.ToArray(); fingerAngles = angles.ToArray();
         }
 
         void OnDestroy()

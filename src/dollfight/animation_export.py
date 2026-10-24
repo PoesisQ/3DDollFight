@@ -2,7 +2,7 @@
 
 import numpy as np
 
-from dollfight.kinematics import PARENTS
+from dollfight.kinematics import PARENTS, quaternion, rotation_y
 
 
 def multiply(a, b):
@@ -28,6 +28,11 @@ def export_animation(run):
             {
                 "time": frame["t"],
                 "root": vector(frame["root"]),
+                "handClose": float(
+                    frame.get("performance", {}).get(
+                        "hand_close", frame.get("action_timing", {}).get("hand_close", 0.15)
+                    )
+                ),
                 "rotations": [
                     dict(zip(("x", "y", "z", "w"), map(float, q), strict=True))
                     for q in global_rotations
@@ -43,3 +48,43 @@ def export_animation(run):
         "rest": [vector(p) for p in run["target_rest"]],
         "frames": frames,
     }
+
+
+def export_duel(run):
+    """Same arena roots/headings as Motion Lab, applied exactly once.
+
+    Both output streams use the shared rehearsal clock, including repeated or
+    remapped opponent indices. Canonical root X/Z is already represented by
+    duel.positions, so adding it again would cause the old runaway translation.
+    """
+    duel = run["duel"]
+    players = []
+    for player, yaw in enumerate((np.pi / 2, -np.pi / 2)):
+        source = run["frames"] if player == 0 else duel["opponent_frames"]
+        frames = []
+        heading = quaternion(rotation_y(yaw))
+        for i, arena in enumerate(duel["frames"]):
+            frame = source[i if player == 0 else arena["opponent_frame"]]
+            rotations = np.array(frame["rotations"], dtype=float)
+            rotations[0] = multiply(heading, rotations[0])
+            root = np.array(arena["positions"][player], dtype=float)
+            root[1] += frame["root"][1]
+            frames.append({**frame, "t": arena["t"], "root": root, "rotations": rotations})
+        players.append(export_animation({**run, "frames": frames}))
+    timeline = {
+        "version": "dollfight-duel-1",
+        "duration": run["duration"],
+        "fps": run["fps"],
+        "source": "CMU motion capture rehearsal; not live camera input",
+        "frames": [
+            {
+                "time": f["t"],
+                "round": f["round"],
+                "health": f["health"],
+                "distance": f["distance_m"],
+                "intent": f.get("intent", [""])[0],
+            }
+            for f in duel["frames"]
+        ],
+    }
+    return players, timeline

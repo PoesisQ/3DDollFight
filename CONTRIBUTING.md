@@ -13,7 +13,7 @@ GitHub 远端为 [PoesisQ/3DDollFight](https://github.com/PoesisQ/3DDollFight)�
 ```text
 src/dollfight/          协议、几何、骨架约束、识别、重定向与本地回放服务
 apps/motion-lab/        Three.js 评估界面、固定渲染依赖与投影测试
-unity/                 UniVRM / Humanoid 适配包、.meta 与导入步骤
+unity/                 原生 Unity 工程、UniVRM / Humanoid 包、场景与模型
 data/avatars/          临时皮套来源、许可、下载地址与哈希
 data/samples/           可再分发的小型公开动捕与来源记录
 tests/fixtures/         小型合成协议消息
@@ -24,7 +24,7 @@ pyproject.toml         Python 直接依赖与工具配置
 uv.lock                已解析依赖版本
 ```
 
-Motion Lab 用浏览器完成数值与视觉联调；`unity/` 已提供独立适配包，尚待 Editor 编译和播放验收。正式引擎工程由团队决定。算法不依赖引擎对象；更换引擎后保留同一输入回放与 FK/事件回归。
+当前效果演示以 `unity/` 原生工程为主，已通过 Editor 编译、Humanoid 检查和 Windows 构建；Motion Lab 保留浏览器数值与视觉对照。算法不依赖引擎对象；更换引擎后保留同一输入回放与 FK/事件回归。具体版本和实测结果见 `unity/README.md`。
 
 ## 分支与评审
 
@@ -86,6 +86,8 @@ Git LFS 把 Git 中的大文件内容替换成指针，实际内容存放在 LFS
 对于 `.blend` 等不可合并文件，采用明确的编辑交接；如果远端支持 LFS locks 再启用锁定工作流。不要同时修改一个二进制资产后期待 Git 自动合并。
 
 ## Unity / Godot 的特别约定
+
+当前原生工程位于 `unity/`，Editor 固定为 6000.3.27f1。用 `Start-Unity.cmd` 或运行准备脚本后再从 Hub 打开，不能遗漏生成的回放/角色文件。UniVRM 官方同版本发布包被无代码修改地重打包为两个本地 UPM tarball，走 Git LFS；`unity/Vendor/univrm.json` 记录上游 commit、原件与产物 hash，`tools/package_univrm.py` 可复现。升级时一起提交包、来源记录、manifest 和引擎生成的 lock，不直接修改 `Library/PackageCache`。
 
 Unity 使用 Force Text 和可见 `.meta`；资源移动时保留对应 `.meta`，否则 GUID 引用会断。提交 Assets、Packages、ProjectSettings，忽略 Library/Temp/Logs/UserSettings 等生成内容；固定 Editor 与 package lock。把大场景拆成小 Prefab/子场景，减少多人同时改同一文件。UnityYAMLMerge 可辅助合并，但需要配置路径并用引擎重新加载检查。[Unity 官方场景协作说明](https://unity.com/blog/author-scenes-and-prefabs-with-verson-control)
 
