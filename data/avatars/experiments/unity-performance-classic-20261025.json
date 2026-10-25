@@ -1,0 +1,15 @@
+{
+  "unityVersion": "6000.3.27f1",
+  "device": "NVIDIA GeForce RTX 4060 Laptop GPU",
+  "note": "90 seconds, 3 views plus 2 own-limb overlays and view-only IK; original meshes; guided native cloth and VRM springs; target 120 fps; not camera-input latency.",
+  "avatars": "Nozomi + Mizore hybrid VRM",
+  "width": 1280,
+  "height": 1000,
+  "frames": 5223,
+  "invalidBoneFrames": 0,
+  "durationSeconds": 90.01746368408203,
+  "averageFps": 58.02207565307617,
+  "medianFrameMs": 16.299100875854492,
+  "p95FrameMs": 23.243600845336914,
+  "maxFrameMs": 45.877601623535156
+}

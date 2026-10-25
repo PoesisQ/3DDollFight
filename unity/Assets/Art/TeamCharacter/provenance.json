@@ -1,0 +1,17 @@
+{
+  "provided_by": "Course teammate, supplied by user on 2026-10-24",
+  "original_folder": "anime+character+3d+model(1)",
+  "source_filename": "tripo_convert_34753093-610e-4d5c-a4b2-9bd5594d6536.fbx",
+  "license": "No license declaration was supplied with the asset; not labelled CC0 or an original project character.",
+  "mesh": {
+    "triangles": 12200,
+    "imported_vertices": 14997,
+    "skin_bones": 67
+  },
+  "processing": "Original FBX and textures preserved; Unity Humanoid mapping, Avatar T-pose, scale calibration and material setup in TeamCharacterImport.cs. No decimation.",
+  "files": {
+    "TeamCharacter.fbx": "da241434e09454ee109129213fbbbdf338f8cc9d01abf5ff3669f85ade4d4f3c",
+    "Albedo.jpg": "ccfcb8592f3a9405bc7729b6e1eda91c88dc7872f9069ab2c7de7509aabb4db3",
+    "Normal.png": "b4d817794acce8721cbbd4ca50a094bdeab6940febc3fab11e43bd06e1d94d08"
+  }
+}

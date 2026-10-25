@@ -82,6 +82,14 @@ export class FrameMeter {
                 frames.map((f) => f.calls),
                 0.5,
             ),
+            self_body_triangles_p50: percentile(
+                frames.map((f) => f.selfTriangles || 0),
+                0.5,
+            ),
+            self_body_culled_meshes_p50: percentile(
+                frames.map((f) => f.selfCulled || 0),
+                0.5,
+            ),
             views: percentile(
                 frames.map((f) => f.views),
                 0.5,

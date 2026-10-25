@@ -1,0 +1,43 @@
+{
+  "samples": [
+    {
+      "time": 1.5,
+      "lowestSurfaceY": -9.33615956e-05
+    },
+    {
+      "time": 4.1,
+      "lowestSurfaceY": -0.000305066322
+    },
+    {
+      "time": 8.3,
+      "lowestSurfaceY": 0.00543550169
+    },
+    {
+      "time": 8.8,
+      "lowestSurfaceY": 0.005514652
+    },
+    {
+      "time": 13.7,
+      "lowestSurfaceY": 0.000528681034
+    },
+    {
+      "time": 43.5,
+      "lowestSurfaceY": -0.00196122262
+    },
+    {
+      "time": 83.7,
+      "lowestSurfaceY": 0.001191704
+    },
+    {
+      "time": 84.2,
+      "lowestSurfaceY": 0.000346901652
+    },
+    {
+      "time": 86.5,
+      "lowestSurfaceY": -9.148265e-05
+    }
+  ],
+  "worldPosePositionChange": 0.0,
+  "worldPoseRotationChange": 0.0,
+  "method": "Unity BakeMesh(mesh, true), complete FBX surface minimum Y. Source poses have at least one support foot at these nine sample times. World bone transforms were compared before/after view-only IK. Horizontal arena spacing changed later; these local-height measurements do not measure horizontal slip."
+}

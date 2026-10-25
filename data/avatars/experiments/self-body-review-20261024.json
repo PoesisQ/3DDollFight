@@ -1,0 +1,260 @@
+{
+  "date": "2026-10-24",
+  "branch": "feat/motion-lab",
+  "base_commit": "c799b0787409a158d2d2e25aa9e28c73584ba3a4",
+  "change": "Replace detached cropped limbs with a connected body presentation double and head-attached camera; retain original skinning and global scene.",
+  "reused": [
+    "Skeleton and finger pose",
+    "position/normal/UV/weight/morph BufferAttributes",
+    "textures",
+    "cloth solver and garment shader uniforms"
+  ],
+  "view_only_changes": [
+    "Head/hair omitted, shoulder/arm/torso connections retained",
+    "78-degree vertical FOV, body-scaled eye offset and slight downward view",
+    "Neutral Lambert lighting on copies of unlit materials",
+    "16 garment draw batches with identical source triangles and bone-space bounds; no mesh decimation",
+    "No shadow pass or extra pose/cloth solving"
+  ],
+  "video": {
+    "path": "data/avatars/experiments/dollfight-self-body-20261024.mp4",
+    "sha256": "7d423465f8a8789dcb83b87388749643e8d5ac1f065a2b7bef75aa9d414c0461",
+    "bytes": 28505558,
+    "duration_s": 89.827,
+    "width": 1280,
+    "height": 1000,
+    "frames": 2488,
+    "avg_frame_rate": "2488000/89869",
+    "note": "Actual three-canvas browser recording; H.264 CRF18, VFR, no interpolated frames. Capture/encoding rate is not live rendering FPS."
+  },
+  "screenshots": [
+    {
+      "path": "data/avatars/experiments/self-body-before-punch-20261024.png",
+      "sha256": "a0ec1a857f97a44a19ff14ebd618116f9b3205a3fcb7b14c8cb9a75bd252644b",
+      "bytes": 420408
+    },
+    {
+      "path": "data/avatars/experiments/self-body-punch-20261024.png",
+      "sha256": "d31058ab1659bfb005779a13d80e80958da80527b3d6d7e80665631c2f101825",
+      "bytes": 83641
+    },
+    {
+      "path": "data/avatars/experiments/self-body-comparison-20261024.png",
+      "sha256": "b0478eb519ebfa2c81d9528f158fa9dae16d827e0f130af6d63402072168eaa7",
+      "bytes": 253644
+    },
+    {
+      "path": "data/avatars/experiments/self-body-main-on-20261024.png",
+      "sha256": "e57e566806c8627ae9eba831569e45b4dcdda13bfd9e14e28abd17507f4c6803",
+      "bytes": 35406
+    },
+    {
+      "path": "data/avatars/experiments/self-body-main-off-20261024.png",
+      "sha256": "e57e566806c8627ae9eba831569e45b4dcdda13bfd9e14e28abd17507f4c6803",
+      "bytes": 35406
+    }
+  ],
+  "comparison_image": "Unretouched native-pixel crops of both player windows at 2.79 s, stacked with labels; scrolling layout differs by 24 pixels.",
+  "reviewed_keyframes_s": [
+    2.79,
+    14.03,
+    84.3
+  ],
+  "reviewed_video_frames_s": [
+    14.1,
+    84.3
+  ],
+  "main_view_isolation": {
+    "paused_time_s": 2.79,
+    "size": [
+      834,
+      288
+    ],
+    "changed_pixels": 0,
+    "scope": "Same frame, same viewport, own-body pass toggled; not a claim about every possible asset and configuration."
+  },
+  "tests": {
+    "javascript_passed": 14,
+    "command": "node apps/motion-lab/tests/run-tests.js",
+    "coverage": [
+      "No shoulder/torso triangle removal",
+      "Shared attributes and skeleton; original bones/materials unchanged",
+      "Head-frame camera invariant under arena yaw",
+      "All retained skinned vertices lie within culling bounds",
+      "Garment batches preserve every triangle exactly once",
+      "Existing camera, cloth and garment-guide regressions"
+    ],
+    "python": "Not rerun: no Python runtime or algorithm changes in this patch. Prior v0.9 run recorded separately.",
+    "diff_check": "passed",
+    "browser_console_errors": 0
+  },
+  "performance": {
+    "off": {
+      "source": "cmu_sparring",
+      "avatars": [
+        "nozomi · Tripo 本地绑定 / 手颈与发束重建 · 19/19 关节 · 13 网格",
+        "mizore · Tripo 本地绑定 / 手颈与发束重建 · 19/19 关节 · 13 网格"
+      ],
+      "optimized": true,
+      "secondary_mode": "live",
+      "self_limbs": false,
+      "self_view_mode": "connected-body / head-attached presentation camera",
+      "self_body_triangles": [
+        194724,
+        227578
+      ],
+      "viewport": [
+        887,
+        815
+      ],
+      "pixel_ratio": 1.5,
+      "render_target_pixels": [
+        [
+          892,
+          403
+        ],
+        [
+          433,
+          255
+        ],
+        [
+          433,
+          255
+        ]
+      ],
+      "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36",
+      "samples": 1008,
+      "fps": 84.3712334267424,
+      "raf_p50_ms": 13.200000047683716,
+      "raf_p95_ms": 17.5,
+      "pose_p95_ms": 10,
+      "render_submit_p95_ms": 3.6999999284744263,
+      "cloth_p95_ms": 9.100000023841858,
+      "triangles_per_frame": 1904706,
+      "draw_calls_per_frame": 159,
+      "self_body_triangles_p50": 0,
+      "self_body_culled_meshes_p50": 0,
+      "views": 3,
+      "animated_frames_percent": 100,
+      "frames_over_33ms_percent": 0.2976190476190476,
+      "measurement": "CPU pose + render submission; RAF interval, not GPU timer or camera-to-display latency",
+      "sample_duration_s": 12.007299999952316
+    },
+    "on": {
+      "source": "cmu_sparring",
+      "avatars": [
+        "nozomi · Tripo 本地绑定 / 手颈与发束重建 · 19/19 关节 · 13 网格",
+        "mizore · Tripo 本地绑定 / 手颈与发束重建 · 19/19 关节 · 13 网格"
+      ],
+      "optimized": true,
+      "secondary_mode": "live",
+      "self_limbs": true,
+      "self_view_mode": "connected-body / head-attached presentation camera",
+      "self_body_triangles": [
+        194724,
+        227578
+      ],
+      "viewport": [
+        887,
+        815
+      ],
+      "pixel_ratio": 1.5,
+      "render_target_pixels": [
+        [
+          892,
+          403
+        ],
+        [
+          433,
+          255
+        ],
+        [
+          433,
+          255
+        ]
+      ],
+      "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36",
+      "samples": 981,
+      "fps": 82.08930245029097,
+      "raf_p50_ms": 13.399999976158142,
+      "raf_p95_ms": 17.5,
+      "pose_p95_ms": 9.299999952316284,
+      "render_submit_p95_ms": 4.300000071525574,
+      "cloth_p95_ms": 8.5,
+      "triangles_per_frame": 2176393,
+      "draw_calls_per_frame": 173,
+      "self_body_triangles_p50": 271675,
+      "self_body_culled_meshes_p50": 25,
+      "views": 3,
+      "animated_frames_percent": 100,
+      "frames_over_33ms_percent": 0.3058103975535168,
+      "measurement": "CPU pose + render submission; RAF interval, not GPU timer or camera-to-display latency",
+      "sample_duration_s": 12.002600000023842
+    },
+    "unbatched_body": {
+      "source": "cmu_sparring",
+      "avatars": [
+        "nozomi · Tripo 本地绑定 / 手颈与发束重建 · 19/19 关节 · 13 网格",
+        "mizore · Tripo 本地绑定 / 手颈与发束重建 · 19/19 关节 · 13 网格"
+      ],
+      "optimized": true,
+      "secondary_mode": "live",
+      "self_limbs": true,
+      "self_view_mode": "connected-body / head-attached presentation camera",
+      "self_body_triangles": [
+        194724,
+        227578
+      ],
+      "viewport": [
+        887,
+        815
+      ],
+      "pixel_ratio": 1.5,
+      "render_target_pixels": [
+        [
+          892,
+          403
+        ],
+        [
+          433,
+          255
+        ],
+        [
+          433,
+          255
+        ]
+      ],
+      "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36",
+      "samples": 978,
+      "fps": 81.85333355700897,
+      "raf_p50_ms": 13.5,
+      "raf_p95_ms": 17.699999928474426,
+      "pose_p95_ms": 9.700000047683716,
+      "render_submit_p95_ms": 4.099999904632568,
+      "cloth_p95_ms": 9,
+      "triangles_per_frame": 2327008,
+      "draw_calls_per_frame": 167,
+      "self_body_triangles_p50": 422302,
+      "self_body_culled_meshes_p50": 0,
+      "views": 3,
+      "animated_frames_percent": 100,
+      "frames_over_33ms_percent": 0.3067484662576687,
+      "measurement": "CPU pose + render submission; RAF interval, not GPU timer or camera-to-display latency",
+      "sample_duration_s": 12.006299999952317
+    },
+    "body_triangle_reduction_percent": 35.66807640030121,
+    "limits": [
+      "Sequential 12-second samples; scheduler/thermal/cloth variation remains. FPS differences are not a controlled GPU speedup proof.",
+      "CPU submission cost and RAF intervals only; no GPU timer, camera input or network latency.",
+      "Three small browser windows, not three Full-HD monitors.",
+      "Benchmark forces three renderers even when scrolling controls outside the viewport."
+    ]
+  },
+  "assets_modified": false,
+  "known_limits": [
+    "Existing authored finger prior, wrist/skin detail and generated sleeves remain; no new hand tracking or model rebuild.",
+    "Own body and opponent use different presentation cameras; a stable opponent image is composited with a body-following view. This is not calibrated VR stereo.",
+    "High kicks can bring the own skirt into the lower player view; original garment collision and surface issues remain.",
+    "Public CMU mocap rehearsal; no live Gemini input or Unity Editor validation."
+  ]
+}

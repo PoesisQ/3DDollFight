@@ -43,3 +43,11 @@ logs/
 
 # Browser viewer, if selected later.
 node_modules/
+
+# Rebuilt from LFS avatars and the uv pose pipeline; no duplicate model blobs.
+unity/Assets/StreamingAssets/DollFight/
+unity/Assets/StreamingAssets/DollFight.meta
+
+# User delivery preserved locally; the reviewed import lives under Unity Art.
+/anime+character+3d+model(1)/
+unity/Assets/Temp.meta
