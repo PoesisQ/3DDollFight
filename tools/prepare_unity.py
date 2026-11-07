@@ -77,6 +77,12 @@ def main():
     parser.add_argument(
         "--replay", type=Path, help="Explicit existing Motion Lab run for comparison"
     )
+    parser.add_argument(
+        "--rehearsal-profile",
+        choices=("showcase", "legacy"),
+        default="showcase",
+        help="Short Unity demonstration (default), or the existing long KO rehearsal",
+    )
     args = parser.parse_args()
     destination = ROOT / "unity/Assets/StreamingAssets/DollFight"
     destination.mkdir(parents=True, exist_ok=True)
@@ -91,27 +97,67 @@ def main():
         run = json.loads(args.replay.read_text(encoding="utf-8"))
         np.testing.assert_allclose(run["target_rest"], assets[0]["rest"], atol=1e-4)
     else:
-        run = replay_run(
-            {
-                "source": "cmu_sparring",
-                "target_rest": assets[0]["rest"],
-                "noise_mm": 0,
-                "dropout": 0,
-                # Match the authored rehearsal / Motion Lab defaults. The
-                # generic 2.2 m camera-station gap makes every attack miss on
-                # these shorter avatars despite otherwise valid animation.
-                "initial_gap": 1.8,
-                "movement_gain": 1.0,
-            },
-            include_duel=True,
-        )
+        config = {
+            "source": "cmu_sparring",
+            "target_rest": assets[0]["rest"],
+            "noise_mm": 0,
+            "dropout": 0,
+            # Match the authored rehearsal / Motion Lab defaults. The
+            # generic 2.2 m camera-station gap makes every attack miss on
+            # these shorter avatars despite otherwise valid animation.
+            "initial_gap": 1.7 if args.rehearsal_profile == "showcase" else 1.8,
+            "movement_gain": 1.0,
+            "match_mode": "knockout",
+            # A separate short choreography; browser's legacy rehearsal
+            # and ordinary KO combat rules retain their existing defaults.
+            "rehearsal_profile": args.rehearsal_profile,
+        }
+        if args.rehearsal_profile == "legacy":
+            config["rehearsal_rounds"] = 6
+        run = replay_run(config, include_duel=True)
         if not run["duel"]["summary"].get("hit"):
             raise ValueError(
                 "Default rehearsal has no scored contacts; check spacing and attack timing"
             )
     players, timeline = export_duel(run)
-    for name, clip in zip(("nozomi", "mizore"), players, strict=True):
-        write_json(destination / f"{name}-motion.json", clip)
+    if not args.replay:
+        finished = next((f for f in timeline["frames"] if f["matchState"] == "finished"), None)
+        if (
+            timeline["matchMode"] != "knockout"
+            or timeline["finishTime"] < 0
+            or finished is None
+            or 0 not in finished["health"]
+        ):
+            raise ValueError(
+                "Default Unity rehearsal must contain a real knockout; "
+                "extend choreography without changing damage"
+            )
+        if args.rehearsal_profile == "showcase":
+            damaging = [event for event in run["duel"]["events"] if event["damage"]]
+            styles = {event["action"].partition("_")[2] for event in damaging}
+            wall_upper = (
+                timeline["finishTime"] / timeline["presentationRate"]
+                + 1.35
+                + len(timeline["contacts"]) * 0.075
+            )
+            if (
+                timeline["presentationProfile"] != "showcase"
+                or timeline["presentationRate"] != 1.2
+                or len(styles) < 5
+                or {event["attacker"] for event in damaging} != {0, 1}
+                or run["duel"]["summary"].get("recovery", 0)
+                or wall_upper >= 60
+            ):
+                raise ValueError(
+                    "Showcase requires five real move styles, both players hitting, "
+                    "no rejected animation and a subminute wall budget at presentationRate 1.2"
+                )
+    for player, clip in enumerate(players, start=1):
+        write_json(destination / f"player-{player}-motion.json", clip)
+    # Remove obsolete generated copies; model and cloth assets retain their names.
+    for obsolete in ("nozomi-motion.json", "mizore-motion.json"):
+        (destination / obsolete).unlink(missing_ok=True)
+        (destination / f"{obsolete}.meta").unlink(missing_ok=True)
     write_json(destination / "duel.json", timeline)
     write_json(
         destination / "provenance.json",
@@ -124,6 +170,11 @@ def main():
             "frames": len(run["frames"]),
             "combat_summary": run["duel"]["summary"],
             "rounds": run["duel"]["rounds"],
+            "matchMode": timeline["matchMode"],
+            "regulationDuration": timeline["regulationDuration"],
+            "finishTime": timeline["finishTime"],
+            "presentationProfile": timeline["presentationProfile"],
+            "presentationRate": timeline["presentationRate"],
             "note": "Offline public CMU rehearsal. Finger closure is a display prior.",
         },
     )

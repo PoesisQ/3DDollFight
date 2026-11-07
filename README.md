@@ -1,14 +1,30 @@
 # 3DDollFight
 
+**首次克隆须知：`menuscene` 包含场景文件和菜单，但不包含 Saint Maurice / Cloud 扫描及对应预览图。** 拉取 LFS 并准备动作后，可先使用地下竞技场；取回地图转换产物后按[地图恢复说明](docs/map-assets.md)放回指定位置。各目标目录已保留 README，完整路径、大小和 SHA-256 见[资源清单](data/environments/restore-manifest.json)。本机构建与历史 `outputs/` 证据也不随 Git 分发。
+
 3D 视觉课程的双人体感格斗项目。我们负责骨骼处理与动作识别，以及 VRM 皮套与全身动作映射。**DollFight Unity v0.10** 接入原生引擎，**Motion Lab v0.9** 保留为浏览器算法实验与对照入口。
+
+Unity 现有街机美术升级：工业擂台、角色补光与接触阴影、面部头像、双色斜切 HUD、分段防守槽、开场/KO 演出及重赛界面；普通场地与教堂共用新版 UI，新增材质、字体和接触音效均本地加载。实现与素材来源见[对战画面说明](docs/combat-presentation.md)。
+
+启动后先为 P1、P2 选角，再从地下竞技场、Saint Maurice、Cloud 云台中选择场地开始对战；**T** 可从对战返回选角。默认阵容为 **TRIPO / CHALLENGER**，两份旧 VRM 仍可选，支持同角色对战。选角操作、云台准备与快速复验见[街机选择说明](docs/arcade-selection.md)；模型、头像、名字和角色参数统一由[角色目录](docs/character-roster.md)管理，动作与胜负按玩家槽位独立运行。
+
+此前角色替换验收的[普通场地录像](outputs/character-review/studio-match/review.mp4)与[教堂录像](outputs/character-review/church-match/review.mp4)均完整到达真实 KO，约 48 秒；51 项 Unity 检查通过。实际测试、性能和自动退出清理边界见[新角色验收记录](docs/character-roster-validation.md)。
+
+Unity 当前默认展示采用 1.2 倍源速率、55 秒常规时限的 showcase 单局 KO，包含直拳、前踢、侧踹、回旋踢和腾空旋踢五类实际造成伤害的招式。当前导出在显示时间 45.58 秒由真实命中产生 KO，教堂原生连播含稳定终局实测 **48.06 秒**；生命值跨动作段连续累计。HUD、头像和玩家观察窗按主镜头中的左右位置对应角色。Motion Lab 保留旧三回合排练作浏览器对照。结算详情与原生实测见[普通战斗规则](docs/combat-rules.md)及[对战画面说明](docs/combat-presentation.md)。
 
 ## Unity 入口
 
-双击 `Start-Unity.cmd`，或用 Unity Hub 打开 `unity/`。固定 **Unity 6000.3.27f1 LTS + UniVRM 0.131.4**，使用 90 秒双人真人动捕排练和三个观察视窗。已接入组员提供的 FBX（含手指、12,200 三角面），**T 切换 FBX / 原霙 VRM**；已有本机构建可双击 `Play-DollFight-Unity.cmd`。修正长时间前俯护架，增加落脚朝向约束、姿态引导裙布和独立的近景手臂 IK。骨骼算法继续由 Python/uv 管理。完整启动、协作与验证边界见 [Unity 工程说明](unity/README.md)。
+双击 `Start-Unity.cmd`，或用 Unity Hub 打开 `unity/`。固定 **Unity 6000.3.27f1 LTS + UniVRM 0.131.4**；展示速率与常规时限由导出的时间轴决定，设置中的 1× 表示该版本的默认节奏。默认 1440×900、16:9 画面适配，玩家视窗默认关闭；**M** 切换音效、**N** 切换震屏、**Esc** 打开设置。设置里的“排练工具”可拖动时间轴、跳到下一次交锋或跳到终局验证；跳终局会从真实终结一击前继续播放，不会直接改写 HP。新 Tripo FBX（10,880 三角面）与组员 FBX（12,200 三角面）均已接入 Humanoid；**T 打开双方选角**。已有本机构建可双击 `Play-DollFight-Unity.cmd`。骨骼算法继续由 Python/uv 管理。更多画面说明见[对战画面与操作](docs/combat-presentation.md)，工程入口见 [Unity 工程说明](unity/README.md)。
 
-[观看 Unity 完整三回合：组员模型](data/avatars/experiments/dollfight-unity-team-20261025.mp4) · [原双 VRM 对照](data/avatars/experiments/dollfight-unity-classic-20261025.mp4) · [原生验证报告](data/avatars/experiments/unity-review-20261025.json)。原生画面直接捕获，保留移动、出拳、侧踹、回旋踢、格挡和腾空旋踢的整段过程；是公开动捕的编辑排练，尚未接 Gemini 实机输入。
+历史 Unity 三回合录像（2026-10-25）：[组员模型](data/avatars/experiments/dollfight-unity-team-20261025.mp4) · [原双 VRM 对照](data/avatars/experiments/dollfight-unity-classic-20261025.mp4) · [原生验证报告](data/avatars/experiments/unity-review-20261025.json)。原生画面直接捕获，保留移动、出拳、侧踹、回旋踢、格挡和腾空旋踢的整段过程；是公开动捕的编辑排练，尚未接 Gemini 实机输入。
+
+**教堂场景**：外层 Saint Maurice SOG 已通过开源 Gaussian Splat 插件接入，可在教堂内部运行同一排练。已有本机构建可双击 `Play-SaintMaurice.cmd`；仅取回转换产物时，按[地图恢复说明](docs/map-assets.md)放回后用 `Start-Unity.cmd` 打开工程。`Start-SaintMaurice.cmd` 会校验并转换原始 SOG，因此需要另行取得原件。完整勘景与裁剪后的对战场景分别保存。数据准备、素材许可及碰撞边界见[教堂场景说明](docs/saint-maurice-scene.md)。
+
+**第三场景 Cloud**：用户提供的 `cloud.ply` 已接入完整扫描，金色圆台顶面标定到世界 Y=0。两种原生构建均包含三个可选场地，使用 D3D12；选角与云台的 22 项定向测试、数据准备和原生快速复验入口见[街机选择说明](docs/arcade-selection.md)。
 
 ## 浏览器历史对照
+
+以下浏览器说明描述 Motion Lab 的旧三回合排练和算法对照入口；它保留旧规则，不代表 Unity 当前默认的单局 KO 规则。
 
 Windows 双击 `Start-MotionLab.cmd`，或运行：
 
@@ -31,7 +47,7 @@ v0.9 加入真实 **侧踹、腾空旋踢、踏步冲拳、Empi 连续组合、�
 
 本轮修复旧录像中 1.5 秒的反折站姿和 8.3 秒的交叉腿：纠正大腿轴向扭转，缩短步幅时保留膝盖弯曲平面，释放跨动作残留的脚锁，并约束过渡过冲造成的反向屈膝。完整骨骼朝向和用户报告的时刻均加入回归检查。[旧 90 秒录像](data/avatars/experiments/dollfight-three-rounds-v08-20261024.mp4) 保留作失败对照；原先的骨长与支撑速度自检没有覆盖这些人体姿态错误。
 
-默认进入 **DollFight 三回合 / 90 秒双人排练**，显示本地绑定 Tripo 皮套的手、颈与发束重建版。两路动作独立编排：短步接近、退步让距、侧移、拳击、前踢、回旋踢、侧踹、护架与连续套路，第三回合以腾空旋踢收尾。命中、格挡、挥空和前后摇由时序与空间接触结算。它是公开真人动捕的编辑排练，尚不是实时相机双人游戏或自主对手。
+Motion Lab 的旧默认模式为 **三回合 / 90 秒双人排练**，显示本地绑定 Tripo 皮套的手、颈与发束重建版。两路动作独立编排，第三回合以腾空旋踢收尾；它是公开真人动捕的编辑排练，尚不是实时相机双人游戏或自主对手。
 
 主场景默认放大并开启三视角；“从头播放”“第 1/2/3 回合”“录制完整演示”可直接使用。录制保存当前三个实时 WebGL 画面与回合/血量/距离，保持画面比例。选择“显示参数”可以切换原网格、授权底模、旧版无约束步法、慢放及算法开关。具体检查：
 
@@ -53,14 +69,14 @@ v0.9 加入真实 **侧踹、腾空旋踢、踏步冲拳、Empi 连续组合、�
 | 全身映射 | 独立骨盆/胸腔朝向，保留躯干扭转；肘膝弯曲平面；按腿长缩放、接地与双骨 IK |
 | 动作识别 | 基础拳/膝/踢/蹲/侧倾、回旋踢、转身、护架、拨挡与组合规则；提膝候选延迟，防止踢腿前摇误报膝击；踢腿配合摆臂不再算独立出拳 |
 | 皮套 | 两份高面数 Tripo 网格本地绑定；54 Humanoid、216 衣物控制骨；默认重建版保留作者 59 发骨 / 12 发束及手指权重；原件/重建对照。另保留约 3.9 万面的授权底模；不是 SkinTokens 推理输出 |
-| 动作衔接 | 三回合双人根轨迹、短步步幅编辑、0.30 s 惯性衔接、脚 IK、支撑脚朝向约束与连续接地修正；旧组合保留对照 |
+| 动作衔接 | 双人根轨迹、短步步幅编辑、0.30 s 惯性衔接、脚 IK、支撑脚朝向约束与连续接地修正；旧三回合组合保留对照 |
 | 实时渲染 | GPU 蒙皮；粗控制网格驱动细裙面；不再逐骨递归更新全部后代；可见视图调度、审计降频、避免重复法线计算；可测实时衣发和缓存回放 |
 | 交互验证 | 动捕/骨架/模型对照、逐帧、慢放、噪声消融、全身玩家视窗、实际影响伤害与出招的前后摇 |
 | Unity 接入 | [原生工程与启动步骤](unity/README.md)：UniVRM 加载、Humanoid 映射、同步双人回放、第一人称网格、原生衣发更新、对战场景与构建入口 |
 
 浏览器 VRM 路线已可运行。本机已安装 Unity Editor 与 Hub，并确认免费 Personal 许可有效；Unity 的实际编译、播放与视觉验证状态单独记录在 [Unity 工程说明](unity/README.md)，不能以 Python/浏览器测试代替。
 
-仍未完成：Gemini 实机输入、实时双人同步、基于大量真人数据的分类器、自然的任意招式过渡/受击动画、正式角色资产和大招库。这里保留真人全身运动，而非肌肉/动力学仿真。位移放大和对战边界仍可能造成滑步；动作检查视图保留采集根位移，便于直接发现这一问题。默认三回合的 P2 为独立编排；其他旧单人片段仍用延迟回放，均不能当成实时对手。
+仍未完成：Gemini 实机输入、实时双人同步、基于大量真人数据的分类器、自然的任意招式过渡/受击动画、正式角色资产和大招库。这里保留真人全身运动，而非肌肉/动力学仿真。位移放大和对战边界仍可能造成滑步；动作检查视图保留采集根位移，便于直接发现这一问题。浏览器旧三回合模式的 P2 为独立编排；其他旧单人片段仍用延迟回放，均不能当成实时对手。
 
 ## 验证与协作
 
@@ -84,4 +100,4 @@ Python 3.10.19、uv ≥0.9.17、依赖由 `uv.lock` 固定。Node 22+ 用于投�
 - [跨组协议](docs/contracts.md)、[JSON Schema](src/dollfight/schemas/)、[协议样例](tests/fixtures/)
 - [动捕来源与致谢](data/samples/README.md)
 
-远端为 [PoesisQ/3DDollFight](https://github.com/PoesisQ/3DDollFight)，当前工作分支 `feat/motion-lab`。
+远端为 [PoesisQ/3DDollFight](https://github.com/PoesisQ/3DDollFight)，当前工作分支 `menuscene`。

@@ -1,0 +1,11 @@
+{
+  "name": "com.dollfight.environments",
+  "version": "0.1.0",
+  "displayName": "DollFight Environment Import",
+  "description": "Local Gaussian scene preview and duel staging.",
+  "unity": "6000.3",
+  "dependencies": {
+    "com.dollfight.humanoid": "0.10.0",
+    "org.nesnausk.gaussian-splatting": "2.0.0"
+  }
+}

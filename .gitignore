@@ -48,6 +48,40 @@ node_modules/
 unity/Assets/StreamingAssets/DollFight/
 unity/Assets/StreamingAssets/DollFight.meta
 
+# External maps stay local; keep their destination folders and restore notes.
+# Exact filenames, checksums and recovery steps: docs/map-assets.md.
+unity/Assets/StreamingAssets/Environments/SaintMaurice/*
+!unity/Assets/StreamingAssets/Environments/SaintMaurice/README.md
+!unity/Assets/StreamingAssets/Environments/SaintMaurice/README.md.meta
+unity/Assets/StreamingAssets/Environments/Cloud/*
+!unity/Assets/StreamingAssets/Environments/Cloud/README.md
+!unity/Assets/StreamingAssets/Environments/Cloud/README.md.meta
+
+# Full church scan is an optional editor preview, not a runtime dependency.
+unity/Assets/LocalScenes/*
+!unity/Assets/LocalScenes/README.md
+!unity/Assets/LocalScenes/README.md.meta
+!unity/Assets/LocalScenes/SaintMaurice/
+!unity/Assets/LocalScenes/SaintMaurice.meta
+unity/Assets/LocalScenes/SaintMaurice/*
+!unity/Assets/LocalScenes/SaintMaurice/README.md
+!unity/Assets/LocalScenes/SaintMaurice/README.md.meta
+
+# Protect original scans if accidentally copied into the repository root.
+/cloud.ply
+/cloud.ply.meta
+/Parish Church of Saint Maurice.sog
+/Parish Church of Saint Maurice.sog.meta
+
+unity/Assets/Screenshots/
+unity/Assets/Screenshots.meta
+
 # User delivery preserved locally; the reviewed import lives under Unity Art.
 /anime+character+3d+model(1)/
 unity/Assets/Temp.meta
+
+# External-map preview images stay local; underground.png ships with the menu.
+unity/Assets/Resources/DollFight/Selection/Stages/saint-maurice.png
+unity/Assets/Resources/DollFight/Selection/Stages/saint-maurice.png.meta
+unity/Assets/Resources/DollFight/Selection/Stages/cloud.png
+unity/Assets/Resources/DollFight/Selection/Stages/cloud.png.meta

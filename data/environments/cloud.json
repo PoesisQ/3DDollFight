@@ -1,0 +1,61 @@
+{
+  "title": "Cloud Platform",
+  "display_name": "云台 / CLOUD",
+  "source_filename": "cloud.ply",
+  "source_sha256": "f26fa505d80c44cbbb6ffbd1253b239fe533a6b9caff93efed87ddbdbffb1542",
+  "source_points": 594371,
+  "source_sh_degree": 0,
+  "provenance": "User-provided local file; no author or redistribution licence supplied. Original is preserved unchanged.",
+  "converter_version": "3.10.3",
+  "spz_version": 4,
+  "surface": {
+    "description": "Top of the larger engraved gold circular platform, not the clouds below it",
+    "center_xy_ply": [
+      1.6,
+      -2.3
+    ],
+    "fit_radius_ply": 1.1,
+    "fit_z_range_ply": [
+      -0.6,
+      -0.32
+    ],
+    "fit_min_opacity_logit": 1.0,
+    "plane_z_equals_ax_plus_by_plus_c": [
+      -0.02658694,
+      0.0592664,
+      -0.3303963
+    ],
+    "origin_ply": [
+      1.6,
+      -2.3,
+      -0.49210526
+    ],
+    "normal_ply": [
+      0.02653103,
+      -0.05914176,
+      0.99789697
+    ],
+    "scene_scale": 1.75,
+    "safe_interior_radius_world": 2.1,
+    "collider_size_world": [
+      3.2,
+      0.2,
+      2.6
+    ],
+    "shoe_allowance_world": 0.3
+  },
+  "camera": {
+    "position_world": [
+      0.0,
+      2.5,
+      -5.1
+    ],
+    "target_world": [
+      0.0,
+      0.95,
+      0.0
+    ],
+    "vertical_fov": 46
+  },
+  "note": "The SPZ retains all points in original PLY coordinates. CloudScene reflects source Y, rotates source Z up to Unity Y up, removes the measured disk tilt, scales only the environment, and maps the raised surface origin to Y=0. The 3 cm surface envelope accommodates engraved relief. Combat skeletons and motion are unchanged."
+}

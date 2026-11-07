@@ -93,7 +93,10 @@ namespace DollFight
                     if (!File.Exists(modelPath)) throw new FileNotFoundException("Choose a local .vrm file", modelPath);
                     instance = await Vrm10.LoadPathAsync(modelPath,
                         controlRigGenerationOption: ControlRigGenerationOption.None,
-                        showMeshes: true, ct: cancellation.Token);
+                        showMeshes: true, ct: cancellation.Token,
+                        // Own the job buffers with this avatar. The shared service
+                        // defers removal across scene reloads after disposing them.
+                        springboneRuntime: new Vrm10FastSpringboneRuntimeStandalone());
                     if (cancellation.IsCancellationRequested) { if (instance != null) Destroy(instance.gameObject); return; }
                     if (instance == null) throw new InvalidOperationException("UniVRM returned no model");
                     instance.transform.SetParent(transform, false);

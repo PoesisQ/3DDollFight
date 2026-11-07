@@ -21,12 +21,14 @@ function capsule(color, radius) {
     group.add(body, ...ends);
     return {
         group,
-        set(a, b, visible = true) {
+        set(a, b, visible = true, contactRadius = radius) {
             group.visible = visible;
             const av = new THREE.Vector3().fromArray(a),
                 bv = new THREE.Vector3().fromArray(b);
             ends[0].position.copy(av);
             ends[1].position.copy(bv);
+            ends.forEach((end) => end.scale.setScalar(contactRadius / radius));
+            body.scale.x = body.scale.z = contactRadius / radius;
             body.position.copy(av).lerp(bv, 0.5);
             const direction = bv.sub(av),
                 length = direction.length();
@@ -60,14 +62,19 @@ export class CombatVisuals {
             return mesh;
         });
         this.capsules = colors.map((color) =>
-            [0.14, 0.19, 0.09, 0.09, 0.1, 0.1].map((r, i) => {
-                const value = capsule(i < 4 ? color : "#80b9ff", r);
+            [0.14, 0.19, 0.09, 0.09, 0.09, 0.09, 0.1, 0.1].map((r, i) => {
+                const value = capsule(i < 6 ? color : "#80b9ff", r);
                 this.debug.add(value.group);
                 return value;
             }),
         );
         this.attacks = Array.from({ length: 4 }, () => {
             const value = capsule("#ffe29b", 0.03);
+            this.debug.add(value.group);
+            return value;
+        });
+        this.weapons = Array.from({ length: 2 }, () => {
+            const value = capsule("#ffe29b", 0.1);
             this.debug.add(value.group);
             return value;
         });
@@ -100,7 +107,9 @@ export class CombatVisuals {
                 [4, 4],
                 [0, 2],
                 [11, 12],
+                [12, 13],
                 [15, 16],
+                [16, 17],
                 [6, 7],
                 [9, 10],
             ];
@@ -110,9 +119,9 @@ export class CombatVisuals {
                     world[b],
                     quality[a] === "observed" &&
                         quality[b] === "observed" &&
-                        (i < 4 ||
+                        (i < 6 ||
                             (duel.defense[p].guard_sides || []).includes(
-                                i === 4 ? "left" : "right",
+                                i === 6 ? "left" : "right",
                             )),
                 ),
             );
@@ -126,6 +135,16 @@ export class CombatVisuals {
                 ? a.set(trails[i].start, trails[i].end)
                 : (a.group.visible = false),
         );
+        this.weapons.forEach((weapon, i) => {
+            const strike = duel.active_attacks[i];
+            if (strike) weapon.set(
+                strike.weapon_start || strike.end,
+                strike.weapon_end || strike.end,
+                true,
+                strike.radius,
+            );
+            else weapon.group.visible = false;
+        });
         const event = run.duel.events
             .filter(
                 (e) =>

@@ -4,12 +4,14 @@ using UnityEditor;
 using UnityEditor.Build.Reporting;
 using UnityEditor.SceneManagement;
 using UnityEngine;
+using UnityEngine.Rendering;
 
 namespace DollFight.Editor
 {
     public static class DemoBuild
     {
         public const string ScenePath = "Assets/Scenes/DollFight.unity";
+        public static readonly string[] MatchScenes = { ScenePath, "Assets/Scenes/SaintMauriceDuel.unity", "Assets/Scenes/CloudDuel.unity" };
 
         public static void OpenScene()
         {
@@ -52,15 +54,15 @@ namespace DollFight.Editor
             }
             graphics.ApplyModifiedPropertiesWithoutUndo();
             EditorSceneManager.SaveScene(UnityEngine.SceneManagement.SceneManager.GetActiveScene(), ScenePath);
-            EditorBuildSettings.scenes = new[] { new EditorBuildSettingsScene(ScenePath, true) };
+            EditorBuildSettings.scenes = Array.ConvertAll(MatchScenes, path => new EditorBuildSettingsScene(path, true));
             EditorSettings.serializationMode = SerializationMode.ForceText;
             EditorSettings.externalVersionControl = "Visible Meta Files";
             PlayerSettings.companyName = "3DDollFight";
             PlayerSettings.productName = "DollFight Unity";
             PlayerSettings.bundleVersion = "0.10.0";
             PlayerSettings.colorSpace = ColorSpace.Linear;
-            PlayerSettings.defaultScreenWidth = 1280;
-            PlayerSettings.defaultScreenHeight = 1000;
+            PlayerSettings.defaultScreenWidth = 1440;
+            PlayerSettings.defaultScreenHeight = 900;
             PlayerSettings.fullScreenMode = FullScreenMode.Windowed;
             PlayerSettings.runInBackground = true;
             PlayerSettings.resizableWindow = true;
@@ -76,12 +78,22 @@ namespace DollFight.Editor
             // Building an existing project must preserve teammates' scene edits.
             if (!File.Exists(ScenePath)) CreateScene();
             else if (!Application.isBatchMode && !EditorSceneManager.SaveCurrentModifiedScenesIfUserWantsTo()) return;
-            string output = Path.GetFullPath(Path.Combine(Application.dataPath, "../../outputs/unity-build/DollFight.exe"));
+            foreach (string scene in MatchScenes)
+                if (!File.Exists(scene)) throw new FileNotFoundException("Create every selection stage before building", scene);
+            EditorBuildSettings.scenes = Array.ConvertAll(MatchScenes, path => new EditorBuildSettingsScene(path, true));
+            PlayerSettings.SetUseDefaultGraphicsAPIs(BuildTarget.StandaloneWindows64, false);
+            PlayerSettings.SetGraphicsAPIs(BuildTarget.StandaloneWindows64, new[] { GraphicsDeviceType.Direct3D12 });
+            var arguments = Environment.GetCommandLineArgs();
+            int outputOption = Array.IndexOf(arguments, "-dollfightBuildOutput");
+            if (outputOption >= 0 && (outputOption + 1 >= arguments.Length || arguments[outputOption + 1].StartsWith("-", StringComparison.Ordinal)))
+                throw new ArgumentException("Missing executable path after -dollfightBuildOutput");
+            string output = outputOption >= 0 ? Path.GetFullPath(arguments[outputOption + 1]) :
+                Path.GetFullPath(Path.Combine(Application.dataPath, "../../outputs/arcade-select/DollFight.exe"));
             Directory.CreateDirectory(Path.GetDirectoryName(output));
             BuildReport report = BuildPipeline.BuildPlayer(new BuildPlayerOptions
             {
-                scenes = new[] { ScenePath }, locationPathName = output,
-                target = BuildTarget.StandaloneWindows64, options = BuildOptions.Development
+                scenes = MatchScenes, locationPathName = output,
+                target = BuildTarget.StandaloneWindows64, options = BuildOptions.None
             });
             if (report.summary.result != BuildResult.Succeeded)
                 throw new InvalidOperationException("Unity build failed: " + report.summary.result);

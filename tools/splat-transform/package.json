@@ -1,0 +1,9 @@
+{
+  "name": "dollfight-splat-tools",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {"transform": "splat-transform"},
+  "dependencies": {
+    "@playcanvas/splat-transform": "3.10.3"
+  }
+}

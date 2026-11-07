@@ -1,0 +1,81 @@
+{
+  "schema_version": 1,
+  "path_base": "repository-root",
+  "download_url": null,
+  "note": "本次上传源码、场景、角色及通用资源；Saint Maurice / Cloud 扫描及对应预览图需另行取回，尚无发布下载地址。已有转换产物可直接恢复，无需原件或转换器。",
+  "assets": [
+    {
+      "id": "saint-maurice-runtime",
+      "stage_id": "saint-maurice",
+      "path": "unity/Assets/StreamingAssets/Environments/SaintMaurice/church.spz",
+      "bytes": 90546209,
+      "sha256": "70e6498cb1b78384eb6f518953dddacb6dd41ca8b51f645e9491f0f55d37258f",
+      "purpose": "教堂对战扫描",
+      "required_for_stage_runtime": true,
+      "included_in_git": false,
+      "optional_meta_path": "unity/Assets/StreamingAssets/Environments/SaintMaurice/church.spz.meta"
+    },
+    {
+      "id": "cloud-runtime",
+      "stage_id": "cloud",
+      "path": "unity/Assets/StreamingAssets/Environments/Cloud/cloud.spz",
+      "bytes": 10260154,
+      "sha256": "fd404c7bdf08edf59edc66a68972d27d164b66173992e3f7287875721cc8a018",
+      "purpose": "Cloud 对战扫描",
+      "required_for_stage_runtime": true,
+      "included_in_git": false,
+      "optional_meta_path": "unity/Assets/StreamingAssets/Environments/Cloud/cloud.spz.meta"
+    },
+    {
+      "id": "saint-maurice-full",
+      "stage_id": "saint-maurice",
+      "path": "unity/Assets/LocalScenes/SaintMaurice/church-full.spz",
+      "bytes": 193594635,
+      "sha256": "bc78a9e6beac5db0219a96b555b3f0086a5eee756f38813d53f6696319f22847",
+      "purpose": "完整教堂勘景扫描；仅 SaintMauricePreview 场景需要",
+      "required_for_stage_runtime": false,
+      "included_in_git": false,
+      "optional_meta_path": "unity/Assets/LocalScenes/SaintMaurice/church-full.spz.meta"
+    },
+    {
+      "id": "saint-maurice-menu-preview",
+      "stage_id": "saint-maurice",
+      "path": "unity/Assets/Resources/DollFight/Selection/Stages/saint-maurice.png",
+      "bytes": 1466334,
+      "sha256": "d459182b5cb7df141ad7acee858e8141e62fb185bbf619f67c9b6bcc21656917",
+      "purpose": "教堂选场预览图；缺失时显示占位",
+      "required_for_stage_runtime": false,
+      "included_in_git": false,
+      "optional_meta_path": "unity/Assets/Resources/DollFight/Selection/Stages/saint-maurice.png.meta"
+    },
+    {
+      "id": "cloud-menu-preview",
+      "stage_id": "cloud",
+      "path": "unity/Assets/Resources/DollFight/Selection/Stages/cloud.png",
+      "bytes": 1360143,
+      "sha256": "50733e6a9180996c34979fbb0058cc5e162cebfc7021a5000d42aebe37ea216a",
+      "purpose": "Cloud 选场预览图；缺失时显示占位",
+      "required_for_stage_runtime": false,
+      "included_in_git": false,
+      "optional_meta_path": "unity/Assets/Resources/DollFight/Selection/Stages/cloud.png.meta"
+    }
+  ],
+  "sources": [
+    {
+      "stage_id": "saint-maurice",
+      "path_base": "repository-parent",
+      "path": "Parish Church of Saint Maurice.sog",
+      "sha256": "1588eaee2e60e2851b61f7e464fd494fbf179c20ab0313ab0d9c8bb807e881c2",
+      "needed_for": "rebuild-only",
+      "configuration_path": "data/environments/saint-maurice.json"
+    },
+    {
+      "stage_id": "cloud",
+      "path_base": "repository-parent",
+      "path": "cloud.ply",
+      "sha256": "f26fa505d80c44cbbb6ffbd1253b239fe533a6b9caff93efed87ddbdbffb1542",
+      "needed_for": "rebuild-only",
+      "configuration_path": "data/environments/cloud.json"
+    }
+  ]
+}

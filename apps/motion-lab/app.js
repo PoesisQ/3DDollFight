@@ -329,11 +329,15 @@ function buildCombatUI() {
     }
 }
 function ui(frame, duel) {
+    const wins = duel.wins || [0, 0];
     $("round-status").textContent =
-        run.name === "cmu_sparring"
-            ? `ROUND ${duel.round} / 3 · ${Math.ceil(30 - (duel.round_time || 0))} s`
-            : "DOLLFIGHT";
-    $("round-intent").textContent = duel.intent?.[0] || "真人动作回放";
+        `ROUND ${duel.round} / ${run.duel.rounds.length} · ${Math.ceil(duel.round_remaining ?? Math.max(0, 30 - (duel.round_time || 0)))} s · P1 ${wins[0]} : ${wins[1]} P2`;
+    $("round-intent").textContent =
+        duel.match_state === "finished"
+            ? duel.match_label
+            : duel.round_state === "finished"
+              ? duel.round_label
+              : duel.intent?.[0] || "真人动作回放";
     $("time").textContent =
         `${time.toFixed(2).padStart(5, "0")} / ${run.duration.toFixed(2)}`;
     $("timeline").value = Math.round((time / run.duration) * 1000);
@@ -401,11 +405,12 @@ function ui(frame, duel) {
         .filter((e) => e.time_s <= time + 0.0001)
         .at(-1);
     const recent = result && time - result.time_s < 1.2;
-    $("combat-result").textContent = recent
-        ? `P${result.attacker + 1} · ${result.label}`
-        : "接近 · 出招 · 观察对手";
+    const settled = duel.match_state === "finished" || duel.round_state === "finished";
+    $("combat-result").textContent = settled
+        ? duel.match_state === "finished" ? duel.match_label : duel.round_label
+        : recent ? `P${result.attacker + 1} · ${result.label}` : "接近 · 出招 · 观察对手";
     $("combat-combo").textContent =
-        recent && result.combo_count > 1
+        settled ? `回合胜场  P1 ${wins[0]} : ${wins[1]} P2` : recent && result.combo_count > 1
             ? `${result.combo_count} HIT · 连续命中`
             : recent && result.damage
               ? `−${result.damage} HP`

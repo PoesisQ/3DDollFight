@@ -1,0 +1,68 @@
+{
+  "source": "../素材/tripo_convert_b9e9ce29-c08e-4b8d-80aa-684acc71674c.zip",
+  "source_archive": "tripo_convert_b9e9ce29-c08e-4b8d-80aa-684acc71674c.zip",
+  "source_sha256": "3717c394abf7bb22be79084b915c697bd12941f92cfe6be860105567593f7a61",
+  "source_kind": "User-supplied local Tripo conversion archive",
+  "license": "Not supplied in the archive; no license or authorship inferred",
+  "originals": [
+    {
+      "archive_entry": "tripo_convert_b9e9ce29-c08e-4b8d-80aa-684acc71674c.fbx",
+      "asset": "TripoB9E9.fbx",
+      "bytes": 630284,
+      "sha256": "49c566da65c1163935abb12b8032583fad38942ac2713c30706c5f2cd5babdb0"
+    },
+    {
+      "archive_entry": "tripo_convert_b9e9ce29-c08e-4b8d-80aa-684acc71674c.fbm/tripo_rgb_7aabbbc5-b18b-4be8-98f1-c175361ee5c0.jpg",
+      "asset": "Albedo.jpg",
+      "bytes": 2515090,
+      "sha256": "dbfd52aeac29cc48e0e953d778ddfe7902f2906ad1c873bb817f59818d47dcdc",
+      "pixels": [
+        4096,
+        4096
+      ]
+    },
+    {
+      "archive_entry": "tripo_convert_b9e9ce29-c08e-4b8d-80aa-684acc71674c.fbm/tripo_normal_0bd4243b-6f8d-49ca-bfc8-d47f7fe00fd1.jpg",
+      "asset": "Normal.jpg",
+      "bytes": 898665,
+      "sha256": "f52a2181aa54d5c0513c397fb55695544b66ca41bf49b2c46bac8bca69e1a41f",
+      "pixels": [
+        4096,
+        4096
+      ]
+    },
+    {
+      "archive_entry": "tripo_convert_b9e9ce29-c08e-4b8d-80aa-684acc71674c.fbm/anime_girl_3d_model_metallic.JPEG",
+      "asset": "OriginalMetallic.jpg",
+      "bytes": 2339075,
+      "sha256": "00c87c94e521f96ffcd3ded4e424c21c8e2af8640b287df00b301ed86d3bada5",
+      "pixels": [
+        4096,
+        4096
+      ]
+    },
+    {
+      "archive_entry": "tripo_convert_b9e9ce29-c08e-4b8d-80aa-684acc71674c.fbm/anime_girl_3d_model_roughness.JPEG",
+      "asset": "OriginalRoughness.jpg",
+      "bytes": 2558320,
+      "sha256": "55a3ab9ea71bc0944d9078ff9cf09b7b0bd8bccea78121cf4b437e2e9a316adc",
+      "pixels": [
+        4096,
+        4096
+      ]
+    }
+  ],
+  "derived": [
+    {
+      "asset": "MetallicSmoothness.png",
+      "sha256": "927668f38c9927546667d98c9917f0cc2812eea137b0cbfac8580f163204567b",
+      "pixels": [
+        4096,
+        4096
+      ],
+      "conversion": "Lossless RGBA PNG: R=metallic red channel, G=B=0, A=255-roughness red channel; no resizing"
+    }
+  ],
+  "unity_prepare": "DollFight.Editor.TripoCharacterImport.Prepare",
+  "prefab": "Assets/Resources/DollFight/Characters/TripoB9E9.prefab"
+}

@@ -8,7 +8,15 @@ from dollfight.combat import CombatResolver
 from dollfight.duel_fixture import CHAPTERS
 from dollfight.kinematics import rotation_y
 from dollfight.locomotion import MovementMapper, separate_players
+from dollfight.match import (
+    KNOCKOUT_REGULATION_SECONDS,
+    knockout_match_result,
+    match_result,
+    round_result,
+    round_schedule,
+)
 from dollfight.motion_reference import REVIEW_CHAPTERS
+from dollfight.sparring import SHOWCASE_PRESENTATION_RATE, SHOWCASE_REGULATION_SECONDS
 
 
 def world_joints(frame, position, side):
@@ -18,6 +26,12 @@ def world_joints(frame, position, side):
 
 
 def build_duel(primary, secondary, config):
+    match_mode = config.get("match_mode", "rounds")
+    if match_mode not in ("rounds", "knockout"):
+        raise ValueError("Unknown match mode")
+    knockout = match_mode == "knockout"
+    showcase = config.get("rehearsal_profile") == "showcase"
+    regulation_seconds = SHOWCASE_REGULATION_SECONDS if showcase else KNOCKOUT_REGULATION_SECONDS
     paired = secondary is not None
     second = secondary if paired else primary
     mappers = [
@@ -36,15 +50,33 @@ def build_duel(primary, secondary, config):
     combat = CombatResolver()
     completed_events = []
     rounds = []
-    current_round = 1
+    schedule, round_numbers = round_schedule(
+        primary["frames"], primary["duration"], fps=primary["fps"]
+    )
+    if knockout:
+        schedule = [
+            {
+                "round": 1,
+                "start": primary["frames"][0]["t"],
+                "end": primary["frames"][0]["t"] + regulation_seconds,
+                "last_index": len(primary["frames"]) - 1,
+            }
+        ]
+        round_numbers = [1] * len(primary["frames"])
+    round_index = 0
+    current_round = schedule[0]["round"]
+    verdict = None
+    frozen_result = None
     frames = []
     for i, frame in enumerate(primary["frames"]):
-        round_number = frame.get("performance", {}).get("round", 1)
+        round_number = round_numbers[i]
         if round_number != current_round:
-            rounds.append({"round": current_round, "health": combat.health.copy()})
             completed_events.extend(combat.events)
             combat = CombatResolver()
             current_round = round_number
+            round_index += 1
+            verdict = None
+            frozen_result = None
         delay = 0 if paired else round(4.5 * primary["fps"])
         other_index = min(max(0, i - delay), len(second["frames"]) - 1)
         sources = [frame, second["frames"][other_index]]
@@ -96,12 +128,43 @@ def build_duel(primary, secondary, config):
             elif intent:
                 attacks[p] = [e for e in attacks[p] if "basis" in e]
         states = [f["recognition"] for f in sources]
-        result, _ = combat.process(world, states, attacks, valid, frame["t"])
+        clock = schedule[round_index]
+        if verdict is None:
+            at_deadline = not knockout and frame["t"] >= clock["end"]
+            if at_deadline and frozen_result is not None:
+                result = {**frozen_result}
+            else:
+                result, _ = combat.process(
+                    world, states, [[], []] if at_deadline else attacks, valid, frame["t"]
+                )
+            at_end = i == clock["last_index"]
+            verdict = round_result(current_round, combat.health, frame["t"])
+            if verdict is None and not knockout:
+                verdict = round_result(
+                    current_round, combat.health, clock["end"], timeout=at_end or at_deadline
+                )
+            if verdict is not None:
+                rounds.append(verdict)
+                result["active_attacks"] = []
+                result["recovery"] = [False, False]
+                result["action_phase"] = ["round_over", "round_over"]
+            frozen_result = {**result, "event_ids": []}
+        else:
+            # Keep the authored animation moving, but never regenerate guard,
+            # accept commands or apply damage after this round's verdict.
+            result = {**frozen_result}
         for event in combat.events:
             if "round" not in event:
                 event["round"] = current_round
                 event["id"] = f"r{current_round}-{event['id']}"
         result["event_ids"] = [f"r{current_round}-{event_id}" for event_id in result["event_ids"]]
+        match_time = verdict["time_s"] if knockout and verdict is not None else frame["t"]
+        overtime = knockout and match_time >= clock["end"]
+        match = (
+            knockout_match_result(verdict, overtime=overtime)
+            if knockout
+            else match_result(rounds, len(schedule))
+        )
         frames.append(
             {
                 "t": frame["t"],
@@ -114,7 +177,23 @@ def build_duel(primary, secondary, config):
                     float(np.linalg.norm((positions[0] - positions[1])[[0, 2]])), 3
                 ),
                 "round": current_round,
-                "round_time": frame.get("performance", {}).get("round_time"),
+                "overtime": overtime,
+                "round_time": round(frame["t"] - clock["start"], 4),
+                "round_state": "finished" if verdict is not None else "active",
+                "round_winner": verdict["winner"] if verdict is not None else -1,
+                "round_reason": verdict["reason"] if verdict is not None else "",
+                "round_remaining": round(max(0, clock["end"] - match_time), 4)
+                if knockout or verdict is None
+                else 0,
+                "round_label": match["label"]
+                if knockout
+                else verdict["label"]
+                if verdict is not None
+                else "",
+                "wins": match["wins"],
+                "match_state": match["state"],
+                "match_winner": match["winner"],
+                "match_label": match["label"],
                 "intent": [f.get("performance", {}).get("label", "") for f in sources],
                 "defense": [
                     state.get("defense", {"mode": "open", "label": "未设防"}) for state in states
@@ -123,12 +202,17 @@ def build_duel(primary, secondary, config):
             }
         )
     completed_events.extend(combat.events)
-    rounds.append({"round": current_round, "health": combat.health.copy()})
     rehearsal = primary["name"] == "cmu_sparring"
     return {
         "frames": frames,
         "events": completed_events,
         "rounds": rounds,
+        "match": match,
+        "match_mode": match_mode,
+        "regulation_duration": regulation_seconds if knockout else 30.0,
+        "presentation_profile": "showcase" if showcase else "legacy",
+        "presentation_rate": SHOWCASE_PRESENTATION_RATE if showcase else 0.75,
+        "finish_time": next((f["t"] for f in frames if f["match_state"] == "finished"), -1),
         "opponent_frames": second["frames"] if paired else None,
         "opponent_events": second["events"],
         "chapters": CHAPTERS
@@ -151,7 +235,11 @@ def build_duel(primary, secondary, config):
         "summary": dict(Counter(event["outcome"] for event in completed_events)),
         "movement_gain": float(config.get("movement_gain", 1.5)),
         "initial_gap": float(config.get("initial_gap", 2.2)),
-        "description": "90 秒 / 三回合双人排练 · 真人动捕经轨迹与步幅编辑 · 非实机采集"
+        "description": "一分钟展示 · 单局 KO 决胜 · 真人动捕编排"
+        if showcase
+        else "三分钟单局 · KO 决胜；时间到加时 · 真人动捕排练"
+        if knockout
+        else "90 秒 / 三回合双人排练 · 真人动捕经轨迹与步幅编辑 · 非实机采集"
         if rehearsal
         else "独立双人合成输入"
         if paired

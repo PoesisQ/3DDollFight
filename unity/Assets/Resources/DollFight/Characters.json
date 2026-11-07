@@ -1,0 +1,32 @@
+{
+  "characters": [
+    {
+      "id": "tripo-b9e9ce29",
+      "displayName": "TRIPO",
+      "modelKind": "prefab",
+      "resourcePath": "DollFight/Characters/TripoB9E9",
+      "firstPersonShoulderOffset": { "x": 0, "y": 0 }
+    },
+    {
+      "id": "team",
+      "displayName": "CHALLENGER",
+      "modelKind": "prefab",
+      "resourcePath": "TeamCharacter",
+      "firstPersonShoulderOffset": { "x": 0.16, "y": 0.12 }
+    },
+    {
+      "id": "nozomi",
+      "displayName": "NOZOMI",
+      "modelKind": "vrm",
+      "modelFile": "nozomi.vrm",
+      "clothFile": "nozomi-cloth.json"
+    },
+    {
+      "id": "mizore",
+      "displayName": "MIZORE",
+      "modelKind": "vrm",
+      "modelFile": "mizore.vrm",
+      "clothFile": "mizore-cloth.json"
+    }
+  ]
+}

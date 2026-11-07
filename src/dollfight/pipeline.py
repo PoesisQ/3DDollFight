@@ -163,7 +163,11 @@ def make_run(config, *, include_duel=False, player=0):
     elif name == "cmu_sparring":
         from dollfight.sparring import rehearsal_clip
 
-        clip = rehearsal_clip(player)
+        clip = rehearsal_clip(
+            player,
+            rounds=config.get("rehearsal_rounds", 3),
+            profile=config.get("rehearsal_profile", "legacy"),
+        )
     sigma = np.clip(float(config.get("noise_mm", 5)), 0, 80) / 1000
     dropout = np.clip(float(config.get("dropout", 0)), 0, 0.5)
     cutoff = float(np.clip(config.get("cutoff", 1.7), 0.2, 12))
