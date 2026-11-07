@@ -2,6 +2,8 @@
 
 本目录已保留，扫描文件不随 Git / LFS 分发。
 
+此文件包含在 `DollFight-maps-runtime-v1.zip` 中；在仓库根目录解压主包即可恢复本目录中的数据。
+
 教堂对战扫描。将取回的文件放在本 README 同级，最终路径为 `unity/Assets/StreamingAssets/Environments/SaintMaurice/church.spz`。完整勘景扫描不放在这里。
 
 - 文件名：`church.spz`

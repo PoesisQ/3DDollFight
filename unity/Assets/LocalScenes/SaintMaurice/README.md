@@ -2,6 +2,8 @@
 
 本目录已保留，扫描文件不随 Git / LFS 分发。
 
+此文件包含在可选的 `DollFight-maps-full-preview-v1.zip` 中；在仓库根目录解压该包即可恢复。正常对战只需要主包，无需此完整扫描。
+
 可选的完整扫描，仅 `Assets/Scenes/SaintMauricePreview.unity` 需要；普通教堂对战使用另一份 `StreamingAssets/Environments/SaintMaurice/church.spz`。将取回的完整文件放在本 README 同级。
 
 - 文件名：`church-full.spz`

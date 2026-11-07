@@ -2,6 +2,27 @@
 
 `menuscene` 保留三个对战场景、选角/选场菜单、角色资产和地下竞技场预览图。**Saint Maurice / Cloud 的扫描及其两张预览图不随 Git 或 LFS 下载**，需要另行取回；目前没有已发布的资源包下载地址。对应目录内已保留 README，可直接按文件名放回。
 
+## 离线恢复包
+
+地图转换产物分为两个独立 ZIP，包内保留相对仓库根目录的路径，顶层包含 `unity/Assets/`，无需原始 SOG / PLY 或再次转换。
+
+| 文件名 | 内容 | 什么时候需要 |
+| --- | --- | --- |
+| `DollFight-maps-runtime-v1.zip` | 教堂和 Cloud 对战扫描、两张选场预览图、对应 `.meta`、来源和转换记录 | 恢复正常选场和三场地对战 |
+| `DollFight-maps-full-preview-v1.zip` | 完整教堂扫描及 `.meta` | 可选；仅完整勘景场景需要 |
+
+制作机器上的本地交付目录为 `outputs/map-packages/2026-11-07-menuscene-v1/`，与源码分开交付，不会随 Git 克隆下载。交付目录中的 `SHA256SUMS.txt` 可核对两个 ZIP，`restore-verification.json` 记录针对对应源码提交的恢复验证结果。每个 ZIP 内的 `outputs/map-packages/*-package-manifest.json` 另记逐文件大小和 SHA-256。
+
+先克隆 `menuscene` 并准备角色与动作；然后在仓库根目录解压收到的主包，完整勘景包按需解压到同一位置。下面的 `D:\收到的地图包` 替换为实际存放 ZIP 的目录：
+
+```powershell
+Expand-Archive -LiteralPath 'D:\收到的地图包\DollFight-maps-runtime-v1.zip' -DestinationPath . -Force
+# 可选，恢复完整教堂勘景：
+Expand-Archive -LiteralPath 'D:\收到的地图包\DollFight-maps-full-preview-v1.zip' -DestinationPath . -Force
+```
+
+解压后应直接出现下表中的文件，避免多套一层 ZIP 文件名目录。包内的恢复说明和包清单放在被忽略的 `outputs/map-packages/` 下；不会改变现有场景布局或资源 GUID。只恢复主包时，下面的校验命令应有四项 `OK`，完整勘景一项 `MISSING`；两包都恢复后应为五项 `OK`。
+
 ## 需要取回的文件
 
 以下路径均相对仓库根目录。字节数和完整 SHA-256 以 [`restore-manifest.json`](../data/environments/restore-manifest.json) 为校验清单；清单中的 `assets` 是转换产物，`sources` 是仅重新转换时才需要的原件。

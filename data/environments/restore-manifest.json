@@ -3,6 +3,25 @@
   "path_base": "repository-root",
   "download_url": null,
   "note": "本次上传源码、场景、角色及通用资源；Saint Maurice / Cloud 扫描及对应预览图需另行取回，尚无发布下载地址。已有转换产物可直接恢复，无需原件或转换器。",
+  "packages": [
+    {
+      "id": "runtime",
+      "filename": "DollFight-maps-runtime-v1.zip",
+      "description": "恢复两张对战地图及其菜单预览，包含对应元数据、来源和转换记录。",
+      "asset_ids": [
+        "saint-maurice-runtime",
+        "cloud-runtime",
+        "saint-maurice-menu-preview",
+        "cloud-menu-preview"
+      ]
+    },
+    {
+      "id": "full-preview",
+      "filename": "DollFight-maps-full-preview-v1.zip",
+      "description": "可选：恢复完整教堂勘景扫描，不是正常对战所需。",
+      "asset_ids": ["saint-maurice-full"]
+    }
+  ],
   "assets": [
     {
       "id": "saint-maurice-runtime",
