@@ -22,6 +22,9 @@ jobs:
       - run: uv sync --locked
       - run: uv run --locked ruff check .
       - run: uv run --locked ruff format --check .
+      # Showcase tests need the shipped avatar; other LFS assets stay optional.
+      - name: Fetch showcase avatar
+        run: git lfs pull --include="data/avatars/local/nozomi-hybrid.vrm" --exclude=""
       - run: uv run --locked pytest -q
       - run: uv run --locked python tools/check_contracts.py
       - uses: actions/setup-node@v4

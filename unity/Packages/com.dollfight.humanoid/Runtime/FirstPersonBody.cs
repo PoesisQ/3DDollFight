@@ -16,11 +16,12 @@ namespace DollFight
         HumanoidReplay actor;
         Camera viewCamera;
         GameObject viewRoot;
+        Vector2 shoulderOffset;
         static readonly int[] Arms = { 5, 8 };
 
-        public void Initialize(HumanoidReplay actor, Camera camera, int worldLayer, int bodyLayer)
+        public void Initialize(HumanoidReplay actor, Camera camera, int worldLayer, int bodyLayer, Vector2 firstPersonShoulderOffset = default)
         {
-            this.actor = actor; viewCamera = camera;
+            this.actor = actor; viewCamera = camera; shoulderOffset = firstPersonShoulderOffset;
             viewRoot = new GameObject("Own view rig (pose copy only)");
             viewRoot.transform.SetParent(actor.ModelRoot.parent, false);
             copies[actor.ModelRoot] = viewRoot.transform;
@@ -111,13 +112,8 @@ namespace DollFight
                 Transform shoulder = copies[actor.Bones[arm]], elbow = copies[actor.Bones[arm + 1]], hand = copies[actor.Bones[arm + 2]];
                 Vector3 local = viewCamera.transform.InverseTransformPoint(hand.position);
                 float near = 1 - Mathf.SmoothStep(0, 1, (local.z - 0.35f) / 0.30f);
-                // The supplied FBX has oversized shoulder armour. Place its
-                // view-only shoulder behind/below the eye, as a dedicated FPS
-                // rig would, rather than cutting a visible end off the sleeve.
-                // Keep the source hand target: this offset never reaches the
-                // world skeleton, and legs keep their unmodified pose copy.
-                if (actor.existingHumanoid != null)
-                    shoulder.position -= viewCamera.transform.forward * 0.16f + Vector3.up * 0.12f;
+                // Character-specific view-only offset; world pose and hand target stay intact.
+                shoulder.position -= viewCamera.transform.forward * shoulderOffset.x + Vector3.up * shoulderOffset.y;
                 Vector3 safe = local;
                 safe.z = Mathf.Max(local.z, 0.42f);
                 safe.y = Mathf.Min(local.y, -0.20f);

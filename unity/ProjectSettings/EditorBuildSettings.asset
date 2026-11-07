@@ -8,5 +8,11 @@ EditorBuildSettings:
   - enabled: 1
     path: Assets/Scenes/DollFight.unity
     guid: b6fe6b7a3ba21f24e99ec6c8f440322b
+  - enabled: 1
+    path: Assets/Scenes/SaintMauriceDuel.unity
+    guid: a271425ee7214974497a6545efb827ea
+  - enabled: 1
+    path: Assets/Scenes/CloudDuel.unity
+    guid: bcfacac77c13c724c8d207defc05b3a7
   m_configObjects: {}
   m_UseUCBPForAssetBundles: 0

@@ -1,5 +1,14 @@
 {
   "dependencies": {
+    "com.dollfight.environments": {
+      "version": "file:com.dollfight.environments",
+      "depth": 0,
+      "source": "embedded",
+      "dependencies": {
+        "com.dollfight.humanoid": "0.10.0",
+        "org.nesnausk.gaussian-splatting": "2.0.0"
+      }
+    },
     "com.dollfight.humanoid": {
       "version": "file:com.dollfight.humanoid",
       "depth": 0,
@@ -7,6 +16,29 @@
       "dependencies": {
         "com.vrmc.vrm": "0.131.4"
       }
+    },
+    "com.unity.burst": {
+      "version": "1.8.31",
+      "depth": 1,
+      "source": "registry",
+      "dependencies": {
+        "com.unity.mathematics": "1.2.1",
+        "com.unity.modules.jsonserialize": "1.0.0"
+      },
+      "url": "https://packages.unity.com"
+    },
+    "com.unity.collections": {
+      "version": "2.7.1",
+      "depth": 1,
+      "source": "registry",
+      "dependencies": {
+        "com.unity.burst": "1.8.29",
+        "com.unity.mathematics": "1.3.2",
+        "com.unity.test-framework": "1.4.6",
+        "com.unity.nuget.mono-cecil": "1.11.6",
+        "com.unity.test-framework.performance": "3.0.3"
+      },
+      "url": "https://packages.unity.com"
     },
     "com.unity.ext.nunit": {
       "version": "2.0.5",
@@ -59,6 +91,16 @@
         "com.unity.modules.jsonserialize": "1.0.0"
       }
     },
+    "com.unity.test-framework.performance": {
+      "version": "3.5.0",
+      "depth": 2,
+      "source": "registry",
+      "dependencies": {
+        "com.unity.test-framework": "1.1.33",
+        "com.unity.modules.jsonserialize": "1.0.0"
+      },
+      "url": "https://packages.unity.com"
+    },
     "com.unity.timeline": {
       "version": "1.8.13",
       "depth": 1,
@@ -90,6 +132,16 @@
       "dependencies": {
         "com.unity.timeline": "1.7.6",
         "com.vrmc.gltf": "0.131.4"
+      }
+    },
+    "org.nesnausk.gaussian-splatting": {
+      "version": "file:org.nesnausk.gaussian-splatting",
+      "depth": 0,
+      "source": "embedded",
+      "dependencies": {
+        "com.unity.burst": "1.8.8",
+        "com.unity.collections": "2.1.4",
+        "com.unity.mathematics": "1.2.6"
       }
     },
     "com.unity.modules.animation": {
@@ -171,6 +223,14 @@
         "com.unity.modules.imageconversion": "1.0.0"
       }
     },
+    "com.unity.modules.subsystems": {
+      "version": "1.0.0",
+      "depth": 1,
+      "source": "builtin",
+      "dependencies": {
+        "com.unity.modules.jsonserialize": "1.0.0"
+      }
+    },
     "com.unity.modules.ui": {
       "version": "1.0.0",
       "depth": 2,
@@ -194,6 +254,26 @@
       "depth": 0,
       "source": "builtin",
       "dependencies": {}
+    },
+    "com.unity.modules.vr": {
+      "version": "1.0.0",
+      "depth": 0,
+      "source": "builtin",
+      "dependencies": {
+        "com.unity.modules.jsonserialize": "1.0.0",
+        "com.unity.modules.physics": "1.0.0",
+        "com.unity.modules.xr": "1.0.0"
+      }
+    },
+    "com.unity.modules.xr": {
+      "version": "1.0.0",
+      "depth": 0,
+      "source": "builtin",
+      "dependencies": {
+        "com.unity.modules.physics": "1.0.0",
+        "com.unity.modules.jsonserialize": "1.0.0",
+        "com.unity.modules.subsystems": "1.0.0"
+      }
     }
   }
 }

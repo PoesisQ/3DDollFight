@@ -149,7 +149,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: DollFight.Humanoid::DollFight.DollFightDemo
   playing: 1
-  showPlayerViews: 1
+  showPlayerViews: 0
   showSelf: 1
   speed: 1
   time: 0

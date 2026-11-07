@@ -61,7 +61,59 @@ MOTIONS = {
     "lunge_punch": ("cmu_lunge_punch", 1.7, 5.6),
     "empi": ("cmu_empi", 8.0, 11.4),
     "knife_guard": ("cmu_knife_guard", 0.5, 3.2),
+    # One complete jab and one complete stepping punch. Their captures end
+    # before the next strike starts; no rejected combo is left playing visually.
+    "boxing_single": ("cmu_boxing", 1.65, 2.72),
+    "lunge_single": ("cmu_lunge_punch", 1.7, 3.5),
 }
+
+SHOWCASE_PRESENTATION_RATE = 1.2
+SHOWCASE_REGULATION_SECONDS = 66.0
+
+# Single-strike turns retain captured preparation and recovery. Guard choices
+# are actual motion, not predetermined hit/block outcomes. Both streams still
+# pass through the same retargeter and geometry-driven combat resolver.
+SHOWCASE_TURNS = (
+    (0, "boxing_single", "guard", 2.2),
+    (1, "front_kick", "low_block", 3.0),
+    (0, "roundhouse", "knife_guard", 3.2),
+    (1, "side_kick", "low_block", 2.7),
+    (0, "spin_kick", "low_block", 3.4),
+    (0, "boxing_single", "guard", 2.2),
+    (1, "lunge_single", "guard", 2.5),
+    (1, "side_kick", "guard", 2.7),
+    (0, "side_kick", "low_block", 2.7),
+    (1, "spin_kick", "low_block", 3.4),
+    (0, "lunge_single", "guard", 2.5),
+    (0, "front_kick", "guard", 3.0),
+    (1, "side_kick", "knife_guard", 3.2),
+    (0, "boxing_single", "guard", 2.2),
+    (0, "lunge_single", "low_block", 2.5),
+    (1, "lunge_single", "guard", 2.2),
+    (1, "lunge_single", "guard", 2.5),
+    (0, "spin_kick", "low_block", 3.4),
+    (1, "side_kick", "guard", 2.7),
+    (0, "roundhouse", "low_block", 3.2),
+)
+
+
+def showcase_plan():
+    plan = [(1.0, "advance", "advance", (0.55, 0), (0.55, 0), "短步进场")]
+    labels = {
+        "boxing_single": "单次直拳",
+        "lunge_single": "踏步冲拳",
+        "front_kick": "提膝前踢",
+        "side_kick": "侧身蹬踹",
+        "roundhouse": "转髋回旋踢",
+        "spin_kick": "腾空旋踢",
+    }
+    for player, kind, defense, duration in SHOWCASE_TURNS:
+        first, second = (kind, defense) if player == 0 else (defense, kind)
+        reach = 0.59 if kind in ("boxing_single", "lunge_single") else 0.55
+        plan.append(
+            (duration, first, second, (reach, 0), (reach, 0), f"P{player + 1} · {labels[kind]}")
+        )
+    return plan
 
 
 def exchange_plan(rnd):
@@ -234,23 +286,24 @@ def inertialize_track(roots, rotations, boundaries, duration=0.30):
     return roots, rotations
 
 
-def compose_player(player, rounds):
+def compose_player(player, rounds, profile="legacy"):
     rest = rest_pose()
     roots, rotations, contacts, chapters, actions, metadata = [], [], [], [], [], []
     boundaries = []
     goal = np.zeros(2)
     guard_p, guard_q, _ = excerpt("guard")
-    for rnd in range(rounds):
-        for stage, (duration, first, second, goal_a, goal_b, label) in enumerate(
-            exchange_plan(rnd)
-        ):
+    plans = (
+        [showcase_plan()] if profile == "showcase" else [exchange_plan(r) for r in range(rounds)]
+    )
+    for rnd, plan in enumerate(plans):
+        for stage, (duration, first, second, goal_a, goal_b, label) in enumerate(plan):
             actor = player ^ (rnd % 2)
             kind = (first, second)[actor]
             target = np.array((goal_a, goal_b)[actor], dtype=float)
-            if rnd == 2:
+            if rnd % 3 == 2:
                 target[1] *= -1
             count = round(duration * FPS)
-            p, q, refs = excerpt(kind, rnd)
+            p, q, refs = excerpt(kind, rnd % 3)
             moving = kind in ("advance", "retreat", "side")
             if kind == "side" and target[1] < goal[1]:
                 mirror = [0, 1, 2, 3, 4, 8, 9, 10, 5, 6, 7, 15, 16, 17, 18, 11, 12, 13, 14]
@@ -371,10 +424,10 @@ def compose_player(player, rounds):
     return roots, rotations, np.array(contacts), actions, chapters, metadata
 
 
-@lru_cache(maxsize=2)
-def rehearsal_pair(rounds=ROUND_COUNT):
+@lru_cache(maxsize=4)
+def rehearsal_pair(rounds=ROUND_COUNT, profile="legacy"):
     """Both roots share a combat frame; contact anchors are world-space in it."""
-    tracks = [compose_player(p, rounds) for p in range(2)]
+    tracks = [compose_player(p, rounds, profile) for p in range(2)]
     rest = rest_pose()
     output = []
     for player, (roots, rotations, contacts, actions, chapters, metadata) in enumerate(tracks):
@@ -462,13 +515,21 @@ def rehearsal_pair(rounds=ROUND_COUNT):
                 "reference_actions": actions,
                 "chapters": chapters,
                 "performance": metadata,
-                "description": f"{rounds} 回合 / {rounds * 30} 秒双人排练："
-                "真实动捕 + 短步轨迹编辑 + 接地 IK。"
+                "description": (
+                    "一分钟单局展示："
+                    if profile == "showcase"
+                    else f"{rounds} 回合 / {rounds * 30} 秒双人排练："
+                )
+                + "真实动捕 + 短步轨迹编辑 + 接地 IK。"
                 "双方独立编排，非真人同时采集或自主对战；命中仍由碰撞计算。",
             }
         )
     return output
 
 
-def rehearsal_clip(player=0):
-    return rehearsal_pair()[player]
+def rehearsal_clip(player=0, *, rounds=ROUND_COUNT, profile="legacy"):
+    if isinstance(rounds, bool) or not isinstance(rounds, int) or not 1 <= rounds <= 12:
+        raise ValueError("Rehearsal rounds must be an integer from 1 to 12")
+    if profile not in ("legacy", "showcase"):
+        raise ValueError("Unknown rehearsal profile")
+    return rehearsal_pair(rounds, profile)[player]

@@ -1,6 +1,6 @@
 {
   "name": "DollFight.Humanoid.Tests",
-  "references": ["DollFight.Humanoid"],
+  "references": ["DollFight.Humanoid", "VRM10"],
   "includePlatforms": ["Editor"],
   "optionalUnityReferences": ["TestAssemblies"]
 }

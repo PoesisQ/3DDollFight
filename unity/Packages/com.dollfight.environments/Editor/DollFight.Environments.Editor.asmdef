@@ -1,0 +1,5 @@
+{
+  "name": "DollFight.Environments.Editor",
+  "references": ["DollFight.Environments", "DollFight.Humanoid", "GaussianSplatting"],
+  "includePlatforms": ["Editor"]
+}

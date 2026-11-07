@@ -1,0 +1,15 @@
+{
+  "title": "Parish Church of Saint Maurice",
+  "author": "Pavel Tanhäuser",
+  "source_url": "https://superspl.at/scene/15a202e6",
+  "source_filename": "Parish Church of Saint Maurice.sog",
+  "source_sha256": "1588eaee2e60e2851b61f7e464fd494fbf179c20ab0313ab0d9c8bb807e881c2",
+  "source_points": 9975598,
+  "license": "CC BY-NC-ND 4.0",
+  "license_url": "https://creativecommons.org/licenses/by-nc-nd/4.0/",
+  "converter_version": "3.10.3",
+  "spz_version": 4,
+  "duel_crop_playcanvas": [-12, -3, -6, 20, 25, 26],
+  "duel_crop_ply": [-20, -25, -6, 12, 3, 26],
+  "note": "Derived data stays local. The PlayCanvas crop uses engine space; PLY/SPZ source space differs by 180 degrees around Z. Scene scale is visually aligned, not physically calibrated."
+}
