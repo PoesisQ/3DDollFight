@@ -12,6 +12,10 @@ Unity 现有街机美术升级：工业擂台、角色补光与接触阴影、�
 
 Unity 当前默认展示采用 1.2 倍源速率、55 秒常规时限的 showcase 单局 KO，包含直拳、前踢、侧踹、回旋踢和腾空旋踢五类实际造成伤害的招式。当前导出在显示时间 45.58 秒由真实命中产生 KO，教堂原生连播含稳定终局实测 **48.06 秒**；生命值跨动作段连续累计。HUD、头像和玩家观察窗按主镜头中的左右位置对应角色。Motion Lab 保留旧三回合排练作浏览器对照。结算详情与原生实测见[普通战斗规则](docs/combat-rules.md)及[对战画面说明](docs/combat-presentation.md)。
 
+## Astra 摄像头接入
+
+本分支提供单台 Astra 控制游戏 P1 的实验场景，以及双摄骨架并排展示。首次使用请先阅读 [Astra 接入说明](integrations/astra-unity-bridge/README.md)和[中文操作指南](integrations/astra-unity-bridge/操作指南.md)，其中包含环境准备、校准和故障排查。双人实时对战尚未完成。
+
 ## Unity 入口
 
 双击 `Start-Unity.cmd`，或用 Unity Hub 打开 `unity/`。固定 **Unity 6000.3.27f1 LTS + UniVRM 0.131.4**；展示速率与常规时限由导出的时间轴决定，设置中的 1× 表示该版本的默认节奏。默认 1440×900、16:9 画面适配，玩家视窗默认关闭；**M** 切换音效、**N** 切换震屏、**Esc** 打开设置。设置里的“排练工具”可拖动时间轴、跳到下一次交锋或跳到终局验证；跳终局会从真实终结一击前继续播放，不会直接改写 HP。新 Tripo FBX（10,880 三角面）与组员 FBX（12,200 三角面）均已接入 Humanoid；**T 打开双方选角**。已有本机构建可双击 `Play-DollFight-Unity.cmd`。骨骼算法继续由 Python/uv 管理。更多画面说明见[对战画面与操作](docs/combat-presentation.md)，工程入口见 [Unity 工程说明](unity/README.md)。
@@ -100,4 +104,4 @@ Python 3.10.19、uv ≥0.9.17、依赖由 `uv.lock` 固定。Node 22+ 用于投�
 - [跨组协议](docs/contracts.md)、[JSON Schema](src/dollfight/schemas/)、[协议样例](tests/fixtures/)
 - [动捕来源与致谢](data/samples/README.md)
 
-远端为 [PoesisQ/3DDollFight](https://github.com/PoesisQ/3DDollFight)，当前工作分支 `menuscene`。
+远端为 [PoesisQ/3DDollFight](https://github.com/PoesisQ/3DDollFight)；本分支为 `梅大帅`，在 `menuscene` 的游戏工程基础上继续接入 Astra 摄像头。

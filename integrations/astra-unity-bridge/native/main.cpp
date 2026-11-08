@@ -112,7 +112,7 @@ std::string packet(const astra_body_list_t& list, long long sequence, int source
     }
     o << "]}"; return o.str();
 }
-astra_body_list_t simulate(double seconds) {
+astra_body_list_t simulate(double seconds, double warmup = 2.0) {
     // First two seconds: T pose for calibration. Then bend/lift both arms.
     astra_body_list_t list{}; list.count = 1;
     auto& b = list.bodies[0]; b.id = 1; b.status = ASTRA_BODY_STATUS_TRACKING; b.features = ASTRA_BODY_TRACKING_JOINTS;
@@ -122,7 +122,7 @@ astra_body_list_t simulate(double seconds) {
         {-130,-30,2000},{-130,-460,2000},{-130,-890,2000},
         {130,-30,2000},{130,-460,2000},{130,-890,2000},
         {-790,500,2000},{790,500,2000},{0,600,2000}};
-    const double t = std::max(0., seconds - 2.);
+    const double t = std::max(0., seconds - warmup);
     const float angle = static_cast<float>(0.8 * std::sin(t * 1.5));
     for (int id : {3,4,16,6,7,17}) {
         const int shoulder = (id == 3 || id == 4 || id == 16) ? 2 : 5;
@@ -146,12 +146,12 @@ int number(const std::string& text) {
 }
 int main(int argc, char** argv) {
     try {
-        bool simulated = false, dual = false; int port = 7001, frames = 0;
+        bool simulated = false, dual = false; int port = 7001, frames = 0, warmup = 2;
         std::string host = "127.0.0.1", license;
         for (int i = 1; i < argc; ++i) {
             std::string option = argv[i];
             if (option == "--help") {
-                std::cout << "AstraUnityBridge [--dual] [--simulate] [--host IPv4] [--port 7001] [--frames N] [--license FILE]\n"; return 0;
+                std::cout << "AstraUnityBridge [--dual] [--simulate] [--warmup seconds] [--host IPv4] [--port 7001] [--frames N] [--license FILE]\n"; return 0;
             }
             if (option == "--simulate") { simulated = true; continue; }
             if (option == "--dual") { dual = true; continue; }
@@ -160,10 +160,11 @@ int main(int argc, char** argv) {
             if (option == "--host") host = value;
             else if (option == "--port") port = number(value);
             else if (option == "--frames") frames = number(value);
+            else if (option == "--warmup") warmup = number(value);
             else if (option == "--license") license = value;
             else throw std::runtime_error("Unknown option " + option);
         }
-        if (port < 1 || port > (dual ? 65534 : 65535) || frames < 0) throw std::runtime_error("Invalid port or frame count");
+        if (port < 1 || port > (dual ? 65534 : 65535) || frames < 0 || warmup < 0 || warmup > 60) throw std::runtime_error("Invalid port, frame count or warmup");
         SetConsoleCtrlHandler(stop, TRUE);
         Socket socket; socket.open(host, port);
         Socket socket2; if (dual) socket2.open(host, port + 1);
@@ -189,7 +190,7 @@ int main(int argc, char** argv) {
                     if (frames && counts[i] >= frames) continue;
                     astra_body_list_t bodies{};
                     astra_frame_index_t index = static_cast<int>(counts[i]);
-                    if (simulated) bodies = simulate(elapsed / 1000. + i * 0.5);
+                    if (simulated) bodies = simulate(elapsed / 1000. + i * 0.5, warmup);
                     else {
                         astra_reader_frame_t frame = nullptr;
                         auto rc = astra_reader_open_frame(i == 0 ? sensor.reader : sensor2.reader, 0, &frame);
@@ -221,7 +222,7 @@ int main(int argc, char** argv) {
             auto now = std::chrono::steady_clock::now();
             auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - start).count();
             astra_body_list_t bodies{}; astra_frame_index_t index = static_cast<int>(sequence);
-            if (simulated) bodies = simulate(elapsed / 1000.);
+            if (simulated) bodies = simulate(elapsed / 1000., warmup);
             else {
                 check(astra_update(), "astra_update");
                 astra_reader_frame_t frame = nullptr;

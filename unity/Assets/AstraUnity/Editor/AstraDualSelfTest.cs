@@ -43,7 +43,7 @@ namespace AstraUnity.Editor
                 if (r1.port != 7001 || r2.port != 7002 || r1.LastError != null || r2.LastError != null)
                     throw new Exception("Two receivers failed to bind independent ports: " + r1.LastError + " " + r2.LastError);
                 checks.Add("Two independent receiver ports bind");
-                string exe = Path.Combine(root, "build/bin/Release/AstraUnityBridge.exe");
+                string exe = Path.Combine(root, "integrations/astra-unity-bridge/build/bin/Release/AstraUnityBridge.exe");
                 sender = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(exe, "--dual --simulate --frames 120") {
                     WorkingDirectory = Path.GetDirectoryName(exe), UseShellExecute = false, CreateNoWindow = true
                 });
@@ -74,8 +74,8 @@ namespace AstraUnity.Editor
             {
                 if (sender != null) { if (!sender.HasExited) sender.Kill(); sender.Dispose(); }
                 report.checks = checks.ToArray();
-                Directory.CreateDirectory(Path.Combine(root, "logs"));
-                File.WriteAllText(Path.Combine(root, "logs/unity-dual-self-test.json"), JsonUtility.ToJson(report, true));
+                Directory.CreateDirectory(Path.Combine(root, "integrations/astra-unity-bridge/logs"));
+                File.WriteAllText(Path.Combine(root, "integrations/astra-unity-bridge/logs/unity-dual-self-test.json"), JsonUtility.ToJson(report, true));
                 Debug.Log("ASTRA DUAL TEST: " + (report.passed ? "PASS" : "FAIL"));
                 EditorApplication.Exit(report.passed ? 0 : 1);
             }
