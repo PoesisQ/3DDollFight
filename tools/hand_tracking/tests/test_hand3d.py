@@ -306,6 +306,33 @@ class CurlTests(unittest.TestCase):
         self.assertGreater(float(thumb[1]), 0.45)
         self.assertLess(abs(float(thumb[0])), 0.25)
 
+    def test_a_closed_thumb_folds_across_the_palm(self):
+        """A fist's thumb lies along the fingers, not out of the back of the hand.
+
+        The reconstruction bent the thumb along the palm normal, the same
+        direction the four fingers take. Those hinge about the knuckles and
+        leave the palm; the thumb folds over the palm instead, and in a real
+        fist it ends up lying along the index finger. Bending it along the
+        normal sends the tip half a palm length out of the hand - and costs the
+        fit the only cue it had, so the thumb read 0.00 for entire recordings,
+        including frames where it is plainly tucked under the fingers.
+
+        Measured here: the closed thumb has to travel across the palm and stay
+        near its plane. Along the normal it moved 0.06 across and 0.53 out.
+        """
+        straight = np.array([-0.5, 0.85, 0.0])
+        straight = straight / np.linalg.norm(straight)
+        for palm_side in (1.0, -1.0):
+            with self.subTest(palm_side=palm_side):
+                bend = hand3d.HandLift._thumb_bend(straight, palm_side)
+                self.assertIsNotNone(bend)
+                cursor = np.zeros(3)
+                for segment, length in enumerate(hand3d.FINGERS["Thumb"][1]):
+                    angle = hand3d.FLEXION["Thumb"][segment]
+                    cursor = cursor + length * (math.cos(angle) * straight + math.sin(angle) * bend)
+                self.assertGreater(float(cursor[0]), 0.35, "the thumb has to cross the palm")
+                self.assertLess(abs(float(cursor[2])), 0.25, "and stay near its plane")
+
 
 class CurlAcrossOrientations(unittest.TestCase):
     """A fist has to read as a fist whatever the palm is doing.

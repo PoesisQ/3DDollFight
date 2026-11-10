@@ -62,6 +62,13 @@ namespace AstraUnity
         private string senderError;
         private const float CalibrationInterval = 5f;
         private float nextCalibrationAt = -1f;
+        // A body that vanishes for a frame or two is a detection gap, not a
+        // person leaving. Throwing the calibration away for it meant every such
+        // gap needed another T-pose to recover from.
+        private const float BodyGrace = 2f;
+        private float lastBodySeenAt = -100f;
+        private bool handsDriving;
+        private float lastHandApplyAt = -100f;
         private float nextGameLookupAt;
         private float nextStatusWriteAt;
         private string calibrationMessage;
@@ -171,8 +178,20 @@ namespace AstraUnity
             if (game.SelectionOpen) { status = "Choose characters and arena, then press C in T-pose"; return; }
             if (!receiver.IsReceiving || receiver.LatestFrame.bodies.Length == 0)
             {
+                // One frame without a body used to erase the calibration, and
+                // getting it back needed a fresh T-pose. The sensor drops the
+                // body for a frame or two whenever the person leans out of the
+                // pattern or a limb crosses the torso, so a session could
+                // calibrate and then never work again. Hold the calibration for
+                // a moment and leave the pose where it is.
+                if (Calibrated && Time.unscaledTime - lastBodySeenAt < BodyGrace)
+                {
+                    status = "人体暂时丢失，保持校准";
+                    return;
+                }
                 Calibrated = false; nextCalibrationAt = -1f; status = "Waiting for tracked person"; return;
             }
+            lastBodySeenAt = Time.unscaledTime;
             var body = receiver.LatestFrame.bodies[0];
             if (Calibrated && (body.id != CalibratedBodyId || calibratedSession != receiver.LatestFrame.session))
             { Calibrated = false; nextCalibrationAt = -1f; }
@@ -180,13 +199,25 @@ namespace AstraUnity
             if (Time.unscaledTime >= nextCalibrationAt)
             {
                 nextCalibrationAt = Time.unscaledTime + CalibrationInterval;
-                string reason = CalibrationIssue(body);
-                if (reason != null || !IsCalibrationPose(body) || !Calibrate(body))
+                // Only re-run the check when it can change the answer: while
+                // uncalibrated, or when the person is actually standing in the
+                // calibration pose again. Re-checking a live session every five
+                // seconds only replaced a working "已校准" line with a failure
+                // message that had already been solved, which made the panel
+                // read as broken while the avatar was moving.
+                if (!Calibrated || IsCalibrationPose(body))
                 {
-                    calibrationMessage = "自动校准失败：" + (reason ?? "请面向摄像头双臂平举");
-                    calibrationMessageUntil = nextCalibrationAt;
+                    string reason = CalibrationIssue(body);
+                    if (reason != null || !IsCalibrationPose(body) || !Calibrate(body))
+                    {
+                        if (!Calibrated)
+                        {
+                            calibrationMessage = "自动校准失败：" + (reason ?? "请面向摄像头双臂平举");
+                            calibrationMessageUntil = nextCalibrationAt;
+                        }
+                    }
+                    else { calibrationMessage = null; calibrationMessageUntil = 0; }
                 }
-                else { calibrationMessage = null; calibrationMessageUntil = 0; }
             }
             if (!Calibrated) status = "Waiting for automatic T-pose calibration";
         }
@@ -443,9 +474,27 @@ namespace AstraUnity
 
         void LateUpdate()
         {
-            if (!Calibrated || !receiver.IsReceiving || game.SelectionOpen || receiver.LatestFrame.bodies.Length == 0) return;
-            var body = receiver.LatestFrame.bodies[0];
-            if (body.id != CalibratedBodyId || receiver.LatestFrame.session != calibratedSession) return;
+            if (game == null || actor == null || game.SelectionOpen) return;
+            // The body pose needs a calibration; the hands do not. They are an
+            // independent observation - 21 joints in the wrist's own frame plus
+            // the palm's basis - so the only thing they borrow from the body is
+            // where the wrist happens to be right now. Gating them on
+            // `Calibrated` is what made a 74 second session of correctly
+            // detected hands do nothing at all on screen: the body never held
+            // the T-pose, so `ApplyHands` was never reached.
+            SkeletonBody body = null;
+            if (Calibrated && receiver.IsReceiving && receiver.LatestFrame.bodies.Length > 0)
+            {
+                var candidate = receiver.LatestFrame.bodies[0];
+                if (candidate.id == CalibratedBodyId && receiver.LatestFrame.session == calibratedSession)
+                    body = candidate;
+            }
+            if (body != null) ApplyBodyPose(body);
+            ApplyHands();
+        }
+
+        void ApplyBodyPose(SkeletonBody body)
+        {
             var bones = actor.Bones;
             float t = 1f - Mathf.Exp(-Mathf.Max(0.01f, smoothing) * Time.deltaTime);
             var hip = body.Joint(JointType.BaseSpine);
@@ -474,7 +523,6 @@ namespace AstraUnity
             // replay pose so each model shin points straight down from its knee.
             PointShinDown(bones[12], bones[13]);
             PointShinDown(bones[16], bones[17]);
-            ApplyHands();
             UpdatePlayerView(body);
         }
 
@@ -484,6 +532,11 @@ namespace AstraUnity
             var frame = handReceiver != null && handReceiver.IsReceiving ? handReceiver.LatestFrame : null;
             if (frame == null || frame.hands == null || frame.hands.Length == 0)
             {
+                handsDriving = false;
+                // Nothing has ever been driven here, so the avatar's own hand
+                // pose belongs to the game: leave it alone instead of easing it
+                // to a bind pose nobody asked for.
+                if (Time.unscaledTime - lastHandApplyAt > 1f) return;
                 // Tracking lost: ease both hands back to the bind pose instead of
                 // freezing them mid-gesture.
                 actor.RelaxHand(true);
@@ -506,8 +559,13 @@ namespace AstraUnity
             }
             if (!left) actor.RelaxHand(true);
             if (!right) actor.RelaxHand(false);
+            handsDriving = left || right;
             // Version 1 senders only have curls; keep them working as a fallback.
-            if (left || right) return;
+            if (left || right)
+            {
+                lastHandApplyAt = Time.unscaledTime;
+                return;
+            }
             if (handCurls == null) handCurls = new float[30];
             for (int i = 0; i < handCurls.Length; i++) handCurls[i] = -1f;
             foreach (var hand in frame.hands)
@@ -517,6 +575,8 @@ namespace AstraUnity
                 for (int i = 0; i < 15; i++) handCurls[offset + i] = hand.curls[i];
             }
             actor.ApplyFingerCurls(handCurls);
+            handsDriving = true;
+            lastHandApplyAt = Time.unscaledTime;
         }
 
         void HandBasis(HandEntry hand, out Vector3 x, out Vector3 y, out Vector3 z)
@@ -594,6 +654,7 @@ namespace AstraUnity
                     " selectionOpen=" + (game != null && game.SelectionOpen) +
                     " actor=" + (actor != null) + " calibrated=" + Calibrated + "\n" +
                     "hands.ready=" + (actor != null && actor.HandsReady) +
+                    " driving=" + handsDriving +
                     " handBones=" + (actor != null ? actor.HandBoneCount : 0) +
                     " curlBones=" + (actor != null ? actor.CurlBoneCount : 0) +
                     " rollL=" + (actor != null ? actor.HandRollDegrees(true).ToString("F0") : "-") +
@@ -641,17 +702,18 @@ namespace AstraUnity
                 "未识别到人：请全身入镜、面向摄像头。" : "已识别 1 人，编号 " + receiver.SelectedBodyId;
             GUI.Label(new Rect(25, 90, width - 24, 25), "人体：" + bodyState);
             string pose = game == null || !game.Ready ? "等待游戏人物加载" : game.SelectionOpen ?
-                "请先完成选角和场地选择" : Time.unscaledTime < calibrationMessageUntil ? calibrationMessage :
+                "请先完成选角和场地选择" :
                 Calibrated ? (legNote == null ? "已校准，控制 P1（战斗回放暂停）"
                     : "已校准（" + legNote + "未追踪，腿部保持站立）")
-                : "双臂平举，等待自动校准";
+                : Time.unscaledTime < calibrationMessageUntil ? calibrationMessage
+                : "双臂平举等待校准；手指不需要校准，已在工作";
             GUI.Label(new Rect(25, 115, width - 24, 25), "控制：" + pose);
             string handState = handReceiver == null ? "未接入" :
                 !handReceiver.IsListening ? "UDP 7011 未绑定" :
                 !handReceiver.IsReceiving ? "已监听 7011，未收到数据（tools\\hand_tracking\\run.cmd）" :
                 handReceiver.LatestFrame.hands.Length == 0 ? "已连接，画面中无手" :
                 actor == null || !actor.HandsReady ? "收到 " + handReceiver.LatestFrame.hands.Length + " 只手，但角色没有可用指骨" :
-                "已接入 " + handReceiver.LatestFrame.hands.Length + " 只手（21 点骨架 + 腕部旋转，" +
+                (handsDriving ? "正在驱动 " : "已接入 ") + handReceiver.LatestFrame.hands.Length + " 只手（21 点骨架 + 腕部旋转，" +
                 actor.HandBoneCount + " 根指骨）";
             GUI.Label(new Rect(25, 138, width - 140, 22), "手部：" + handState);
             if (GUI.Button(new Rect(width - 105, 136, 98, 24), flipPalmNormal ? "手掌：已反向" : "手掌：正常"))
@@ -664,7 +726,7 @@ namespace AstraUnity
             if (GUI.Button(new Rect(285, 166, 120, 35), "停止数据源")) StopSender();
             string countdown = nextCalibrationAt < 0 ? "等待人体" : "下次校准 " + Mathf.CeilToInt(Mathf.Max(0, nextCalibrationAt - Time.unscaledTime)) + " 秒";
             GUI.Label(new Rect(415, 171, 155, 30), countdown);
-            GUI.Label(new Rect(25, 208, width - 24, 46), "操作：选角色和场地 → 启动摄像头 → 双臂平举并等待自动校准。\n每 5 秒尝试一次；姿势或关节不满足时保留上次校准。");
+            GUI.Label(new Rect(25, 208, width - 24, 46), "操作：选角色和场地 → 启动摄像头 → 双臂平举并等待自动校准。\n手指不需要校准：只要收到 7011 报文就在驱动。身体每 5 秒尝试一次，姿势不满足时保留上次校准。");
             var body = receiver.IsReceiving && receiver.LatestFrame.bodies.Length > 0 ? receiver.LatestFrame.bodies[0] : null;
             float previewHeight = Mathf.Clamp(Screen.height - 296, 150, 340);
             DrawPreview(new Rect(12, 286, Mathf.Min(width, 330), previewHeight), body);

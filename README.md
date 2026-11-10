@@ -89,8 +89,11 @@ uv run --locked pytest -q
 uv run --locked ruff check .
 uv run --locked ruff format --check .
 uv run --locked python tools/check_contracts.py
+uv run --locked python tools/check_unity_scripts.py
 node apps/motion-lab/tests/run-tests.js
 ```
+
+最后一条在编辑器之外类型检查 Unity 脚本：Unity 开着工程时它拒绝批处理编译，此前 C# 改动只能靠人眼复核；现在用 .NET SDK 引用同一批引擎程序集，两秒出结果，能报到文件与行号。它只校验类型，不能替代在编辑器里跑一遍。
 
 Python 3.10.19、uv ≥0.9.17、依赖由 `uv.lock` 固定。Node 22+ 用于投影测试（可选 Tripo CLI 与演示解耦）；启动界面不需要 npm。浏览器依赖、许可证和 SHA-256 在 `apps/motion-lab/vendor/`，公开动捕的原始哈希在每个样本内；VRM 用 [下载清单](data/avatars/sample.json) 固定，10.8 MB 文件保存在忽略目录。
 

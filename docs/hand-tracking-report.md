@@ -46,7 +46,8 @@ HumanoidReplay.ApplyHandSkeleton
 | 单指动作（只伸食指等） | 同上，逐指独立 | 可用 |
 | 21 点低通（静止不抖、握拳不拖） | `hand3d._settle` | 可用 |
 | 左右手配对（不依赖镜像假设） | `run.py::assign_sides` + UDP 7012 | 可用，缺身体数据时回退标签 |
-| 手骨驱动（腕三自由度 + 逐指段方向） | `HumanoidReplay.ApplyHandSkeleton` | 可用，本轮修掉欠旋转 |
+| 手骨驱动（腕三自由度 + 逐指段方向） | `HumanoidReplay.ApplyHandSkeleton` | 可用，不再等身体校准 |
+| 没有身体校准时仍然驱动手指 | `AstraLivePlayer.LateUpdate` → `ApplyHands` | 可用，本轮解耦 |
 | 断流后手势回位 | `HumanoidReplay.RelaxHand`，1 秒宽限 | 可用 |
 | 旧版仅弯曲度兼容 | `HumanoidReplay.ApplyFingerCurls` | 保留 |
 | 四角色手骨齐全性审计 | `tools/audit_hand_rigs.py` + `tests/test_hand_rigs.py` | 可用，四角色各 15/15/手 |
@@ -151,13 +152,13 @@ fetch_model.cmd    :: 下载 hand_landmarker.task（约 7.8 MB）
 看 `unity/Library/AstraLiveStatus.txt`，每秒刷新一次：
 
 ```
-time=2026-11-10 12:30:08
+time=2026-11-10 13:20:41
 scene=DollFight
 body.listening=True receiving=True frames=14512 error=-
 hand.listening=True receiving=True frames=4355
 game=True ready=True selectionOpen=False actor=True calibrated=False
-hands.ready=True handBones=30 curlBones=30 rollL=12 rollR=0 handFrames=4355 legNote=左膝、右膝
-status=Waiting for tracked person
+hands.ready=True driving=True handBones=30 curlBones=30 rollL=12 rollR=0 handFrames=4355 legNote=左膝、右膝
+status=Waiting for automatic T-pose calibration
 ```
 
 | 字段 | 含义 | 不正常时说明 |
@@ -166,9 +167,10 @@ status=Waiting for tracked person
 | `hand.receiving` | 0.6 s 内是否收到报文 | False 但 listening True：`run.cmd` 没在发 |
 | `hand.frames` | 累计接受帧数 | 不增长：报文被校验拒了 |
 | `hands.ready` | 角色手上是否绑到指骨 | False：Console 找 `No finger bones resolved` |
+| `hands.driving` | 这一帧是否真的把手指写进了角色 | False 但 `receiving=True`：报文里没有可用骨架，或选角界面还开着 |
 | `handBones` / `curlBones` | 绑定到的指骨数 | 正常 30/30 |
 | `rollL` / `rollR` | 手腕相对绑定姿势的转角（度） | 翻掌时应有明显变化；恒为 0 说明 basis 没到 |
-| `calibrated` | 身体是否完成标定 | False 时 `status` 会写缺哪个关节 |
+| `calibrated` | 身体是否完成标定 | **只影响身体**；False 时手指照常驱动 |
 | `legNote` | 缺的关节名 | 如「左膝、右膝」= 腿部没入画 |
 
 ## 2.6 排查表
@@ -179,13 +181,16 @@ status=Waiting for tracked person
 |---|---|---|
 | 面板一直「未收到手部数据」 | `hand.listening` | 端口冲突，点面板「重连」；仍失败彻底退出 Unity |
 | `hand.receiving=False` | 命令行有没有在出帧 | `run.cmd` 没启动，或彩色流断开 |
-| 角色手指完全不动 | `hands.ready` / Console | `No finger bones resolved`：角色没有指骨，或 Avatar 没映射（已按名字回退，含 `Pinky→Little`、`*End` 跳过） |
-| 握拳只握到一半 / 手指像爪子 | 手感 + `rollL/rollR` | **本轮已修**：Unity 侧每帧重置导致只走到目标的 26%。若仍如此，确认 `HumanoidReplay.cs` 是最新版本并已重编译 |
+| **整个角色都不动，面板写「自动校准失败」** | 控制行 + `calibrated` | 身体需要 T 字校准；**手指不受影响**，现在没校准也会动。若连手指都不动，先看 `hands.driving` |
+| 角色手指完全不动 | `hands.ready` / `hands.driving` / Console | `no finger bones`：角色没有指骨，或 Avatar 没映射（已按名字回退，含 `Pinky→Little`、`*End` 跳过）；`driving=False` 而 receiving=True：报文里没有骨架（Python 侧 `solve` 返回 None，多半是手掌侧对镜头） |
+| 校准好了过一会儿又变成「失败」 | 控制行 | 历史原因：单帧丢人就把校准清掉、且每 5 秒复检的失败文案会盖掉「已校准」。现已加 2 秒宽限，已校准就不再报失败 |
+| 握拳只握到一半 / 手指像爪子 | 手感 + `rollL/rollR` | 已修：Unity 侧每帧重置导致只走到目标的 26%。若仍如此，确认 `HumanoidReplay.cs` 是最新版本并已重编译 |
 | 手腕朝向翻 180° | `rollL/rollR` | 历史原因：`wire_axes` 少做 `(x,-y,-z)`，腕子恒定差 180°。现已固定 |
 | 手拿在胸前就乱 | 手掌在画面里的大小 | 历史原因：掌面靠推断 + 投影矩阵尺度错（放大 1/cos 前倾）。现已改为实测 basis |
 | 手掌朝上/朝下但角色掌心朝反 | — | 点面板「手掌：正常 / 已反向」，等价于 `AstraLivePlayer.flipPalmNormal` |
 | 左右手反了 | `--mirror` | 有身体数据时由手腕左右顺序决定；否则用 `--no-mirror` 关闭交换 |
 | 手掌很小、识别不到 | — | 靠近到 1.5 m 内、开灯 |
+| 拇指一直伸着 / 握拳时拇指不贴掌 | — | 历史原因：拇指的弯曲方向按掌面法线建，真人其实是贴着掌面横着收。已改为横向朝掌心收；但 MediaPipe 对收起的拇指只给一条近直线，读不出弯曲时仍按上一帧保持 |
 | 张开和握拳看起来一样 | 手部骨架（掌心平面）小窗 | 若小窗里手指是**摊开的扇子** → 弯曲量没上去（Python 侧）；若是**折回掌心的短链** → Python 对、Unity 没跟上（C# 侧） |
 
 最后一行是这一轮最重要的分诊方法：**小窗是 Python 侧的真相，角色是整条链路的真相**，两者不一致就说明问题在 Unity。
@@ -293,3 +298,29 @@ for (...) bone.rotation = Quaternion.Slerp(bone.rotation,
 ## 2026-11-10 晚 ｜ 文档整理
 
 新增本文；`docs/hand-tracking.md` 补 11.4 节记录欠旋转；模块 README 的排查表补「握拳只握到一半」一行。
+
+## 2026-11-10 下午 ｜ 手部一直在跑，但一次都没上屏
+
+**症状**：一段 74 秒的录屏里，面板从头到尾写着「手部：已接入 2 只手（21 点骨架 + 腕部旋转，30 根指骨）」，角色却完全不动；控制行从第 10 秒起恒为「自动校准失败：请面向摄像头双臂平举」。
+
+**量到的原因**（读代码 + 把录屏面板逐秒裁出来对照，不猜）：
+
+1. **手部是身体校准的下游。** `AstraLivePlayer.LateUpdate` 第一行是 `if (!Calibrated || …) return;`，而 `ApplyHands()` 在它后面。身体没做 T 字，`Calibrated` 永远是 false，手部链路再准也走不到写骨骼那一步。这一条把前面几轮的所有改进全部挡在了屏幕外。
+2. **校准极脆。** `bodies.Length == 0` 一帧就把 `Calibrated` 清零，恢复却要重新摆一次 T 字；而 `Update` 每 5 秒复检，失败文案会盖掉已经成立的「已校准」。10:34 那段录屏第 5 秒已校准、第 20 秒又变回「失败」，就是这个组合。
+
+**改动**：
+
+1. `LateUpdate` 拆成 `ApplyBodyPose(body)` 与 `ApplyHands()`：**身体姿态要校准，手部不要**。没校准时手指照样跟着摄像头动，手腕沿用角色当前姿势；校准时两者按顺序叠加。
+2. 人体丢失给 2 秒宽限（`BodyGrace`），不再一帧清零，短暂遮挡不用重摆 T 字。
+3. 只有「未校准」或「真的又摆出了 T 字」才跑校准检查；已校准时不再被失败文案覆盖。
+4. 新增 `handsDriving` / 状态文件 `hands.driving`：区分「报文到了」与「真的写进角色了」。没有手部数据时不再把角色自己的手部姿势掰回绑定姿势。
+5. 面板与操作提示写清楚「手指不需要校准」。
+
+**拇指**（`hand3d._thumb_bend`）：原来拇指沿**掌面法线**弯曲——那是四根手指的方向。四指绕指关节离开掌面，拇指却是**贴着掌面横着收**（握拳时压在食指上）。方向错了，任何候选弯曲量都复现不出相机看到的折叠链，拟合只好一直回答「伸直」：录屏里拇指全程 0.00，包括明显收起的帧。改成沿掌面横向、略微抬离表面后，同样的弯曲量下指尖从「出掌 0.53 掌长」变成「横跨 0.49、离面 0.17」。
+
+需要说清楚的限制：**这一条不能凭空变出信息**。实测那几帧 MediaPipe 把收起的拇指报成一条接近直线的长链（弦长 1.4 掌长，拇指全长只有 0.78），2D 上确实没有弯曲可读，拟合仍会保持上一帧。改的是「有信号时弯的方向对不对」，不是「没信号也能猜」。
+
+**验证**：
+1. 新增 `tools/check_unity_scripts.py`：用 .NET SDK 引用编辑器自带引擎程序集做离线类型检查。此前每次都说「编辑器开着工程，编译不了」，现在两秒出结果，能报到文件与行号（故意写错一行验证过，能抓到）。
+2. 手部 56 passed / 1 skipped；全仓库 230 passed / 9 skipped；ruff 全过。
+3. 拇指几何有单测钉住：闭合的拇指必须横跨掌心（>0.35 掌长）且离掌面不超过 0.25 掌长。

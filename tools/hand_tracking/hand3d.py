@@ -183,6 +183,27 @@ CURL_CEILING = 0.65
 # the direction it takes is measured from the landmarks instead of assumed.
 MIN_THUMB_REACH = 0.45
 
+# The thumb does not fold the way the other four do.
+#
+# The four fingers hinge about the knuckles, so they leave the palm plane: their
+# bend direction is the palm normal, and that is what the reconstruction uses.
+# The thumb folds *across the palm* instead - watch a fist and the thumb lies
+# along the index and middle fingers, inside the palm's own plane - so bending
+# it along the palm normal sends it out of the hand and no amount of curl can
+# match the picture. The fit then reads "straight" no matter what the hand does:
+# on this project's recordings the thumb sat at 0.00 for whole sessions,
+# including frames where it is visibly tucked under the fingers.
+#
+# So the thumb bends along the palm's far side instead, lifted slightly off the
+# surface so it passes over the folded fingers rather than through them.
+THUMB_LIFT = 0.35
+
+# The thumb chain is short (0.78 palm lengths) and its landmarks are the least
+# reliable of the five, so the residual landscape is flat and the continuity
+# prior decides the answer whatever the picture says. Weight it far below the
+# fingers, where the same prior is doing real work.
+THUMB_CONTINUITY = 0.02
+
 _TABLE_STEPS = 41
 
 
@@ -299,6 +320,7 @@ class HandLift:
         projected: np.ndarray,
         palm: np.ndarray,
         previous: float | None,
+        continuity: float = FIT_CONTINUITY,
     ) -> float | None:
         """Which curl best reproduces the phalanges the camera saw.
 
@@ -338,10 +360,35 @@ class HandLift:
             scale = float(np.sum(chain * observed)) / denom
             residual = float(np.sum((scale * chain - observed) ** 2)) / (span * span)
             if previous is not None:
-                residual += FIT_CONTINUITY * (float(candidate) - previous) ** 2
+                residual += continuity * (float(candidate) - previous) ** 2
             if best_cost is None or residual < best_cost:
                 best_cost, best = residual, float(candidate)
         return best
+
+    @staticmethod
+    def _thumb_bend(straight: np.ndarray, palm_side: float) -> np.ndarray | None:
+        """The direction a closing thumb travels, in palm coordinates.
+
+        The four fingers hinge about the knuckles and leave the palm plane, so
+        they bend along the palm normal. The thumb folds *across* the palm
+        instead: in a fist it ends up lying along the index finger, inside the
+        palm's own plane. Bending it along the normal - which is what this file
+        did - sends it out of the hand, no candidate curl reproduces the folded
+        chain the camera sees, and the fit answers "straight" every frame. On
+        this project's recordings that pinned the thumb at 0.00 for whole
+        sessions, including frames where it is plainly tucked under the fingers.
+
+        So: perpendicular to the thumb's own metacarpal, pointing across the
+        palm towards the fingertips' side, and lifted a little off the surface
+        so the thumb passes over the folded fingers rather than through them.
+        """
+        up = np.array([0.0, 1.0, 0.0])  # wrist -> middle knuckle
+        across = _unit(up - straight * float(up @ straight))
+        if across is None:
+            return None
+        lifted = across + THUMB_LIFT * np.array([0.0, 0.0, palm_side])
+        lifted = _unit(lifted)
+        return lifted if lifted is not None else across
 
     def _frame(self, side: str, across: np.ndarray, along: np.ndarray, ratio: float):
         """Orthonormal palm axes, or ``None`` when the palm is degenerate.
@@ -512,9 +559,9 @@ class HandLift:
                 return None
 
         # Fingers hinge towards the palm. In the hand frame that is +z times
-        # this sign; in the image it is these two components.
+        # this sign. The thumb is the exception and gets its own bend direction
+        # from ``_thumb_bend``.
         palm_axis = np.array([0.0, 0.0, palm_side])
-        palm_image = palm_side * np.array([z[0], z[1]])
 
         points = np.zeros((LANDMARK_COUNT, 3))
         for joint in (WRIST, THUMB_CMC, INDEX_MCP, MIDDLE_MCP, RING_MCP, PINKY_MCP):
@@ -547,9 +594,29 @@ class HandLift:
             if heading is None:
                 continue
 
+            straight = np.array([heading[0], heading[1], 0.0])
+            if name == "Thumb":
+                bend = self._thumb_bend(straight, palm_side)
+                if bend is None:
+                    bend = palm_axis
+                # The thumb's bend lives in the palm plane, so it goes through
+                # the same 2x2 map as the finger directions.
+                bend_image = projection @ bend[:2]
+            else:
+                bend = palm_axis
+                # The palm normal is already a unit vector in the image frame;
+                # its x and y are the direction a closing finger appears to
+                # travel in the picture.
+                bend_image = palm_side * np.array([z[0], z[1]])
+
             observed = np.array([u[chain[k + 1]] - u[chain[k]] for k in range(3)])
             fitted = self._fit_curl(
-                name, observed, projection @ heading, palm_image, curls.get(name)
+                name,
+                observed,
+                projection @ straight[:2],
+                bend_image,
+                curls.get(name),
+                THUMB_CONTINUITY if name == "Thumb" else FIT_CONTINUITY,
             )
             if fitted is None:
                 # Nothing but a smudge of pixels: keep what this finger was
@@ -569,10 +636,9 @@ class HandLift:
             curls[name] = curl
 
             cursor = points[chain[0]].copy()
-            straight = np.array([heading[0], heading[1], 0.0])
             for segment in range(3):
                 angle = FLEXION[name][segment] * curl
-                direction = math.cos(angle) * straight + math.sin(angle) * palm_axis
+                direction = math.cos(angle) * straight + math.sin(angle) * bend
                 cursor = cursor + direction * lengths[segment]
                 points[chain[segment + 1]] = cursor
 
