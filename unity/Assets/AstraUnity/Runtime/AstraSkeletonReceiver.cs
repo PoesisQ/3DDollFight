@@ -25,6 +25,8 @@ namespace AstraUnity
         // Zero means that no person is currently selected.
         public int SelectedBodyId { get; private set; }
         public bool IsReceiving { get { return LatestFrame != null && AgeSeconds <= timeoutSeconds; } }
+        /// <summary>True when the UDP socket is actually open (not just "no frames yet").</summary>
+        public bool IsListening { get { return client != null; } }
         public double AgeSeconds { get { return (Stopwatch.GetTimestamp() - lastAcceptedTicks) / (double)Stopwatch.Frequency; } }
         public event Action<SkeletonFrame> FrameReceived;
 
@@ -40,30 +42,95 @@ namespace AstraUnity
         private UdpClient client;
         private Thread worker;
         private volatile bool running;
+        // A duplicate instance would bind the same UDP port and take the frames
+        // away from the live one, so only the first enabled receiver listens.
+        private static AstraSkeletonReceiver bound;
+        private float nextBindAttempt;
+
+        [System.Runtime.InteropServices.DllImport("kernel32.dll", SetLastError = true)]
+        private static extern bool SetHandleInformation(IntPtr handle, uint mask, uint flags);
+
+        /// <summary>
+        /// Winsock handles are created inheritable, so any child process started by
+        /// Unity (for example the bridge launched from the panel) keeps the port
+        /// bound after the editor exits — a "ghost" that blocks every later Play
+        /// even though the owning process is gone. Clear the inherit flag.
+        /// </summary>
+        private static void MakeNonInheritable(UdpClient socket)
+        {
+            try { SetHandleInformation(socket.Client.Handle, 1u, 0u); }
+            catch (Exception) { }
+        }
 
         private void OnEnable()
         {
+            if (bound != null && bound != this)
+            {
+                running = false;
+                LastError = "另一个 Astra 数据接收器已占用 UDP " + port + "，本实例已停用。";
+                enabled = false;
+                return;
+            }
+            bound = this;
             LatestFrame = null; AcceptedFrames = 0; LastError = null; lastAcceptedTicks = 0; SelectedBodyId = 0;
             lock (gate) { pending = null; workerError = null; }
+            TryBind(true);
+        }
+
+        /// <summary>
+        /// Opens the listening socket. A failure used to be permanent, so a socket
+        /// left behind by an earlier Play session in the same editor process kept
+        /// the panel dead until Unity itself restarted. Now Update retries every
+        /// two seconds and the panel offers a manual reconnect.
+        /// </summary>
+        public bool TryBind(bool verbose)
+        {
+            if (client != null) return true;
             try
             {
                 if (port < 1 || port > 65535) throw new ArgumentException("UDP port must be 1..65535");
                 var address = IPAddress.Parse(listenAddress);
                 if (address.AddressFamily != AddressFamily.InterNetwork) throw new ArgumentException("Use an IPv4 listen address");
-                client = new UdpClient(new IPEndPoint(address, port));
-                client.Client.ReceiveTimeout = 200;
-                client.Client.ReceiveBufferSize = 262144;
+                var opened = new UdpClient(new IPEndPoint(address, port));
+                opened.Client.ReceiveTimeout = 200;
+                opened.Client.ReceiveBufferSize = 262144;
+                MakeNonInheritable(opened);
+                client = opened;
                 running = true;
-                var socket = client;
+                var socket = opened;
                 worker = new Thread(() => ReceiveLoop(socket)) { IsBackground = true, Name = "Astra UDP receiver" };
                 worker.Start();
+                LastError = null;
+                nextBindAttempt = 0f;
+                if (verbose) UnityEngine.Debug.Log("已监听身体 UDP " + port, this);
+                return true;
             }
             catch (Exception e)
             {
-                running = false; if (client != null) client.Close(); client = null;
-                LastError = "Cannot listen for Astra data: " + e.Message;
-                UnityEngine.Debug.LogError(LastError, this);
+                running = false;
+                if (client != null) { try { client.Close(); } catch (Exception) { } client = null; }
+                LastError = "无法监听 UDP " + port + "：端口被占用（" + e.Message + "）。点面板「重连」；仍失败就彻底退出 Unity 再重开。";
+                if (verbose) UnityEngine.Debug.LogError(LastError, this);
+                nextBindAttempt = Time.unscaledTime + 2f;
+                return false;
             }
+        }
+
+        /// <summary>Closes the socket without touching the enabled state.</summary>
+        private void CloseSocket()
+        {
+            running = false;
+            if (client != null) { try { client.Close(); } catch (Exception) { } client = null; }
+            if (worker != null) { try { worker.Join(500); } catch (Exception) { } worker = null; }
+        }
+
+        /// <summary>Drops the current socket and binds again (panel button).</summary>
+        public void Reconnect()
+        {
+            CloseSocket();
+            if (bound == null || bound == this) bound = this;
+            nextBindAttempt = 0f;
+            if (enabled) TryBind(true);
         }
 
         private void ReceiveLoop(UdpClient socket)
@@ -91,6 +158,7 @@ namespace AstraUnity
 
         private void Update()
         {
+            if (client == null && Time.unscaledTime >= nextBindAttempt) TryBind(false);
             Datagram message; string error;
             lock (gate) { message = pending; pending = null; error = workerError; workerError = null; }
             if (error != null) { LastError = error; UnityEngine.Debug.LogError(error, this); }
@@ -133,15 +201,27 @@ namespace AstraUnity
             return p;
         }
 
+        /// <summary>
+        /// Same axis convention as <see cref="ToLocalPosition"/>, without the
+        /// millimetre-to-metre scaling: use it for normals and directions.
+        /// </summary>
+        public Vector3 ToLocalDirection(Vector3 unit)
+        {
+            var d = Vector3.Scale(unit, axisSigns);
+            if (mirrorX) d.x = -d.x;
+            return d;
+        }
+
         public Vector3 ToWorldPosition(Vector3 millimeters) { return transform.TransformPoint(ToLocalPosition(millimeters)); }
 
         private void OnDisable()
         {
-            running = false;
-            if (client != null) client.Close();
-            if (worker != null) worker.Join(1000);
-            worker = null; client = null; LatestFrame = null; SelectedBodyId = 0;
+            if (bound == this) bound = null;
+            CloseSocket();
+            LatestFrame = null; SelectedBodyId = 0;
             lock (gate) pending = null;
         }
+
+        private void OnApplicationQuit() { CloseSocket(); }
     }
 }

@@ -37,6 +37,8 @@ namespace DollFight
         public float time;
         public string status = "Choose a VRM and exported replay JSON";
         public bool externallyDriven;
+        [Tooltip("World-rotation smoothing for tracked finger bones, in 1/s.")]
+        public float handSmoothing = 18f;
         public bool Ready => ready;
         public Vrm10Instance Instance => instance;
         public Transform ModelRoot => modelRoot;
@@ -69,6 +71,32 @@ namespace DollFight
         Quaternion[] fingerBinds;
         Vector3[] fingerAxes;
         float[] fingerAngles;
+        int[] fingerSlots;
+        // Hand skeleton: 21 landmarks rebuilt on the wrist bone, which is the
+        // end of the arm the body tracker already poses.
+        const int HandPointCount = 21;
+        static readonly int[][] HandChains = {
+            new[] { 0, 1, 2, 3, 4 }, new[] { 0, 5, 6, 7, 8 }, new[] { 0, 9, 10, 11, 12 },
+            new[] { 0, 13, 14, 15, 16 }, new[] { 0, 17, 18, 19, 20 }
+        };
+        static readonly string[] HandFingers = { "Thumb", "Index", "Middle", "Ring", "Little" };
+        readonly Transform[] handRoots = new Transform[2];
+        readonly Vector3[] handLocalX = new Vector3[2];
+        readonly Vector3[] handLocalY = new Vector3[2];
+        readonly Vector3[] handLocalZ = new Vector3[2];
+        readonly float[] handLengths = new float[2];
+        readonly Quaternion[] handLocalBinds = new Quaternion[2];
+        readonly float[] handRolls = new float[2];
+        Transform[][] handBones;
+        Vector3[][] handBindDirections;
+        Quaternion[][] handBindRotations;
+        int[][] handTargets;
+        int[][] handParents;
+        bool handsBound;
+        // The avatars in this project leave the finger slots of their Humanoid
+        // avatar empty, so Animator.GetBoneTransform returns null for every
+        // finger even though the bones exist. Keep a name index to fall back on.
+        System.Collections.Generic.Dictionary<string, Transform> bonesByName;
         Transform[] restNodes;
         Vector3[] restPositions;
         Quaternion[] restRotations;
@@ -107,6 +135,7 @@ namespace DollFight
                 }
                 Bind(animator);
                 BindFingers(animator);
+                BindHandSkeletons(animator);
                 restNodes = modelRoot.GetComponentsInChildren<Transform>();
                 restPositions = Array.ConvertAll(restNodes, t => t.localPosition);
                 restRotations = Array.ConvertAll(restNodes, t => t.localRotation);
@@ -153,6 +182,7 @@ namespace DollFight
                 throw new ArgumentException("Avatar must be a valid Unity Humanoid in its imported T-pose");
             animator.enabled = false;
             modelRoot = animator.transform;
+            CacheBoneNames();
             bones = new Transform[19];
             bindWorld = new Quaternion[19];
             for (int i = 0; i < 19; i++)
@@ -248,13 +278,20 @@ namespace DollFight
             var binds = new System.Collections.Generic.List<Quaternion>();
             var axes = new System.Collections.Generic.List<Vector3>();
             var angles = new System.Collections.Generic.List<float>();
-            foreach (string side in new[] { "Left", "Right" })
-                foreach (string finger in new[] { "Index", "Middle", "Ring", "Little", "Thumb" })
+            var slots = new System.Collections.Generic.List<int>();
+            // Curl slots follow the dollfight-hands-1 order: Thumb, Index, Middle,
+            // Ring, Little, and Left before Right.
+            string[] fingers = { "Thumb", "Index", "Middle", "Ring", "Little" };
+            for (int sideIndex = 0; sideIndex < 2; sideIndex++)
+            {
+                string side = sideIndex == 0 ? "Left" : "Right";
+                for (int fingerIndex = 0; fingerIndex < fingers.Length; fingerIndex++)
+                {
+                    string finger = fingers[fingerIndex];
                     for (int segment = 0; segment < 3; segment++)
                     {
                         string suffix = new[] { "Proximal", "Intermediate", "Distal" }[segment];
-                        if (!Enum.TryParse(side + finger + suffix, out HumanBodyBones id)) continue;
-                        Transform node = animator.GetBoneTransform(id);
+                        Transform node = FingerBone(animator, side, finger, suffix);
                         if (node == null) continue;
                         Vector3 axis = finger == "Thumb" ? Vector3.up : Vector3.forward;
                         axis *= side == "Left" ? -1 : 1;
@@ -264,9 +301,313 @@ namespace DollFight
                         axes.Add(node.InverseTransformDirection(modelRoot.TransformDirection(axis)));
                         angles.Add(finger == "Thumb" ? 32 : new[] { 82f, 98f, 58f }[segment]);
                         nodes.Add(node); binds.Add(node.localRotation);
+                        slots.Add(sideIndex * 15 + fingerIndex * 3 + segment);
                     }
+                }
+            }
             fingerBones = nodes.ToArray(); fingerBinds = binds.ToArray();
             fingerAxes = axes.ToArray(); fingerAngles = angles.ToArray();
+            fingerSlots = slots.ToArray();
+        }
+
+        public bool FingersReady { get { return ready && fingerBones != null && fingerBones.Length > 0; } }
+
+        /// <summary>
+        /// Applies tracked finger curls indexed as
+        /// ``side * 15 + finger * 3 + segment`` (left = 0, right = 1).
+        /// A negative value keeps that joint at its bind pose, which lets one
+        /// hand stay tracked while the other is out of view.
+        /// </summary>
+        public void ApplyFingerCurls(float[] curls)
+        {
+            if (!FingersReady || curls == null || curls.Length < 30) return;
+            for (int i = 0; i < fingerBones.Length; i++)
+            {
+                int slot = fingerSlots[i];
+                if (slot < 0 || slot >= curls.Length) continue;
+                float curl = curls[slot];
+                if (curl < 0f) continue;
+                float angle = Mathf.Lerp(0.06f, 1f, Mathf.Clamp01(curl)) * fingerAngles[i];
+                fingerBones[i].localRotation = fingerBinds[i] * Quaternion.AngleAxis(angle, fingerAxes[i]);
+            }
+        }
+
+        void CacheBoneNames()
+        {
+            bonesByName = new System.Collections.Generic.Dictionary<string, Transform>();
+            foreach (Transform node in modelRoot.GetComponentsInChildren<Transform>(true))
+            {
+                string key = NormaliseBoneName(node.name);
+                // "Left_IndexDistalEnd" is a leaf marker, not a finger joint.
+                if (key.Length == 0 || key.EndsWith("end", StringComparison.Ordinal)) continue;
+                if (!bonesByName.ContainsKey(key)) bonesByName[key] = node;
+            }
+        }
+
+        static string NormaliseBoneName(string value)
+        {
+            var builder = new System.Text.StringBuilder(value.Length);
+            foreach (char c in value)
+                if (char.IsLetterOrDigit(c)) builder.Append(char.ToLowerInvariant(c));
+            return builder.ToString();
+        }
+
+        Transform FindBone(string name)
+        {
+            if (bonesByName == null || string.IsNullOrEmpty(name)) return null;
+            return bonesByName.TryGetValue(NormaliseBoneName(name), out Transform node) ? node : null;
+        }
+
+        Transform BodyOrNamed(Animator animator, HumanBodyBones id, string fallback)
+        {
+            Transform mapped = animator.GetBoneTransform(id);
+            return mapped != null ? mapped : FindBone(fallback);
+        }
+
+        Transform FingerBone(Animator animator, string side, string finger, string suffix)
+        {
+            if (Enum.TryParse(side + finger + suffix, out HumanBodyBones id))
+            {
+                Transform mapped = animator.GetBoneTransform(id);
+                if (mapped != null) return mapped;
+            }
+            Transform node = FindBone(side + finger + suffix);
+            // Tripo exports the little finger as "Pinky"; Unity calls it Little.
+            if (node == null && finger == "Little") node = FindBone(side + "Pinky" + suffix);
+            if (node == null && finger == "Pinky") node = FindBone(side + "Little" + suffix);
+            return node;
+        }
+
+        void BindHandSkeletons(Animator animator)
+        {
+            handBones = new Transform[2][];
+            handBindDirections = new Vector3[2][];
+            handBindRotations = new Quaternion[2][];
+            handTargets = new int[2][];
+            handParents = new int[2][];
+            handsBound = false;
+            bool any = false;
+            for (int sideIndex = 0; sideIndex < 2; sideIndex++)
+            {
+                string side = sideIndex == 0 ? "Left" : "Right";
+                Transform hand = BodyOrNamed(animator, sideIndex == 0
+                    ? HumanBodyBones.LeftHand : HumanBodyBones.RightHand, side + "Hand");
+                Transform index = FingerBone(animator, side, "Index", "Proximal");
+                Transform middle = FingerBone(animator, side, "Middle", "Proximal");
+                Transform little = FingerBone(animator, side, "Little", "Proximal");
+                bool usable = hand != null && index != null && middle != null && little != null;
+                Vector3 along = usable ? middle.position - hand.position : Vector3.zero;
+                Vector3 across = usable ? little.position - index.position : Vector3.zero;
+                if (along.sqrMagnitude < 1e-8f) usable = false;
+                else
+                {
+                    across -= along.normalized * Vector3.Dot(across, along.normalized);
+                    if (across.sqrMagnitude < 1e-8f) usable = false;
+                }
+                if (!usable)
+                {
+                    handBones[sideIndex] = new Transform[0];
+                    handBindDirections[sideIndex] = new Vector3[0];
+                    handBindRotations[sideIndex] = new Quaternion[0];
+                    handTargets[sideIndex] = new int[0];
+                    handParents[sideIndex] = new int[0];
+                    continue;
+                }
+                Vector3 y = along.normalized;
+                Vector3 x = across.normalized;
+                Vector3 z = Vector3.Cross(x, y);
+                handRoots[sideIndex] = hand;
+                handLengths[sideIndex] = along.magnitude;
+                handLocalBinds[sideIndex] = hand.localRotation;
+                handRolls[sideIndex] = 0f;
+                // Store the anatomical frame in the hand bone's own space so it
+                // follows the wrist when the arm moves.
+                handLocalX[sideIndex] = hand.InverseTransformDirection(x);
+                handLocalY[sideIndex] = hand.InverseTransformDirection(y);
+                handLocalZ[sideIndex] = hand.InverseTransformDirection(z);
+                var bones = new System.Collections.Generic.List<Transform>();
+                var directions = new System.Collections.Generic.List<Vector3>();
+                var rotations = new System.Collections.Generic.List<Quaternion>();
+                var targets = new System.Collections.Generic.List<int>();
+                var parents = new System.Collections.Generic.List<int>();
+                for (int finger = 0; finger < HandFingers.Length; finger++)
+                {
+                    var chain = HandChains[finger];
+                    var segments = new System.Collections.Generic.List<Transform>();
+                    for (int segment = 0; segment < 3; segment++)
+                    {
+                        string suffix = new[] { "Proximal", "Intermediate", "Distal" }[segment];
+                        Transform node = FingerBone(animator, side, HandFingers[finger], suffix);
+                        if (node != null) segments.Add(node);
+                    }
+                    int count = segments.Count;
+                    for (int k = 0; k < count; k++)
+                    {
+                        Transform bone = segments[k];
+                        // Three bones cover MCP->PIP, PIP->DIP, DIP->TIP. Fewer
+                        // bones spread over the same chain instead of skipping
+                        // the fingertip.
+                        int target = count == 1 ? chain[4] : chain[2 + Mathf.RoundToInt(k * 2f / (count - 1))];
+                        Vector3 direction;
+                        if (k + 1 < count) direction = segments[k + 1].position - bone.position;
+                        else if (k > 0) direction = bone.position - segments[k - 1].position;
+                        else direction = hand.position - bone.position;
+                        if (direction.sqrMagnitude < 1e-10f) continue;
+                        bones.Add(bone);
+                        directions.Add(bone.InverseTransformDirection(direction.normalized));
+                        rotations.Add(bone.localRotation);
+                        targets.Add(target);
+                        parents.Add(chain[1 + k]);
+                    }
+                }
+                handBones[sideIndex] = bones.ToArray();
+                handBindDirections[sideIndex] = directions.ToArray();
+                handBindRotations[sideIndex] = rotations.ToArray();
+                handTargets[sideIndex] = targets.ToArray();
+                handParents[sideIndex] = parents.ToArray();
+                any |= bones.Count > 0;
+            }
+            handsBound = any;
+            if (!any) Debug.LogWarning("No finger bones resolved on " + name + "; hand tracking will be ignored. Check the avatar hierarchy.", this);
+        }
+
+        public bool HandsReady { get { return ready && handsBound; } }
+
+        /// <summary>Number of finger bones resolved for the 21-point skeleton.</summary>
+        public int HandBoneCount
+        {
+            get
+            {
+                if (handBones == null) return 0;
+                int total = 0;
+                for (int i = 0; i < handBones.Length; i++)
+                    if (handBones[i] != null) total += handBones[i].Length;
+                return total;
+            }
+        }
+
+        /// <summary>Number of curl-driven finger bones (the version 1 fallback).</summary>
+        public int CurlBoneCount { get { return fingerBones == null ? 0 : fingerBones.Length; } }
+
+        /// <summary>
+        /// Current wrist roll in degrees, or 0 when the hand is not driven.
+        /// Exposed for diagnostics: if this does not move while the palm turns,
+        /// the sender's basis is not reaching this hand.
+        /// </summary>
+        public float HandRollDegrees(bool isLeft) { return handRolls[isLeft ? 0 : 1]; }
+
+        /// <summary>
+        /// Rebuilds 21 tracked hand joints on the wrist bone and aims every
+        /// finger bone at its target. Points are in the hand's own frame,
+        /// normalised by palm length, so the same data drives any avatar size.
+        /// </summary>
+        /// <param name="humanX">Index knuckle to little knuckle, in world space.</param>
+        /// <param name="humanY">Wrist to middle knuckle, in world space.</param>
+        /// <param name="humanZ">
+        /// Back-of-hand normal in world space, or <c>Vector3.zero</c> when the
+        /// sender has no wrist rotation. The 21 joints live inside the hand's
+        /// own frame, so they cannot say how the whole hand is oriented; the
+        /// three axes supply exactly that, and drive the wrist in all three
+        /// degrees of freedom instead of only the roll around the forearm.
+        /// </param>
+        public void ApplyHandSkeleton(bool isLeft, Vector3[] points,
+                                      Vector3 humanX, Vector3 humanY, Vector3 humanZ)
+        {
+            if (!HandsReady || points == null || points.Length < HandPointCount) return;
+            int side = isLeft ? 0 : 1;
+            Transform hand = handRoots[side];
+            var bones = handBones[side];
+            if (hand == null || bones == null || bones.Length == 0) return;
+            float t = Mathf.Clamp01(1f - Mathf.Exp(-Mathf.Max(0.01f, handSmoothing) * Time.deltaTime));
+            if (humanY.sqrMagnitude > 1e-6f && humanZ.sqrMagnitude > 1e-6f)
+            {
+                Vector3 avatarY = hand.rotation * handLocalY[side];
+                Vector3 avatarZ = hand.rotation * handLocalZ[side];
+                if (avatarY.sqrMagnitude > 1e-8f && avatarZ.sqrMagnitude > 1e-8f)
+                {
+                    // Map the avatar's own hand frame onto the tracked one:
+                    // back-of-hand normal and finger direction both line up, so
+                    // palm-up/palm-down and wrist pitch follow the real hand.
+                    Quaternion from = Quaternion.LookRotation(avatarZ, avatarY);
+                    Quaternion to = Quaternion.LookRotation(humanZ, humanY);
+                    Quaternion target = to * Quaternion.Inverse(from) * hand.rotation;
+                    hand.rotation = Quaternion.Slerp(hand.rotation, target, t);
+                    handRolls[side] = Quaternion.Angle(hand.localRotation, handLocalBinds[side]);
+                }
+            }
+            Vector3 x = hand.rotation * handLocalX[side];
+            Vector3 y = hand.rotation * handLocalY[side];
+            Vector3 z = hand.rotation * handLocalZ[side];
+            // Aim *from where the bone already is*, not from the bind pose.
+            //
+            // This loop used to reset every bone to its bind local rotation and
+            // then slerp `t` of the way to the target. Because the reset undid
+            // the previous frame's progress, the bones never accumulated it: the
+            // pose held at a fixed fraction `t` of the target instead of
+            // converging on it. At 60 fps that is 26 %, so a fist closed to
+            // 114 degrees of the 255 a real one reaches (84 at 90 fps) - a loose
+            // claw, and the wrist, having the same defect, turned only 23 of 90
+            // degrees. Both were reported as "the hand skeleton is a mess and I
+            // cannot get a fist".
+            //
+            // Aiming with a relative rotation is safe from frame to frame:
+            // `handBindDirections` is a direction in the bone's own space, so
+            // `bone.rotation * direction` is the bone's real direction no matter
+            // how the bone got there. `FromToRotation` therefore only has to
+            // remove the difference that is left, and the slerp is a genuine
+            // first-order filter that settles on the tracked pose in about four
+            // frames (67 ms).
+            for (int i = 0; i < bones.Length; i++)
+            {
+                Transform bone = bones[i];
+                if (bone == null) continue;
+                int target = handTargets[side][i];
+                int from = handParents[side][i];
+                if (target < 0 || target >= points.Length) continue;
+                if (from < 0 || from >= points.Length) continue;
+                // Aim along the *tracked* segment, not at the tracked joint.
+                // Aiming at the joint mixes in the difference between the
+                // avatar's bone lengths and the real hand's, which is what made
+                // a closing fist look like fingers merely sliding together.
+                Vector3 a = points[from];
+                Vector3 b = points[target];
+                Vector3 desired = x * (b.x - a.x) + y * (b.y - a.y) + z * (b.z - a.z);
+                if (desired.sqrMagnitude < 1e-10f) continue;
+                Vector3 current = bone.rotation * handBindDirections[side][i];
+                if (Vector3.Angle(current, desired) < 0.15f) continue;
+                bone.rotation = Quaternion.Slerp(bone.rotation,
+                    Quaternion.FromToRotation(current, desired.normalized) * bone.rotation, t);
+            }
+        }
+
+        /// <summary>Drops the wrist roll so the next frame re-derives it from scratch.</summary>
+        public void ResetHandRoll()
+        {
+            for (int i = 0; i < handRolls.Length; i++) handRolls[i] = 0f;
+        }
+
+        /// <summary>Eases one hand back to its bind pose when tracking is lost.</summary>
+        public void RelaxHand(bool isLeft)
+        {
+            if (!HandsReady) return;
+            int side = isLeft ? 0 : 1;
+            var bones = handBones[side];
+            if (bones == null) return;
+            float t = 1f - Mathf.Exp(-8f * Time.deltaTime);
+            Transform hand = handRoots[side];
+            if (hand != null)
+            {
+                // Ease the wrist itself back; handRolls is now a measurement, not
+                // the angle being applied, so replaying it here would add a
+                // rotation that was never commanded.
+                hand.localRotation = Quaternion.Slerp(hand.localRotation, handLocalBinds[side], t);
+                handRolls[side] = Mathf.LerpAngle(handRolls[side], 0f, t);
+            }
+            for (int i = 0; i < bones.Length; i++)
+            {
+                if (bones[i] == null) continue;
+                bones[i].localRotation = Quaternion.Slerp(bones[i].localRotation, handBindRotations[side][i], t);
+            }
         }
 
         void OnDestroy()

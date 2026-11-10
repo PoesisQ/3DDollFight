@@ -4,6 +4,10 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 .ruff_cache/
+# MediaPipe hand model is downloaded by tools/hand_tracking/fetch_model.cmd.
+tools/hand_tracking/models/
+# Separate CMake build folder used when the default one is locked by a running bridge.
+integrations/astra-unity-bridge/build-dev/
 *.egg-info/
 dist/
 build/
@@ -85,3 +89,10 @@ unity/Assets/Resources/DollFight/Selection/Stages/saint-maurice.png
 unity/Assets/Resources/DollFight/Selection/Stages/saint-maurice.png.meta
 unity/Assets/Resources/DollFight/Selection/Stages/cloud.png
 unity/Assets/Resources/DollFight/Selection/Stages/cloud.png.meta
+
+# Scratch area for replaying recordings through the pipeline by hand.
+.scratch/
+
+# Screenshots left over from hand-tracking probes; diagnostics, not fixtures.
+tools/hand_tracking/probe_crop.png
+tools/hand_tracking/hudmirror.png

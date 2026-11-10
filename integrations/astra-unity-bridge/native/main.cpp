@@ -4,16 +4,22 @@
 #include <astra/capi/astra.h>
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <chrono>
 #include <cmath>
+#include <condition_variable>
+#include <cstdint>
+#include <cstring>
 #include <fstream>
 #include <iomanip>
 #include <iostream>
 #include <locale>
+#include <mutex>
 #include <sstream>
 #include <stdexcept>
 #include <string>
 #include <thread>
+#include <vector>
 
 namespace {
 volatile LONG running = 1;
@@ -28,13 +34,16 @@ struct Sensor {
     astra_streamsetconnection_t sensor = nullptr;
     astra_reader_t reader = nullptr;
     astra_bodystream_t body = nullptr;
+    astra_colorstream_t color = nullptr;
     ~Sensor() {
+        if (color) astra_stream_stop(color);
         if (body) astra_stream_stop(body);
         if (reader) astra_reader_destroy(&reader);
         if (sensor) astra_streamset_close(&sensor);
         if (initialized) astra_terminate();
     }
-    void open(const std::string& licensePath, const std::string& uri = "device/default", bool initialize = true) {
+    void open(const std::string& licensePath, const std::string& uri = "device/default",
+              bool initialize = true, bool withColor = false) {
         if (initialize) { check(astra_initialize(), "astra_initialize"); initialized = true; }
         if (initialize && !licensePath.empty()) {
             std::ifstream f(licensePath, std::ios::binary);
@@ -53,9 +62,11 @@ struct Sensor {
         if (!available) throw std::runtime_error("Camera " + uri + " is unavailable. Connect the Astra camera and close other viewers.");
         check(astra_reader_create(sensor, &reader), "reader_create");
         check(astra_reader_get_bodystream(reader, &body), "get_bodystream");
+        if (withColor) check(astra_reader_get_colorstream(reader, &color), "get_colorstream");
         check(astra_bodystream_set_default_body_features(body, ASTRA_BODY_TRACKING_JOINTS), "set_joint_features");
         check(astra_bodystream_set_skeleton_profile(body, ASTRA_SKELETON_PROFILE_FULL), "set_full_skeleton");
         check(astra_stream_start(body), "stream_start");
+        if (withColor) check(astra_stream_start(color), "start_color");
     }
 };
 struct Socket {
@@ -78,6 +89,114 @@ struct Socket {
         if (sendto(value, json.data(), static_cast<int>(json.size()), 0,
                    reinterpret_cast<const sockaddr*>(&target), sizeof(target)) == SOCKET_ERROR)
             throw std::runtime_error("UDP send failed: " + std::to_string(WSAGetLastError()));
+    }
+};
+struct ColorFeed {
+    struct Frame {
+        std::vector<uint8_t> rgb;
+        uint32_t width = 0, height = 0, index = 0;
+        uint64_t timestamp = 0;
+        bool fresh = false;
+    };
+    SOCKET listener = INVALID_SOCKET;
+    std::thread worker;
+    std::mutex gate;
+    std::condition_variable changed;
+    Frame latest;
+    std::atomic<bool> connected{false};
+    bool active = false;
+
+    ~ColorFeed() { close(); }
+
+    void open(int port) {
+        listener = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+        if (listener == INVALID_SOCKET) throw std::runtime_error("Cannot create color socket");
+        sockaddr_in address{};
+        address.sin_family = AF_INET;
+        address.sin_port = htons(static_cast<u_short>(port));
+        inet_pton(AF_INET, "127.0.0.1", &address.sin_addr);
+        if (bind(listener, reinterpret_cast<const sockaddr*>(&address), sizeof(address)) == SOCKET_ERROR)
+            throw std::runtime_error("Cannot bind color port " + std::to_string(port));
+        if (listen(listener, 1) == SOCKET_ERROR)
+            throw std::runtime_error("Cannot listen on color port " + std::to_string(port));
+        active = true;
+        worker = std::thread([this] { acceptLoop(); });
+    }
+
+    void close() {
+        if (!active) return;
+        active = false;
+        changed.notify_all();
+        if (listener != INVALID_SOCKET) { closesocket(listener); listener = INVALID_SOCKET; }
+        if (worker.joinable()) worker.join();
+    }
+
+    // Called from the capture loop. Copies only while a tracker is attached.
+    void publish(const uint8_t* data, uint32_t width, uint32_t height, uint32_t index, uint64_t timestamp) {
+        if (!connected.load()) return;
+        std::lock_guard<std::mutex> lock(gate);
+        latest.rgb.assign(data, data + static_cast<size_t>(width) * height * 3);
+        latest.width = width; latest.height = height;
+        latest.index = index; latest.timestamp = timestamp; latest.fresh = true;
+        changed.notify_one();
+    }
+
+    void acceptLoop() {
+        while (active) {
+            SOCKET peer = accept(listener, nullptr, nullptr);
+            if (peer == INVALID_SOCKET) {
+                if (!active) break;
+                std::this_thread::sleep_for(std::chrono::milliseconds(50));
+                continue;
+            }
+            DWORD timeout = 2000;
+            setsockopt(peer, SOL_SOCKET, SO_SNDTIMEO, reinterpret_cast<const char*>(&timeout), sizeof(timeout));
+            connected = true;
+            serve(peer);
+            connected = false;
+            closesocket(peer);
+        }
+    }
+
+    void serve(SOCKET peer) {
+        Frame outgoing;
+        while (active) {
+            {
+                std::unique_lock<std::mutex> lock(gate);
+                changed.wait_for(lock, std::chrono::milliseconds(100), [this] { return latest.fresh || !active; });
+                if (!active) return;
+                if (!latest.fresh) continue;
+                outgoing = latest;
+                latest.fresh = false;
+            }
+            uint8_t header[24];
+            std::memcpy(header, "DFCF", 4);
+            store(header + 4, outgoing.width);
+            store(header + 8, outgoing.height);
+            store(header + 12, outgoing.index);
+            store(header + 16, static_cast<uint32_t>(outgoing.timestamp & 0xffffffffull));
+            store(header + 20, static_cast<uint32_t>(outgoing.timestamp >> 32));
+            if (!sendAll(peer, header, sizeof(header))) return;
+            if (!outgoing.rgb.empty() && !sendAll(peer, outgoing.rgb.data(), outgoing.rgb.size())) return;
+        }
+    }
+
+    static void store(uint8_t* target, uint32_t value) {
+        target[0] = static_cast<uint8_t>(value & 0xff);
+        target[1] = static_cast<uint8_t>((value >> 8) & 0xff);
+        target[2] = static_cast<uint8_t>((value >> 16) & 0xff);
+        target[3] = static_cast<uint8_t>((value >> 24) & 0xff);
+    }
+
+    static bool sendAll(SOCKET peer, const uint8_t* data, size_t size) {
+        size_t sent = 0;
+        while (sent < size) {
+            int chunk = send(peer, reinterpret_cast<const char*>(data + sent),
+                             static_cast<int>(std::min<size_t>(size - sent, 65536)), 0);
+            if (chunk <= 0) return false;
+            sent += static_cast<size_t>(chunk);
+        }
+        return true;
     }
 };
 float finite(float x) { return std::isfinite(x) ? x : 0.f; }
@@ -146,12 +265,13 @@ int number(const std::string& text) {
 }
 int main(int argc, char** argv) {
     try {
-        bool simulated = false, dual = false; int port = 7001, frames = 0, warmup = 2;
+        bool simulated = false, dual = false; int port = 7001, frames = 0, warmup = 2, colorPort = 0, mirrorPort = 0;
         std::string host = "127.0.0.1", license;
         for (int i = 1; i < argc; ++i) {
             std::string option = argv[i];
             if (option == "--help") {
-                std::cout << "AstraUnityBridge [--dual] [--simulate] [--warmup seconds] [--host IPv4] [--port 7001] [--frames N] [--license FILE]\n"; return 0;
+                std::cout << "AstraUnityBridge [--dual] [--simulate] [--warmup seconds] [--host IPv4] [--port 7001]"
+                             " [--frames N] [--license FILE] [--color-port 7005] [--mirror-port 7012]\n"; return 0;
             }
             if (option == "--simulate") { simulated = true; continue; }
             if (option == "--dual") { dual = true; continue; }
@@ -162,16 +282,27 @@ int main(int argc, char** argv) {
             else if (option == "--frames") frames = number(value);
             else if (option == "--warmup") warmup = number(value);
             else if (option == "--license") license = value;
+            else if (option == "--color-port") colorPort = number(value);
+            else if (option == "--mirror-port") mirrorPort = number(value);
             else throw std::runtime_error("Unknown option " + option);
         }
         if (port < 1 || port > (dual ? 65534 : 65535) || frames < 0 || warmup < 0 || warmup > 60) throw std::runtime_error("Invalid port, frame count or warmup");
+        if (colorPort && (dual || simulated)) throw std::runtime_error("--color-port works with a single live camera only");
+        if (mirrorPort && (dual || simulated)) throw std::runtime_error("--mirror-port works with a single live camera only");
+        if (mirrorPort && mirrorPort == port) throw std::runtime_error("--mirror-port must differ from --port");
         SetConsoleCtrlHandler(stop, TRUE);
         Socket socket; socket.open(host, port);
         Socket socket2; if (dual) socket2.open(host, port + 1);
+        Socket mirror; if (mirrorPort) { mirror.open(host, mirrorPort); std::cout << "Body mirror -> " << host << ':' << mirrorPort << '\n'; }
         Sensor sensor, sensor2;
         if (!simulated) {
-            sensor.open(license, dual ? "device/sensor0" : "device/default");
+            sensor.open(license, dual ? "device/sensor0" : "device/default", true, colorPort != 0);
             if (dual) sensor2.open("", "device/sensor1", false);
+        }
+        ColorFeed color;
+        if (colorPort) {
+            color.open(colorPort);
+            std::cout << "COLOR RGB -> 127.0.0.1:" << colorPort << '\n';
         }
         auto start = std::chrono::steady_clock::now();
         auto lastFrame = start;
@@ -232,15 +363,39 @@ int main(int argc, char** argv) {
                     std::this_thread::sleep_for(std::chrono::milliseconds(2)); continue;
                 }
                 check(rc, "reader_open_frame");
+                if (colorPort) {
+                    astra_colorframe_t colorFrame = nullptr;
+                    if (astra_frame_get_colorframe(frame, &colorFrame) == ASTRA_STATUS_SUCCESS) {
+                        astra_image_metadata_t metadata{};
+                        astra_rgb_pixel_t* pixels = nullptr;
+                        uint32_t byteLength = 0;
+                        astra_frame_index_t colorIndex = 0;
+                        if (astra_colorframe_get_metadata(colorFrame, &metadata) == ASTRA_STATUS_SUCCESS &&
+                            astra_colorframe_get_data_rgb_ptr(colorFrame, &pixels, &byteLength) == ASTRA_STATUS_SUCCESS &&
+                            pixels != nullptr &&
+                            byteLength >= static_cast<uint32_t>(metadata.width) * metadata.height * 3) {
+                            astra_colorframe_get_frameindex(colorFrame, &colorIndex);
+                            color.publish(reinterpret_cast<const uint8_t*>(pixels), metadata.width, metadata.height,
+                                          static_cast<uint32_t>(colorIndex), static_cast<uint64_t>(elapsed));
+                        }
+                    }
+                }
                 astra_bodyframe_t bodyFrame = nullptr;
                 rc = astra_frame_get_bodyframe(frame, &bodyFrame);
                 if (rc == ASTRA_STATUS_SUCCESS) rc = astra_bodyframe_get_frameindex(bodyFrame, &index);
                 if (rc == ASTRA_STATUS_SUCCESS) rc = astra_bodyframe_body_list(bodyFrame, &bodies);
                 astra_reader_close_frame(&frame);
-                check(rc, "read_body_frame");
+                // With the colour stream running, a frame may carry colour only.
+                if (rc != ASTRA_STATUS_SUCCESS && !colorPort) check(rc, "read_body_frame");
+                if (rc != ASTRA_STATUS_SUCCESS) {
+                    if (now - lastFrame > std::chrono::seconds(10)) throw std::runtime_error("No body frames for 10 seconds. Check camera, USB, and SDK license.");
+                    continue;
+                }
                 lastFrame = now;
             }
-            socket.send(packet(bodies, sequence, index, session, elapsed, simulated));
+            const std::string json = packet(bodies, sequence, index, session, elapsed, simulated);
+            socket.send(json);
+            if (mirrorPort) mirror.send(json);
             if (sequence % 150 == 0) std::cout << "Frame " << sequence << ", bodies: " << bodies.count << '\n';
             ++sequence;
             if (simulated) std::this_thread::sleep_until(start + std::chrono::milliseconds(sequence * 1000 / 30));

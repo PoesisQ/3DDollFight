@@ -1,0 +1,294 @@
+# 手部追踪交付说明
+
+> 本文分三部分：**Ⅰ 现状**（做了什么、量到什么）、**Ⅱ 使用说明**（怎么装、怎么跑、出问题看哪里）、**Ⅲ 开发日志**（按日期记录症状 → 原因 → 改动 → 验证）。
+> 算法推导、协议字段、章节化设计见[手部识别技术大纲](hand-tracking.md)；模块内的命令与报文细节见 [tools/hand_tracking/README.md](../tools/hand_tracking/README.md)。
+
+---
+
+# Ⅰ 现状
+
+## 1.1 一句话
+
+Astra 的彩色画面 → MediaPipe 21 点 → 掌面姿态与手指弯曲 → UDP 报文 → 角色手骨逐指节驱动。**四个可玩角色都能被驱动**，手指能张开、能握拳、能单指动作，手腕能跟着翻掌与压腕。
+
+## 1.2 链路
+
+```
+Astra 彩色 640×480 (TCP 7005, DFCF 头 + RGB24)
+        │
+        ├── MediaPipe HandLandmarker ── 21 点 (2D) + 21 点 (world) + 左右手
+        │
+        ▼
+hand3d.HandLift.solve(2D, side, basis=world)          tracker.image_frame(world)
+   ├ 掌面三轴：直接取 world landmarks 的正交化结果
+   ├ 每根手指：拟合弯曲量 → 按真人屈曲曲线展开三段指骨
+   └ 21 个关节在手自身坐标系里
+        │
+        ▼
+protocol dollfight-hands-3 (UDP 7011, JSON)
+        │
+        ▼
+AstraHandReceiver → AstraLivePlayer.ApplyHands
+        │
+        ▼
+HumanoidReplay.ApplyHandSkeleton
+   ├ 手腕：把角色手腕的框架对齐到实测 basis（三自由度）
+   └ 每根指骨：沿实测段方向旋转
+```
+
+## 1.3 实现了什么
+
+| 能力 | 落在哪里 | 状态 |
+|---|---|---|
+| 手部检测（双手、21 点、置信度） | `tools/hand_tracking/tracker.py` | 可用 |
+| 掌面姿态（翻掌 / 压腕 / 侧对） | `run.py::palm_frame` → `hand3d.solve(basis=)` | 可用，取 MediaPipe world landmarks |
+| 手指弯曲（逐指、含拇指） | `hand3d._fit_curl` | 可用 |
+| 单指动作（只伸食指等） | 同上，逐指独立 | 可用 |
+| 21 点低通（静止不抖、握拳不拖） | `hand3d._settle` | 可用 |
+| 左右手配对（不依赖镜像假设） | `run.py::assign_sides` + UDP 7012 | 可用，缺身体数据时回退标签 |
+| 手骨驱动（腕三自由度 + 逐指段方向） | `HumanoidReplay.ApplyHandSkeleton` | 可用，本轮修掉欠旋转 |
+| 断流后手势回位 | `HumanoidReplay.RelaxHand`，1 秒宽限 | 可用 |
+| 旧版仅弯曲度兼容 | `HumanoidReplay.ApplyFingerCurls` | 保留 |
+| 四角色手骨齐全性审计 | `tools/audit_hand_rigs.py` + `tests/test_hand_rigs.py` | 可用，四角色各 15/15/手 |
+
+## 1.4 关键文件
+
+| 文件 | 作用 |
+|---|---|
+| `tools/hand_tracking/run.py` | 主循环：收帧、推理、求解、发报文、预览 |
+| `tools/hand_tracking/hand3d.py` | 二维 → 三维手：掌面、弯曲量拟合、指骨展开 |
+| `tools/hand_tracking/tracker.py` | MediaPipe 封装与坐标约定 |
+| `tools/hand_tracking/skeleton.py` | 关节索引、掌面正交基、合理性判据 |
+| `tools/hand_tracking/curls.py` | 兼容路径的 15 个弯曲度与分类 |
+| `tools/hand_tracking/protocol.py` | `dollfight-hands-3` 编解码 |
+| `unity/Assets/AstraUnity/Runtime/AstraHandReceiver.cs` | UDP 7011 接收与校验 |
+| `unity/Assets/AstraUnity/Runtime/HandFrame.cs` | 报文结构 |
+| `unity/Packages/com.dollfight.humanoid/Runtime/HumanoidReplay.cs` | 手骨绑定与驱动 |
+| `tools/audit_hand_rigs.py` | 四角色手骨审计（不依赖 Unity） |
+| `docs/hand-tracking.md` | 技术大纲与逐轮失效分析 |
+
+## 1.5 量到的数字
+
+| 指标 | 数值 | 来源 |
+|---|---:|---|
+| 四角色每只手可动指骨 | 15（拇指 3 + 四指各 3） | `tools/audit_hand_rigs.py` |
+| 运行时绑定手骨 / 弯骨 | `handBones=30` `curlBones=30` | `unity/Library/AstraLiveStatus.txt` |
+| 掌面法线与实测夹角（旧 → 新） | 中位 63.9° → 0°；p90 132° → 0° | 50 秒录屏逐帧 |
+| 弯曲量对独立参照的平均误差（旧 → 新） | 0.240 → 0.146 | 同上 |
+| 前倾 63° 时手掌重建尺度（旧 → 新） | ×2.2 → ×1.0 | 合成手 |
+| 静止手 21 点帧间抖动（滤波前 → 后） | 0.0445 → 0.0223 掌长 | 合成手 1.6 px 噪声 |
+| **握拳累积弯曲（修前 → 修后）** | **114.4° → 255°**（60 fps） | `ApplyHandSkeleton` 等价模拟 |
+| **腕部 90° 目标实到（修前 → 修后）** | **23.3° → 90°** | 同上 |
+| 修后收敛时间 | 约 4 帧 / 67 ms | 同上 |
+| 手部模块测试 | 55 passed / 1 skipped | `uv run pytest -q tools/hand_tracking/tests` |
+| 全仓库测试 | 230 passed / 9 skipped | `uv run pytest -q` |
+
+## 1.6 已知限制
+
+| 限制 | 原因 | 影响 |
+|---|---|---|
+| 掌心/手背二义性 | 单目观测固有；一个视角无法区分「朝我」与「背我」 | 手**首次出现就侧对镜头**时可能镜像一两帧 |
+| 手指直指镜头 | 投影只剩几个像素 | 该帧沿用上一帧弯曲量，不猜 |
+| 手小于约 60 px | MediaPipe 检出率下降 | 退到 1.5 m 内、开灯 |
+| 结构光深度未接入 | 桥目前只推彩色；深度对 12–18 mm 的手指本身也不可靠 | 掌面靠 world landmarks，不靠深度 |
+| 双人同时入镜 | 只取置信度最高的两只手 | 单人使用 |
+| Unity 侧编译 | 编辑器占着工程时无法 batchmode | 改动需在编辑器里自动重编译后确认 |
+
+---
+
+# Ⅱ 使用说明
+
+## 2.1 前置条件
+
+- Windows 10/11，Astra 相机（Orbbec SDK 驱动已装）
+- Unity **6000.3.27f1**（Hub 打开 `unity/`）
+- Python 3.10（由 `uv` 创建，不需要系统 Python）
+- 桥接程序已构建：`integrations/astra-unity-bridge` 下 `Build-Bridge.cmd`，产物在 `build/bin/Release/AstraUnityBridge.exe`
+
+## 2.2 装一次
+
+```bat
+cd tools\hand_tracking
+install.cmd        :: 建 .venv（Python 3.10）并装 MediaPipe
+fetch_model.cmd    :: 下载 hand_landmarker.task（约 7.8 MB）
+```
+
+模型不随仓库分发；`.venv/` 与 `models/` 已被 Git 忽略。装完可自检：
+
+```bat
+.venv\Scripts\python.exe -m unittest discover -s tests -v
+```
+
+## 2.3 每次运行
+
+**顺序不能颠倒**——一台 Astra 同时只能被一个进程占用。
+
+1. Unity 打开 `Assets/AstraUnity/SingleCameraGame.unity`，Play，完成选角。
+2. 在 Unity 面板上**停止「启动摄像头」**（它和 `run.cmd` 抢同一台相机）。
+3. 双击 `tools\hand_tracking\run.cmd`。
+   等价于 `python run.py --start-bridge --preview`，会自己拉起桥接程序。
+4. 站到 1.5 m 左右，让**双手完整入画**，正对镜头停 1 秒。
+5. 关掉命令行窗口即停止。
+
+端口分配：
+
+| 端口 | 协议 | 用途 |
+|---|---|---|
+| 7005 | TCP | 彩色帧（桥 → Python） |
+| 7011 | UDP | 手部骨架（Python → Unity，`AstraHandReceiver.port` 默认值） |
+| 7012 | UDP | 身体骨架镜像（桥 → Python），只用于左右手配对；`--body-port 0` 可关 |
+
+## 2.4 站位与手势
+
+- **距离**：1.0–1.5 m 最稳，2.0 m 起手掌不足 75 px，弯指开始飘。
+- **光线**：Astra 彩色偏暗（中心像素实测 40–80），背光会显著掉点。
+- **入画**：双手都在画面内，手腕不要贴边。
+- **校准**：不需要专门动作。掌面姿态每帧直接从 world landmarks 取，没有「等它学」的过程；1 秒宽限只用于手被短暂遮挡。
+- **格斗常态握拳**：可以一直握着，不必先张开让系统「看到」——这是本版相对上一版的区别。
+
+## 2.5 怎么确认它在工作
+
+看 `unity/Library/AstraLiveStatus.txt`，每秒刷新一次：
+
+```
+time=2026-11-10 12:30:08
+scene=DollFight
+body.listening=True receiving=True frames=14512 error=-
+hand.listening=True receiving=True frames=4355
+game=True ready=True selectionOpen=False actor=True calibrated=False
+hands.ready=True handBones=30 curlBones=30 rollL=12 rollR=0 handFrames=4355 legNote=左膝、右膝
+status=Waiting for tracked person
+```
+
+| 字段 | 含义 | 不正常时说明 |
+|---|---|---|
+| `hand.listening` | UDP 7011 是否绑定 | False：端口被占，点面板「重连」或彻底退出 Unity |
+| `hand.receiving` | 0.6 s 内是否收到报文 | False 但 listening True：`run.cmd` 没在发 |
+| `hand.frames` | 累计接受帧数 | 不增长：报文被校验拒了 |
+| `hands.ready` | 角色手上是否绑到指骨 | False：Console 找 `No finger bones resolved` |
+| `handBones` / `curlBones` | 绑定到的指骨数 | 正常 30/30 |
+| `rollL` / `rollR` | 手腕相对绑定姿势的转角（度） | 翻掌时应有明显变化；恒为 0 说明 basis 没到 |
+| `calibrated` | 身体是否完成标定 | False 时 `status` 会写缺哪个关节 |
+| `legNote` | 缺的关节名 | 如「左膝、右膝」= 腿部没入画 |
+
+## 2.6 排查表
+
+按「症状 → 先看什么 → 通常原因」的顺序，比猜快。
+
+| 症状 | 先看 | 通常原因与处理 |
+|---|---|---|
+| 面板一直「未收到手部数据」 | `hand.listening` | 端口冲突，点面板「重连」；仍失败彻底退出 Unity |
+| `hand.receiving=False` | 命令行有没有在出帧 | `run.cmd` 没启动，或彩色流断开 |
+| 角色手指完全不动 | `hands.ready` / Console | `No finger bones resolved`：角色没有指骨，或 Avatar 没映射（已按名字回退，含 `Pinky→Little`、`*End` 跳过） |
+| 握拳只握到一半 / 手指像爪子 | 手感 + `rollL/rollR` | **本轮已修**：Unity 侧每帧重置导致只走到目标的 26%。若仍如此，确认 `HumanoidReplay.cs` 是最新版本并已重编译 |
+| 手腕朝向翻 180° | `rollL/rollR` | 历史原因：`wire_axes` 少做 `(x,-y,-z)`，腕子恒定差 180°。现已固定 |
+| 手拿在胸前就乱 | 手掌在画面里的大小 | 历史原因：掌面靠推断 + 投影矩阵尺度错（放大 1/cos 前倾）。现已改为实测 basis |
+| 手掌朝上/朝下但角色掌心朝反 | — | 点面板「手掌：正常 / 已反向」，等价于 `AstraLivePlayer.flipPalmNormal` |
+| 左右手反了 | `--mirror` | 有身体数据时由手腕左右顺序决定；否则用 `--no-mirror` 关闭交换 |
+| 手掌很小、识别不到 | — | 靠近到 1.5 m 内、开灯 |
+| 张开和握拳看起来一样 | 手部骨架（掌心平面）小窗 | 若小窗里手指是**摊开的扇子** → 弯曲量没上去（Python 侧）；若是**折回掌心的短链** → Python 对、Unity 没跟上（C# 侧） |
+
+最后一行是这一轮最重要的分诊方法：**小窗是 Python 侧的真相，角色是整条链路的真相**，两者不一致就说明问题在 Unity。
+
+## 2.7 性能与关闭
+
+- 单帧预算：MediaPipe 在 CPU 上约占 12–20 ms，整条链路在录屏环境稳定 25–30 fps（`--preview` 窗口左上角显示实时帧率）。
+- 手部报文约 25–35 Hz，Unity 侧 `timeoutSeconds=0.6`，超时即 `RelaxHand`。
+- 关闭：先关命令行窗口（会 terminate 它拉起的桥），再退出 Unity Play。反过来会让桥留在后台占相机。
+
+---
+
+# Ⅲ 开发日志
+
+只记「症状 → 量到的原因 → 改动 → 验证」，不记过程。失败的分析也保留，因为同一个坑会回来。
+
+## 2026-11-09 ｜ 立项与第一版
+
+**症状**：19 点身体契约里没有手指，角色手是固定先验握拳。
+
+**做法**：
+1. 核查摄像头能力：Astra 的 `hand_capi` 只给掌心点，深度流只有距离 → 手指只能用彩色 + 关键点。
+2. 第一版直接取 MediaPipe 的 `world_landmarks`。录屏实测它在手背离镜头时塌（掌长 100→36 mm、掌宽 65→7 mm、帧间掌法线最大转 120°），且分不出弯没弯：同一段录屏按人眼分组，张开手 144.8°、握拳 134.6°，**方向是反的**。
+3. 改为二维重建：手掌当刚性平面定姿态，手指当一自由度链，用「弦长比 + 二维折返度」反解弯曲量，再按真人屈曲曲线摊到三个关节。
+4. Unity 侧新增 `ApplyHandSkeleton`：腕三自由度 + 每根指骨沿实测段方向旋转；角色 Avatar 无手指槽，改为按骨骼名回退（`Pinky→Little`、跳过 `*End`）。
+
+**验证**：手部 36 项单测；角色手骨 30/30 绑定；单指动作可用。
+
+## 2026-11-10 上午 ｜ 抖动与手骨审计
+
+**症状**：「效果还是很差」；同时要求「要么四个角色都加手骨，要么都不加」。
+
+**量到的原因**：
+1. 21 个关节点从未滤波（只有弯曲量滤了）。手在画面里 60–90 px 时，点噪声让手指缓慢爬行。
+2. 手骨是否存在没人量过，只凭肉眼。
+
+**改动**：
+1. `hand3d._settle`：带门限的一阶低通，`POINT_SMOOTHING=0.65`、`POINT_SNAP=0.20` 掌长——超过门限判为真实运动，原样放行。抖动 0.0445 → 0.0223 掌长，握拳仍在 2 帧内闭合。
+2. `tools/audit_hand_rigs.py`：从文件层面解析 prefab 的 `m_Name` 与 VRM 的 `VRMC_vrm.humanoid.humanBones`，按与 `HumanoidReplay` 相同的名字归一化规则统计。
+
+**验证**：四角色各 15/15/手，无需补骨架；`tests/test_hand_rigs.py` 钉住 4×2×15。
+
+## 2026-11-10 中午 ｜ 弯曲量重写
+
+**症状**：「只要手不是完全正对镜头，就分不出张开还是握拳；手拿到胸前骨架就乱」。
+
+**量到的原因**（把录屏的摄像头小窗逐帧喂回管线）：
+1. 旧判据是「指根→指尖弦长 ÷ 手掌投影长度」。掌长是全手最不稳定的数：t=24 那帧只剩 22.7 px（前一秒 60 px），弦长比冲到 **2.35**（伸直的手指最多 0.88），被 `CHORD_CEILING=1.30` 钳住 → 读数恒 0.00，**拳头读成张手**。握拳恰好是掌长投影最短的姿势，也就是最容易饱和的那一档。
+2. 掌长轴一律假设在像平面内。前倾 >25° 时假设失效，投影模型整条错。
+
+**改动**：
+1. `_fit_curl`：按候选弯曲量重建手指并投影，与观测到的三段指骨比对，只差一个整体缩放（最小二乘）。自由缩放让「整体被压扁」从答案里消失，不再有可饱和的比值。
+2. `_frame`：用「观测宽长比 ÷ 标定宽长比」把前倾与 roll 分开。
+3. 求逆从「除以法线深度」改为 2×2 矩阵求逆（那个除法在侧对镜头时发散）。
+4. `run.py`：手部状态清理从「立刻」改为 1 秒宽限 `HAND_GRACE`。
+
+**验证**：同一条录屏，握拳段 0.00/0.18/0.71 → 0.84–1.00；张手段 0.00–0.30。
+
+## 2026-11-10 傍晚 ｜ 掌面改用实测，修尺度错
+
+**症状**：「能不能不用 2D 投影，Astra 不是 3D 摄像头吗；以前用 MediaPipe 做开源项目没这么差」。
+
+**量到的原因**：
+1. 掌面是**推断**的，与 world landmarks 给出的实测相比，中位差 **63.9°**、p90 132°、最大 173°——不是「有点误差」，是方向随时可能反过来。推断靠「掌宽/掌长比」，基准是本次会话见过的最宽；手一直举着就永远猜不准。
+2. 二维关键点按**投影后**掌长归一化，而 2×2 投影矩阵用单位轴，差一个 `cos(前倾)`：前倾 63° 时指根被放大 **2.2 倍**，指骨却还是原长。
+3. `tracker.upright` 把 world landmarks 翻成 Y 朝上，而下游全按 Y 朝下写，差一个绕 x 的 180°。
+
+**改动**：`tracker.image_frame`（统一到图像系）、`run.py::palm_frame`（取正交化三轴）、`hand3d.solve(basis=)`（给了就用，退化回退推断）、投影矩阵先除 `cos(前倾)` 再求逆。
+
+**关于 Astra 的深度**：桥只推彩色（`native/main.cpp --color-port` 发 `DFCF` + RGB24），`feed.py` 也只认这一种包，链路里没有深度流、没有深度端口、没有彩色↔深度配准。深度唯一能顶替的正是「掌面朝向」，而那恰好是 world landmarks 免费给出的量；对手指这种 12–18 mm 的细圆柱，结构光会丢斑。所以这一轮不接深度。
+
+**验证**：掌面夹角 63.9°/132° → 0；弯曲量误差 0.240 → 0.146；前倾 63° 尺度 ×2.2 → ×1.0；合成手前倾 63° 指尖误差 0.64 掌长 → 0.00。
+
+## 2026-11-10 晚 ｜ 修 Unity 侧欠旋转（本轮）
+
+**症状**：「手指握拳等的东西还是不太行」。
+
+**量到的原因**：这次不在 Python 侧，而在 `HumanoidReplay.ApplyHandSkeleton` 的平滑写法。
+
+```csharp
+// 修改前
+hand.localRotation = handLocalBinds[side];              // 每帧先重置到绑定姿势
+for (...) bones[i].localRotation = handBindRotations[side][i];
+for (...) bone.rotation = Quaternion.Slerp(bone.rotation,
+              Quaternion.FromToRotation(current, desired) * bone.rotation, t);
+```
+
+每帧先把所有骨骼**重置回绑定姿势**，再朝目标插值 `t`（`t = 1 - exp(-18 · dt)`，60 fps 下 0.259）。重置把上一帧的进度全部抹掉，于是插值永远积累不起来，姿势停在一个**固定分数**的目标上，而不是收敛到目标：
+
+| | 目标 | 修前（60 fps） | 修前（90 fps） | 修后 |
+|---|---:|---:|---:|---:|
+| 握拳三段累积弯曲 | 255° | **114.4°** | **84.5°** | 255° |
+| 腕部转角 | 90° | **23.3°** | — | 90° |
+
+114° 的指尖是什么样：手指弯了，但没有绕回掌心——看起来是**一把松开的爪子**，而不是拳。腕部同时只转到目标的四分之一，等于掌心朝向也没跟上。帧率越高越糟。
+
+**改动**（`unity/Packages/com.dollfight.humanoid/Runtime/HumanoidReplay.cs`）：
+1. 删掉每帧的绑定姿势重置（腕一处、指骨一处）。位移式瞄准本来就是安全的：`handBindDirections` 是**骨骼自身空间**里的方向，`bone.rotation * direction` 无论骨骼怎么转都等于它的真实段方向，所以 `FromToRotation` 只需要补剩余的差。
+2. 保留 `Slerp`，但它现在是一阶滤波：从当前位置收敛到目标，60 fps 约 4 帧（67 ms）。
+3. 补两处：`t` 加 `Clamp01`（暂停恢复时 `dt` 可能很大）；残余夹角小于 0.15° 时跳过，避免噪声驱动的微抖。
+
+**验证**：把这段循环按 C# 的语义（含父子继承）逐帧模拟，得到上表。**Unity 侧本轮没能在 CI 里编译**——编辑器开着工程，batchmode 起不来，所以这一条需要在编辑器里自动重编译后由人确认；Python 侧未改动。
+
+## 2026-11-10 晚 ｜ 文档整理
+
+新增本文；`docs/hand-tracking.md` 补 11.4 节记录欠旋转；模块 README 的排查表补「握拳只握到一半」一行。

@@ -1,0 +1,567 @@
+"""Rebuilds a 3D hand from MediaPipe's 2D landmarks.
+
+MediaPipe's *world* landmarks turned out to be unusable for retargeting.
+Measured on a real recording of this project they collapse as soon as the palm
+turns away from the camera: the palm length drops from 100 mm to 36 mm and the
+palm width from 65 mm to 7 mm, while the 2D landmarks stay pixel accurate.
+
+Everything built on the world landmarks inherits that collapse:
+
+* the palm frame's x axis is the part of ``pinky - index`` perpendicular to
+  ``wrist -> middle``, so once the palm is edge-on it is pure noise; the frame
+  spun up to 126 degrees between two consecutive frames, which is the
+  "skeleton garbles when I turn my palm" symptom;
+* the out-of-plane component of a finger disappears, so a fist only moves the
+  fingertips inside the palm plane: "the gaps between the fingers close, but it
+  never makes a fist".
+
+This module ignores the world landmarks and rebuilds the hand from the 2D
+landmarks plus two anatomical facts:
+
+* the palm is flat and rigid, so its two in-image axes and the hand's
+  width/length ratio fix its plane, up to the usual two-fold reflection which is
+  resolved by continuity;
+* a finger is a one degree of freedom chain. Every phalanx has a fixed length
+  and hinges about an axis parallel to the knuckles, so the whole finger is
+  described by *one* number - how far it has curled - and the flexion profile of
+  a real hand says how that number is spread over the three joints.
+
+The second point is what makes a fist possible. Measuring each phalanx
+separately and pushing each joint out of the plane by whatever depth restores its
+length looks reasonable but is wrong: the errors of the three segments add up
+instead of cancelling, and a closed hand comes out as a claw pointing at the
+camera. Fitting one curl value and expanding it through a real flexion profile
+keeps the chain a chain, so the fingertips arc back into the palm.
+
+The output is expressed in the hand's own frame - ``x = index knuckle ->
+little knuckle``, ``y = wrist -> middle knuckle``, ``z = x cross y`` - which is
+the same frame ``skeleton.hand_basis`` builds from the landmarks and the same
+construction ``HumanoidReplay`` uses on the avatar, so the receiver rebuilds the
+points without any extra convention.
+"""
+
+from __future__ import annotations
+
+import math
+
+import numpy as np
+
+LANDMARK_COUNT = 21
+WRIST = 0
+THUMB_CMC = 1
+INDEX_MCP = 5
+MIDDLE_MCP = 9
+RING_MCP = 13
+PINKY_MCP = 17
+
+# A palm can only ever look narrower than it is, so the running maximum of the
+# observed width and length converges on the hand's true proportions. It decays
+# slowly so a hand held differently can re-calibrate instead of pinning them.
+DECAY = 0.9993
+
+# How much of the image the palm's two axes have to span before their 2x2
+# matrix can be inverted. This is the determinant of the projected axes - the
+# palm's footprint - and it is what replaces the old "normal points at the
+# camera" test: past this the palm is edge-on and the depth of every landmark
+# is unknowable, so the frame is refused instead of invented.
+MIN_PALM_FOOTPRINT = 0.18
+
+# Finger chains: base joint followed by the three phalanx lengths, as a
+# fraction of the palm length (wrist -> middle knuckle). Anthropometric means.
+FINGERS = {
+    "Thumb": ((THUMB_CMC, 2, 3, 4), (0.30, 0.26, 0.22)),
+    "Index": ((INDEX_MCP, 6, 7, 8), (0.42, 0.26, 0.20)),
+    "Middle": ((MIDDLE_MCP, 10, 11, 12), (0.46, 0.28, 0.21)),
+    "Ring": ((RING_MCP, 14, 15, 16), (0.43, 0.27, 0.20)),
+    "Little": ((PINKY_MCP, 18, 19, 20), (0.34, 0.21, 0.18)),
+}
+
+# Cumulative flexion of each phalanx out of the palm plane at a fully closed
+# fist, in radians. Metacarpophalangeal joints close to ~90 degrees, proximal
+# interphalangeal to ~190 and distal to ~255, which is what wraps the fingertip
+# back onto the palm instead of leaving it sticking out into the air.
+FLEXION = {
+    "Thumb": (0.85, 2.00, 2.85),
+    "Index": (1.45, 3.30, 4.45),
+    "Middle": (1.45, 3.30, 4.45),
+    "Ring": (1.45, 3.30, 4.45),
+    "Little": (1.45, 3.30, 4.45),
+}
+
+# ``z = x cross y`` with ``x`` towards the little finger and ``y`` towards the
+# fingers is not the same anatomical direction on both hands. Worked out from a
+# right hand held palm-to-camera with the fingers up - thumb to the viewer's
+# left, so ``x = +X``, ``y = up`` - the cross product lands on ``+Z``, i.e. out
+# of the palm. Mirror that hand to get a left one and the same construction lands
+# on the back of the hand. Multiplying z by this constant gives the palm normal,
+# the direction a closing finger bends towards, on both sides.
+#
+# Getting this sign wrong is silent: the hand still reconstructs, but every
+# finger curls away from the palm and the first frame's plane branch is chosen
+# mirrored, which locks the whole hand to the wrong side of its own palm.
+PALM_SIDE = {"Right": 1.0, "Left": -1.0}
+
+# How much of the previous frame's curl to keep. Enough to stop landmark noise
+# twitching the fingers, short enough that a real fist still snaps shut.
+CURL_SMOOTHING = 0.55
+
+# The same idea for the 21 joints themselves, which is what actually drives the
+# avatar. ``curl`` was already filtered but the joints were sent raw, so the fan
+# of the fingers and the thumb's heading twitched at the landmark noise level
+# even while the hand was held still - the fingers looked like they were
+# crawling rather than flexing.
+#
+# The filter is one sided: it only engages while the hand is holding still.
+# A joint that moves more than POINT_SNAP in one frame is real motion, and gets
+# through untouched, so closing a fist costs no extra lag. Values are in palm
+# lengths, where landmark noise sits around 0.02-0.05 and a closing finger moves
+# 0.3 or more.
+POINT_SMOOTHING = 0.65
+POINT_SNAP = 0.20
+
+# Bounds for the running calibration of the finger chords.
+#
+# The chord reading is only a fallback these days - the curl is fitted - but the
+# reference still has to be kept in its box, because it is also what a finger
+# falls back on when the fit has nothing to work with. It is tracked as a
+# running maximum, which is right in principle and catastrophic in practice: one
+# frame where the palm estimate collapsed to a few pixels divides by almost
+# nothing, the maximum jumps by an order of magnitude, and because it only
+# decays by 0.07 % per frame it stays wrong for the rest of the session. The hand
+# then reads as a permanent fist - opening it changes nothing on screen.
+#
+# A chord can never exceed the phalanges it spans, so the reference is clamped
+# near the anthropometric sum and can no longer absorb a bad frame.
+CHORD_FLOOR = 0.80
+CHORD_CEILING = 1.30
+
+# A palm is longer than it is wide. Anything past this is a collapsed estimate,
+# not a hand, and the frame is dropped instead of being fed to the calibration.
+PALM_ASPECT_MAX = 1.35
+# The same, relative to what this hand has already measured: a palm that shrinks
+# to a fraction of its own recent size is a detection failure.
+PALM_COLLAPSE = 0.30
+
+# Which curl explains the three phalanges the camera saw.
+#
+# The old reading divided a finger's projected chord by a reference chord and
+# called the ratio a curl. Measured on the recordings this project actually
+# runs on, that ratio is not a shape at all: the reference is in palm lengths,
+# and the palm's projected length is the least stable number in the image. Tilt
+# the hand so the wrist-to-knuckle axis points at the camera and the palm
+# collapses (60 px -> 23 px measured) while the fingers still project long, so
+# every finger reads *longer than a straight finger can be*, the ratio
+# saturates, and a fist comes out as an open hand. That is the "it cannot tell
+# my fist from my open palm unless my palm is square to the camera" report, and
+# it holds for any threshold chosen on that ratio.
+#
+# So the curl is fitted instead of measured: for each candidate the finger is
+# rebuilt and projected, and the projected chain is compared with the observed
+# one up to a single scale factor. The scale is free, which is exactly what
+# removes the palm's foreshortening from the answer - a uniform shrink or
+# stretch of the observed fingers cannot change which candidate fits best.
+#
+# The cost is the residual of that fit, normalised by the observed chain, so it
+# is comparable across frames and finger sizes.
+MIN_FIT_SPAN = 0.25      # palm lengths of phalanx that must be visible to fit
+FIT_CONTINUITY = 0.12    # pull towards the previous frame, in residual units
+
+# What the fitted curl has to be stretched by to mean "how closed is this hand".
+#
+# The fit asks which of the table's flexion profiles the picture agrees with,
+# but MediaPipe puts its landmarks on the *surface* it can see rather than at the
+# joint centres: a knuckle folds and the landmark stays out on the outside of the
+# bend, so the chain it reports is always less folded than the hand is. Measured
+# on this project's own recordings, a held fist fits 0.45-0.70 and an open hand
+# 0.00-0.15, never the 1.00 the table says a fist is. Without the stretch the
+# avatar curls its fingers halfway and the fist never closes, which is what "it
+# cannot see my fist" looks like on screen even when the numbers are moving.
+CURL_FLOOR = 0.25
+CURL_CEILING = 0.65
+
+# A thumbs-up is the thumb moving *out of* the palm, not the thumb curling, and
+# the direction it takes is measured from the landmarks instead of assumed.
+MIN_THUMB_REACH = 0.45
+
+_TABLE_STEPS = 41
+
+
+def _curl_table(name: str) -> tuple[np.ndarray, np.ndarray]:
+    """Map ``curl`` to the chord the finger would project, as a ratio."""
+    lengths = np.asarray(FINGERS[name][1], dtype=np.float64)
+    angles = np.asarray(FLEXION[name], dtype=np.float64)
+    straight = float(lengths.sum())
+    rows = []
+    for curl in np.linspace(0.0, 1.0, _TABLE_STEPS):
+        theta = angles * curl
+        columns = np.stack((np.cos(theta), np.sin(theta)), axis=1) * lengths[:, None]
+        rows.append(float(np.linalg.norm(columns.sum(axis=0))) / straight)
+    return np.linspace(0.0, 1.0, _TABLE_STEPS), np.asarray(rows)
+
+
+_TABLES = {name: _curl_table(name) for name in FINGERS}
+
+
+def _unit(vector: np.ndarray) -> np.ndarray | None:
+    length = float(np.linalg.norm(vector))
+    if not np.isfinite(length) or length < 1e-9:
+        return None
+    return vector / length
+
+
+def curl_from_ratio(name: str, ratio: float) -> float:
+    """Invert the chord table: how curled is a finger whose chord is ``ratio``."""
+    grid, chords = _TABLES[name]
+    value = min(max(float(ratio), float(chords[-1])), 1.0)
+    return float(np.interp(-value, -chords, grid))
+
+
+class HandLift:
+    """Stateful 2D -> 3D hand reconstruction.
+
+    One instance serves both hands; the per-side state (measured proportions,
+    the palm normal and each finger's curl) is keyed by ``"Left"`` / ``"Right"``.
+    """
+
+    def __init__(self, aspect: float = 4.0 / 3.0):
+        self.aspect = float(aspect) if aspect > 0 else 4.0 / 3.0
+        self._pixels: dict[str, dict] = {}
+        self._normal: dict[str, np.ndarray] = {}
+        self._curl: dict[str, dict[str, float]] = {}
+        self._points: dict[str, np.ndarray] = {}
+        self._flat: dict[str, np.ndarray] = {}
+
+    def reset(self, side: str | None = None) -> None:
+        for name in ([side] if side else list(self._normal)):
+            self._pixels.pop(name, None)
+            self._normal.pop(name, None)
+            self._curl.pop(name, None)
+            self._points.pop(name, None)
+            self._flat.pop(name, None)
+
+    # ---------------------------------------------------------------- helpers
+
+    def _settle(self, side: str, local: np.ndarray) -> np.ndarray:
+        """Low-pass the joints, but only while the hand is holding still.
+
+        The gate compares the largest coordinate change against
+        ``POINT_SNAP``: anything above it is the hand moving, and is passed
+        through so a fist still closes at full speed.
+        """
+        previous = self._points.get(side)
+        if previous is not None and previous.shape == local.shape:
+            step = float(np.max(np.abs(local - previous)))
+            if step <= POINT_SNAP:
+                local = POINT_SMOOTHING * previous + (1.0 - POINT_SMOOTHING) * local
+        self._points[side] = local
+        return local
+
+    def _calibrate(self, side: str, palm_px: float, width_px: float,
+                   chords: np.ndarray, trusted: bool):
+        """Track this hand's proportions so the readings are self-referential.
+
+        The palm and its width are tracked as running maxima because a rigid
+        object can only ever project smaller than it is, and each axis is
+        largest when it faces the camera square on.
+
+        The finger chord reference is tracked the same way but clamped to a
+        narrow band around the anthropometric sum. Without the clamp a single
+        collapsed frame sets the reference an order of magnitude too high and
+        every later frame reads as a closed fist; with it, the worst a bad frame
+        can do is saturate this one frame's reading.
+
+        ``trusted`` is false when the frame's proportions are not those of a
+        hand. The frame is still reconstructed - the hand should not blink out
+        just because it is pointing at the camera - but it does not get to
+        rewrite the reference the rest of the session is measured against.
+        """
+        state = self._pixels.get(side)
+        straight = np.array([sum(FINGERS[name][1]) for name in FINGERS])
+        if state is None:
+            state = {"palm": palm_px, "width": width_px, "chord": straight.copy()}
+        if trusted:
+            state["palm"] = max(state["palm"] * DECAY, palm_px)
+            state["width"] = max(state["width"] * DECAY, width_px)
+            state["chord"] = np.clip(np.maximum(state["chord"] * DECAY, chords),
+                                     straight * CHORD_FLOOR,
+                                     straight * CHORD_CEILING)
+        self._pixels[side] = state
+        ratio = float(state["width"]) / max(float(state["palm"]), 1e-6)
+        return min(max(ratio, 0.40), 0.90), np.asarray(state["chord"], dtype=np.float64)
+
+    @staticmethod
+    def _fit_curl(name: str, observed: np.ndarray, projected: np.ndarray,
+                  palm: np.ndarray, previous: float | None) -> float | None:
+        """Which curl best reproduces the phalanges the camera saw.
+
+        ``observed`` is the finger's three phalanx vectors as measured in the
+        image, ``projected`` the image direction of a straight phalanx leaving
+        the knuckle across the palm (``x`` in the hand frame), and ``palm`` the
+        palm normal's image components - the direction a closing finger bends
+        towards. For a candidate curl the finger is rebuilt and projected, and
+        the two chains are compared after fitting one scale factor.
+
+        That free scale is the whole point. The old criterion divided the
+        finger's chord by the palm's projected length, and the palm is the part
+        of the hand that disappears first when it tilts; the observed fingers
+        then read longer than a straight finger can be, the ratio saturates and
+        a fist is indistinguishable from an open hand. Fitting the shape instead
+        of a ratio makes a uniform shrink or stretch of the observed fingers
+        irrelevant, so the answer no longer depends on how squarely the palm
+        faces the camera.
+
+        Returns ``None`` when the finger projects too small to say anything -
+        pointed at the camera it is a few pixels of noise, and the caller keeps
+        its previous estimate rather than inventing one.
+        """
+        span = float(np.sum(np.linalg.norm(observed, axis=1)))
+        if span < MIN_FIT_SPAN:
+            return None
+        grid = np.linspace(0.0, 1.0, _TABLE_STEPS)
+        angles = np.asarray(FLEXION[name], dtype=np.float64)
+        lengths = np.asarray(FINGERS[name][1], dtype=np.float64)[:, None]
+        best_cost, best = None, 0.0
+        for candidate in grid:
+            theta = angles * candidate
+            chain = lengths * (np.cos(theta)[:, None] * projected
+                               + np.sin(theta)[:, None] * palm)
+            denom = float(np.sum(chain * chain))
+            if denom < 1e-12:
+                continue
+            scale = float(np.sum(chain * observed)) / denom
+            residual = float(np.sum((scale * chain - observed) ** 2)) / (span * span)
+            if previous is not None:
+                residual += FIT_CONTINUITY * (float(candidate) - previous) ** 2
+            if best_cost is None or residual < best_cost:
+                best_cost, best = residual, float(candidate)
+        return best
+
+    def _frame(self, side: str, across: np.ndarray, along: np.ndarray,
+               ratio: float):
+        """Orthonormal palm axes, or ``None`` when the palm is degenerate.
+
+        ``ratio`` is how wide this hand is compared with its own palm, measured
+        when the palm was square to the camera. Both of the palm's observed
+        axes are then compared with that: whatever the pair is *narrower* than
+        it should be is foreshortening, and the only question is which axis it
+        belongs to.
+
+        The previous version answered that by fiat - the length axis was assumed
+        to lie in the image plane - and the assumption is wrong for the one pose
+        this project is actually used in: a hand held at chest height, tipped
+        forward. Tipping shrinks the palm's length and nothing else, so the
+        observed width/palm ratio climbs above the calibrated one, and that
+        excess is the tilt. Splitting it off is what lets the flexion fit know
+        that a closing finger is curling away from the camera rather than across
+        the picture, which is the difference between "fist" and "no idea".
+        """
+        forward = _unit(np.array([along[0], along[1], 0.0]))
+        if forward is None:
+            return None
+        width = float(np.linalg.norm(across))
+        if width < 1e-6:
+            return None
+        # width/palm observed over width/palm calibrated. A pure roll makes it
+        # smaller than one, a pure tilt makes it bigger than one; anything left
+        # over after the tilt is the roll.
+        shrink = width / max(ratio, 1e-6)
+        along_seen = min(1.0, 1.0 / max(shrink, 1e-6))
+        lean = math.sqrt(max(1.0 - along_seen * along_seen, 0.0))
+        across_seen = min(shrink * along_seen, 1.0)
+        rise = math.sqrt(max(1.0 - across_seen * across_seen, 0.0))
+        direction = across / width
+        candidates = []
+        for tilt in (lean, -lean):
+            y = _unit(np.array([forward[0] * along_seen, forward[1] * along_seen, tilt]))
+            if y is None:
+                continue
+            for sign in (rise, -rise):
+                x = np.array([across_seen * direction[0], across_seen * direction[1], sign])
+                x = _unit(x - y * float(x @ y))
+                if x is None:
+                    continue
+                z = _unit(np.cross(x, y))
+                if z is None:
+                    continue
+                candidates.append((x, y, z))
+        if not candidates:
+            return None
+        previous = self._normal.get(side)
+        if previous is not None:
+            return max(candidates, key=lambda c: float(c[2] @ previous))
+        # First frame: one frame cannot say which side of the image plane the
+        # palm leans towards - both candidates project identically - so take the
+        # first and let continuity pin it. When the palm is face-on, which is how
+        # a user stands when they start the tracker, the two coincide anyway.
+        return candidates[0]
+
+    # ------------------------------------------------------------------ solve
+
+    def solve(self, screen, side: str, basis=None):
+        """Return ``(local_points, palm_length_px, axes)`` or ``None``.
+
+        ``screen`` is MediaPipe's normalised 2D landmarks and ``side`` decides
+        which way the palm faces. ``local_points`` are 21 joints in the hand
+        frame, normalised by the palm length; ``axes`` are that frame's three
+        unit axes in the image frame (x right, y down, z into the scene).
+
+        ``basis`` is the palm's orientation measured from MediaPipe's world
+        landmarks, when the caller has it. The camera cannot see how far the
+        palm is tipped towards or away from it - the same picture is produced by
+        a short palm and by a long palm pointing at the lens - so ``_frame`` has
+        to infer the tip from how much narrower the palm looks than it did when
+        it was square to the camera. That inference is the weakest number in
+        this file: it depends on the hand having been shown flat at least once,
+        and it is 64 degrees out at the median on the recording available here,
+        173 at worst (measured against the world landmarks, which see the tip
+        directly). Everything
+        downstream - where the knuckles sit in depth, which way in the picture a
+        closing finger bends - is built on those axes, which is why a hand held
+        at chest height used to come out as a tangle.
+        """
+        if side not in PALM_SIDE:
+            raise ValueError(f"side must be 'Left' or 'Right', got {side!r}")
+        q = np.asarray(screen, dtype=np.float64)[:, :2]
+        if q.shape != (LANDMARK_COUNT, 2) or not np.all(np.isfinite(q)):
+            return None
+        # MediaPipe normalises x by the image width and y by its height.
+        q = q * np.array([self.aspect, 1.0])
+        q = q - q[WRIST]
+
+        palm_pixels = float(np.linalg.norm(q[MIDDLE_MCP]))
+        if palm_pixels < 1e-6:
+            return None
+        width_pixels = float(np.linalg.norm(q[PINKY_MCP] - q[INDEX_MCP]))
+        # Two ways a detection goes wrong in a way that outlives the frame,
+        # because the calibration is stateful: the palm shrinks to a fraction of
+        # itself, or it comes back wider than it is long. The first is a lost
+        # hand and there is nothing to reconstruct, so the frame goes. The
+        # second is usually a genuine foreshortened palm pointing at the camera,
+        # so the frame is kept but barred from rewriting the calibration.
+        known = self._pixels.get(side)
+        if known is not None and palm_pixels < known["palm"] * PALM_COLLAPSE:
+            return None
+        trusted = width_pixels <= palm_pixels * PALM_ASPECT_MAX
+        names = list(FINGERS)
+        chords = np.array([float(np.linalg.norm(q[FINGERS[name][0][3]] - q[FINGERS[name][0][0]]))
+                           for name in names]) / palm_pixels
+        ratio, chord_ratios = self._calibrate(
+            side, palm_pixels, width_pixels, chords, trusted)
+        u = q / palm_pixels  # palm length == 1 from here on
+
+        across = u[PINKY_MCP] - u[INDEX_MCP]
+        along = u[MIDDLE_MCP] - u[WRIST]
+
+        palm_side = PALM_SIDE[side]
+        x = y = z = None
+        if basis is not None:
+            # Measured orientation wins over the inferred one. It is already in
+            # the image frame (see ``tracker.image_frame``) and orthonormal, so
+            # the projection below is a plain 2x2 map with no correction terms.
+            axes = [np.asarray(axis, dtype=np.float64) for axis in basis]
+            if len(axes) == 3 and all(np.all(np.isfinite(a)) for a in axes):
+                x, y, z = axes
+        if x is None:
+            picked = self._frame(side, across, along, ratio)
+            if picked is None:
+                return None
+            x, y, z = picked
+        self._normal[side] = z
+
+        # The palm's own projection, as a 2x2 map from palm coordinates to
+        # image coordinates. Inverting it is how every landmark gets its place
+        # on the palm: the old code divided by the normal's depth instead, which
+        # multiplies the error by 1/n_z and explodes as the palm turns edge-on.
+        # The determinant is the palm's footprint in the image - when it is too
+        # small the knuckles' depth is simply not observable, so the frame is
+        # refused rather than invented.
+        #
+        # The map then has to be scaled by how much of the palm's length made it
+        # onto the picture, because ``u`` was divided by exactly that: ``u`` is
+        # in projected palm lengths, not palm lengths. Without it every knuckle
+        # lands 1/cos(tip) too far from the wrist - a hand tipped 60 degrees
+        # comes out twice its size, with finger lengths that no longer belong to
+        # it, which is what "a tangle in front of the chest" looked like.
+        # How much of the palm's length made it onto the picture. One means the
+        # palm lies in the image plane, zero means it points at the lens.
+        seen = float(np.hypot(y[0], y[1]))
+        projection = np.array([[x[0], y[0]], [x[1], y[1]]])
+        footprint = float(projection[0, 0] * projection[1, 1]
+                          - projection[0, 1] * projection[1, 0])
+        if np.isfinite(footprint) and abs(footprint) >= MIN_PALM_FOOTPRINT:
+            flat = np.linalg.solve(projection / max(seen, 1e-9), u.T).T
+            self._flat[side] = flat
+        else:
+            # The palm is edge-on and the knuckles' depth simply is not in the
+            # picture. The palm is rigid, so the last frame that could be solved
+            # still describes it - holding that beats dropping the hand for the
+            # second it takes to turn over.
+            flat = self._flat.get(side)
+            if flat is None:
+                return None
+
+        # Fingers hinge towards the palm. In the hand frame that is +z times
+        # this sign; in the image it is these two components.
+        palm_axis = np.array([0.0, 0.0, palm_side])
+        palm_image = palm_side * np.array([z[0], z[1]])
+
+        points = np.zeros((LANDMARK_COUNT, 3))
+        for joint in (WRIST, THUMB_CMC, INDEX_MCP, MIDDLE_MCP, RING_MCP, PINKY_MCP):
+            points[joint] = np.array([flat[joint][0], flat[joint][1], 0.0])
+
+        curls = self._curl.setdefault(side, {})
+        for index, name in enumerate(names):
+            chain, lengths = FINGERS[name]
+
+            # The direction the finger leaves the palm in, in palm coordinates.
+            # For the four fingers that is the knuckle's offset from the wrist:
+            # their metacarpals are rigid, so it gives the fan angle for free and
+            # does not swing when the finger curls. A curled finger's first
+            # phalanx points at the camera, so reading the fan angle off that
+            # instead would swing the whole finger sideways as the hand closes.
+            #
+            # The thumb is the exception. Its metacarpal swings, and that swing
+            # *is* the gesture - sticking a thumb up or out is the thumb moving
+            # away from the palm, not curling. So its direction is measured from
+            # the landmarks themselves, and the anatomical direction is only a
+            # fallback for when the thumb is folded too tightly to have one.
+            beyond = _unit(flat[chain[0]] - flat[WRIST])
+            heading = beyond
+            if name == "Thumb":
+                reach = flat[4] - flat[1]
+                if float(np.linalg.norm(reach)) > MIN_THUMB_REACH:
+                    measured = _unit(reach)
+                    if measured is not None:
+                        heading = measured
+            if heading is None:
+                continue
+
+            observed = np.array([u[chain[k + 1]] - u[chain[k]] for k in range(3)])
+            fitted = self._fit_curl(
+                name, observed, projection @ heading, palm_image, curls.get(name))
+            if fitted is None:
+                # Nothing but a smudge of pixels: keep what this finger was
+                # doing instead of re-deciding from noise.
+                wanted = curls.get(name)
+            else:
+                wanted = min(max((fitted - CURL_FLOOR) / (CURL_CEILING - CURL_FLOOR),
+                                 0.0), 1.0)
+            if wanted is None:
+                measured = float(np.linalg.norm(u[chain[3]] - u[chain[0]]))
+                wanted = curl_from_ratio(
+                    name, measured / max(float(chord_ratios[index]), 1e-6))
+            seen = curls.get(name)
+            curl = wanted if seen is None else (
+                (1.0 - CURL_SMOOTHING) * wanted + CURL_SMOOTHING * seen)
+            curls[name] = curl
+
+            cursor = points[chain[0]].copy()
+            straight = np.array([heading[0], heading[1], 0.0])
+            for segment in range(3):
+                angle = FLEXION[name][segment] * curl
+                direction = math.cos(angle) * straight + math.sin(angle) * palm_axis
+                cursor = cursor + direction * lengths[segment]
+                points[chain[segment + 1]] = cursor
+
+        local = points
+        return self._settle(side, local), palm_pixels, (x, y, z)

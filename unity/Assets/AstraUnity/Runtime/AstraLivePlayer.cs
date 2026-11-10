@@ -11,8 +11,18 @@ namespace AstraUnity
     [DefaultExecutionOrder(12500)]
     public sealed class AstraLivePlayer : MonoBehaviour
     {
+        // Selecting a character reloads the scene by name. This object survives
+        // that reload, so without the guard each selection would leave a second
+        // panel drawing on top of the first and a second UDP receiver fighting
+        // over port 7001 — the loser reports "Cannot listen for Astra data" and
+        // the two retargeters overwrite each other's pose.
+        private static AstraLivePlayer live;
+
         public AstraSkeletonReceiver receiver;
+        public AstraHandReceiver handReceiver;
         public float smoothing = 12f;
+        [Tooltip("Flip if the tracked palm comes out mirrored (back of hand where the palm should be).")]
+        public bool flipPalmNormal;
         public string status = "Waiting for game and camera";
         public bool Calibrated { get; private set; }
         public int CalibratedBodyId { get; private set; }
@@ -33,15 +43,30 @@ namespace AstraUnity
             {5,2,3},{6,3,16},{8,5,6},{9,6,17},
             {11,10,11},{15,13,14}
         };
+        // Torso and arms must be solvable before calibrating. The two leg rows
+        // above are optional: a desk, a chair or a tight frame usually hides the
+        // knees, and a missing knee used to fail calibration outright, which
+        // also stopped the hands and the wrist roll from ever being applied.
+        private const int RequiredSegmentCount = 8;
+        // MediaPipe hand chains: wrist, MCP, PIP, DIP, TIP.
+        private static readonly int[][] handChains = {
+            new[] { 0, 1, 2, 3, 4 }, new[] { 0, 5, 6, 7, 8 }, new[] { 0, 9, 10, 11, 12 },
+            new[] { 0, 13, 14, 15, 16 }, new[] { 0, 17, 18, 19, 20 }
+        };
         private readonly bool[] valid = new bool[19];
+        private float[] handCurls;
+        private Vector3[] handPoints;
         private System.Diagnostics.Process sender;
         private readonly object messageLock = new object();
         private string senderMessage = "未启动";
         private string senderError;
         private const float CalibrationInterval = 5f;
         private float nextCalibrationAt = -1f;
+        private float nextGameLookupAt;
+        private float nextStatusWriteAt;
         private string calibrationMessage;
         private float calibrationMessageUntil;
+        private string legNote;
         private Font uiFont;
         private Camera playerWorldCamera, playerBodyCamera;
 
@@ -103,15 +128,38 @@ namespace AstraUnity
 
         void Awake()
         {
+            // A duplicate only makes sense to drop when the survivor is still
+            // alive. A disabled or destroyed survivor must not block the new one,
+            // otherwise a failed reload leaves no panel at all.
+            if (live != null && live != this && live.isActiveAndEnabled)
+            { enabled = false; Destroy(gameObject); return; }
+            live = this;
             if (receiver == null) receiver = GetComponent<AstraSkeletonReceiver>();
+            if (handReceiver == null) handReceiver = GetComponent<AstraHandReceiver>();
+            if (handReceiver == null) handReceiver = gameObject.AddComponent<AstraHandReceiver>();
             game = FindFirstObjectByType<DollFightDemo>();
-            if (receiver == null || game == null) { status = "Missing receiver or DollFightDemo"; enabled = false; return; }
             DontDestroyOnLoad(gameObject);
+            if (receiver == null) { status = "缺少 AstraSkeletonReceiver 组件"; return; }
+            if (game == null) status = "等待 DollFightDemo 加载";
         }
 
         void Update()
         {
-            if (game == null) { game = FindFirstObjectByType<DollFightDemo>(); actor = null; Calibrated = false; }
+            WriteStatus();
+            if (game == null)
+            {
+                // Selecting a character loads another scene, so the demo we were
+                // pointing at is gone. Retry instead of giving up (giving up used
+                // to disable this component, which also hid the whole panel).
+                if (Time.unscaledTime >= nextGameLookupAt)
+                {
+                    nextGameLookupAt = Time.unscaledTime + 0.5f;
+                    game = FindFirstObjectByType<DollFightDemo>();
+                    actor = null;
+                    Calibrated = false;
+                }
+                if (game == null) return;
+            }
             if (game == null || !game.Ready || game.Actors == null || game.Actors[0] == null) return;
             if (actor != game.Actors[0])
             {
@@ -161,7 +209,7 @@ namespace AstraUnity
         public bool Calibrate(SkeletonBody body)
         {
             if (actor == null || body == null || !body.IsTracked) return false;
-            for (int i = 0; i < segments.GetLength(0); i++)
+            for (int i = 0; i < RequiredSegmentCount; i++)
             {
                 Vector3 direction;
                 if (!Direction(body, segments[i,1], segments[i,2], out direction))
@@ -256,7 +304,7 @@ namespace AstraUnity
             if (body == null || !body.IsTracked) return "没有识别到人体";
             var missing = new List<string>();
             var checkedJoint = new bool[19];
-            for (int i = 0; i < segments.GetLength(0); i++)
+            for (int i = 0; i < RequiredSegmentCount; i++)
                 for (int n = 1; n <= 2; n++)
                 {
                     int id = segments[i,n];
@@ -266,11 +314,24 @@ namespace AstraUnity
                     if (joint == null || joint.status == 0) missing.Add(jointNames[id]);
                 }
             if (missing.Count > 0) return "未追踪：" + string.Join("、", missing.ToArray());
-            for (int i = 0; i < segments.GetLength(0); i++)
+            for (int i = 0; i < RequiredSegmentCount; i++)
             {
                 Vector3 v;
                 if (!Direction(body, segments[i,1], segments[i,2], out v))
                     return jointNames[segments[i,1]] + "与" + jointNames[segments[i,2]] + "位置过近";
+            }
+            // Legs are optional. Record what was skipped so the panel can say so
+            // instead of silently pinning the legs to the bind pose.
+            legNote = null;
+            for (int i = RequiredSegmentCount; i < segments.GetLength(0); i++)
+            {
+                string missingLeg = null;
+                for (int n = 1; n <= 2; n++)
+                {
+                    var joint = body.Joint((JointType)segments[i,n]);
+                    if (joint == null || joint.status == 0) missingLeg = jointNames[segments[i,n]];
+                }
+                if (missingLeg != null) legNote = legNote == null ? missingLeg : legNote + "、" + missingLeg;
             }
             return null;
         }
@@ -320,6 +381,66 @@ namespace AstraUnity
             GUI.Label(new Rect(area.x+10, area.yMax-28, area.width-20, 22), "正常 " + tracked + "  低置信度 " + low + "  未追踪 " + (17-tracked-low));
         }
 
+        // Shows the received hand skeleton in the palm plane: proof that the 21
+        // joints arrive attached to this body, independent of the avatar rig.
+        void DrawHandPreview(Rect area)
+        {
+            GUI.Box(area, "手部骨架（掌心平面）");
+            var frame = handReceiver != null && handReceiver.IsReceiving ? handReceiver.LatestFrame : null;
+            if (frame == null || frame.hands == null || frame.hands.Length == 0)
+            {
+                GUI.Label(new Rect(area.x + 10, area.y + 28, area.width - 20, 40), "等待手部数据");
+                return;
+            }
+            float slotWidth = (area.width - 24) / Mathf.Max(1, frame.hands.Length);
+            for (int index = 0; index < frame.hands.Length; index++)
+            {
+                var hand = frame.hands[index];
+                if (hand == null || !hand.HasSkeleton) continue;
+                DrawHandPoints(new Rect(area.x + 12 + index * slotWidth, area.y + 24,
+                    slotWidth - 8, area.height - 32), hand);
+            }
+        }
+
+        void DrawHandPoints(Rect slot, HandEntry hand)
+        {
+            const float lowX = -0.9f, highX = 0.9f, lowY = -0.2f, highY = 2.3f;
+            float scale = Mathf.Min(slot.width / (highX - lowX), slot.height / (highY - lowY));
+            var origin = new Vector2(slot.center.x, slot.yMax - 4);
+            var points = new Vector2[HandEntry.JointCount];
+            for (int i = 0; i < points.Length; i++)
+            {
+                float x = hand.joints[i * 3], y = hand.joints[i * 3 + 1];
+                points[i] = new Vector2(origin.x + x * scale, origin.y - (y - lowY) * scale);
+            }
+            Color tint = hand.IsLeft ? Color.cyan : new Color(1f, 0.72f, 0.2f);
+            for (int finger = 0; finger < handChains.Length; finger++)
+            {
+                var chain = handChains[finger];
+                for (int k = 0; k + 1 < chain.Length; k++)
+                    DrawLine(points[chain[k]], points[chain[k + 1]], tint);
+            }
+            Color old = GUI.color;
+            GUI.color = tint;
+            for (int i = 0; i < points.Length; i++)
+                GUI.DrawTexture(new Rect(points[i].x - 2, points[i].y - 2, 4, 4), Texture2D.whiteTexture);
+            GUI.color = old;
+            GUI.Label(new Rect(slot.x, slot.y - 2, slot.width, 20), hand.IsLeft ? "左手" : "右手");
+        }
+
+        static void DrawLine(Vector2 from, Vector2 to, Color color)
+        {
+            Vector2 delta = to - from;
+            if (delta.sqrMagnitude < 1f) return;
+            var matrix = GUI.matrix;
+            Color old = GUI.color;
+            GUIUtility.RotateAroundPivot(Mathf.Atan2(delta.y, delta.x) * Mathf.Rad2Deg, from);
+            GUI.color = color;
+            GUI.DrawTexture(new Rect(from.x, from.y - 1, delta.magnitude, 2), Texture2D.whiteTexture);
+            GUI.color = old;
+            GUI.matrix = matrix;
+        }
+
         void LateUpdate()
         {
             if (!Calibrated || !receiver.IsReceiving || game.SelectionOpen || receiver.LatestFrame.bodies.Length == 0) return;
@@ -353,7 +474,69 @@ namespace AstraUnity
             // replay pose so each model shin points straight down from its knee.
             PointShinDown(bones[12], bones[13]);
             PointShinDown(bones[16], bones[17]);
+            ApplyHands();
             UpdatePlayerView(body);
+        }
+
+        void ApplyHands()
+        {
+            if (actor == null) return;
+            var frame = handReceiver != null && handReceiver.IsReceiving ? handReceiver.LatestFrame : null;
+            if (frame == null || frame.hands == null || frame.hands.Length == 0)
+            {
+                // Tracking lost: ease both hands back to the bind pose instead of
+                // freezing them mid-gesture.
+                actor.RelaxHand(true);
+                actor.RelaxHand(false);
+                return;
+            }
+            if (handPoints == null) handPoints = new Vector3[HandEntry.JointCount];
+            bool left = false, right = false;
+            foreach (var hand in frame.hands)
+            {
+                if (hand.HasSkeleton)
+                {
+                    for (int i = 0; i < HandEntry.JointCount; i++)
+                        handPoints[i] = new Vector3(hand.joints[i * 3], hand.joints[i * 3 + 1], hand.joints[i * 3 + 2]);
+                    Vector3 hx, hy, hz;
+                    HandBasis(hand, out hx, out hy, out hz);
+                    actor.ApplyHandSkeleton(hand.IsLeft, handPoints, hx, hy, hz);
+                    if (hand.IsLeft) left = true; else right = true;
+                }
+            }
+            if (!left) actor.RelaxHand(true);
+            if (!right) actor.RelaxHand(false);
+            // Version 1 senders only have curls; keep them working as a fallback.
+            if (left || right) return;
+            if (handCurls == null) handCurls = new float[30];
+            for (int i = 0; i < handCurls.Length; i++) handCurls[i] = -1f;
+            foreach (var hand in frame.hands)
+            {
+                if (hand.curls == null) continue;
+                int offset = hand.IsLeft ? 0 : 15;
+                for (int i = 0; i < 15; i++) handCurls[offset + i] = hand.curls[i];
+            }
+            actor.ApplyFingerCurls(handCurls);
+        }
+
+        void HandBasis(HandEntry hand, out Vector3 x, out Vector3 y, out Vector3 z)
+        {
+            x = Vector3.zero; y = Vector3.zero; z = Vector3.zero;
+            if (!hand.HasBasis || receiver == null) return;
+            Transform frame = receiver.transform;
+            x = frame.TransformDirection(receiver.ToLocalDirection(hand.BaseX));
+            y = frame.TransformDirection(receiver.ToLocalDirection(hand.BaseY));
+            z = frame.TransformDirection(receiver.ToLocalDirection(hand.BaseZ));
+            // ToLocalDirection mirrors x alone when mirrorX is on, which would
+            // flip the hand's chirality; mirroring z as well restores a
+            // right-handed frame so LookRotation stays meaningful.
+            if (receiver.mirrorX) z = -z;
+            if (flipPalmNormal)
+            {
+                // Swap palm and back of hand while keeping the frame
+                // right-handed: flipping z alone would mirror the hand.
+                x = -x; z = -z;
+            }
         }
 
         static void PointShinDown(Transform knee, Transform ankle)
@@ -388,40 +571,106 @@ namespace AstraUnity
             playerBodyCamera.transform.SetPositionAndRotation(eye, rotation);
         }
 
+        /// <summary>
+        /// Writes a one-second snapshot to Library/AstraLiveStatus.txt. When the
+        /// panel looks empty this file answers "did the socket bind, is data
+        /// arriving, is the game found" without needing a screenshot.
+        /// </summary>
+        void WriteStatus()
+        {
+            if (receiver == null || Time.unscaledTime < nextStatusWriteAt) return;
+            nextStatusWriteAt = Time.unscaledTime + 1f;
+            try
+            {
+                string text =
+                    "time=" + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + "\n" +
+                    "scene=" + UnityEngine.SceneManagement.SceneManager.GetActiveScene().name + "\n" +
+                    "body.listening=" + receiver.IsListening + " receiving=" + receiver.IsReceiving +
+                    " frames=" + receiver.AcceptedFrames + " error=" + (receiver.LastError ?? "-") + "\n" +
+                    "hand.listening=" + (handReceiver != null && handReceiver.IsListening) +
+                    " receiving=" + (handReceiver != null && handReceiver.IsReceiving) +
+                    " frames=" + (handReceiver != null ? handReceiver.AcceptedFrames : 0) + "\n" +
+                    "game=" + (game != null) + " ready=" + (game != null && game.Ready) +
+                    " selectionOpen=" + (game != null && game.SelectionOpen) +
+                    " actor=" + (actor != null) + " calibrated=" + Calibrated + "\n" +
+                    "hands.ready=" + (actor != null && actor.HandsReady) +
+                    " handBones=" + (actor != null ? actor.HandBoneCount : 0) +
+                    " curlBones=" + (actor != null ? actor.CurlBoneCount : 0) +
+                    " rollL=" + (actor != null ? actor.HandRollDegrees(true).ToString("F0") : "-") +
+                    " rollR=" + (actor != null ? actor.HandRollDegrees(false).ToString("F0") : "-") +
+                    " handFrames=" + (handReceiver != null ? handReceiver.AcceptedFrames : 0) +
+                    " legNote=" + (legNote ?? "-") + "\n" +
+                    "status=" + status + "\n";
+                File.WriteAllText(Path.GetFullPath(Path.Combine(Application.dataPath, "..", "Library", "AstraLiveStatus.txt")), text);
+            }
+            catch (Exception) { }
+        }
+
         void OnGUI()
         {
+            if (receiver == null)
+            {
+                GUI.Label(new Rect(20, 20, 420, 40), "Astra Live P1 缺少 AstraSkeletonReceiver 组件");
+                return;
+            }
             if (uiFont == null) uiFont = Font.CreateDynamicFontFromOSFont("Microsoft YaHei", 16);
             Font oldFont = GUI.skin.font;
             bool oldWrap = GUI.skin.label.wordWrap;
             if (uiFont != null) GUI.skin.font = uiFont;
             GUI.skin.label.wordWrap = true;
             float width = Mathf.Min(590, Screen.width - 24);
-            GUI.Box(new Rect(12, 12, width, 252), "单摄像头 P1 控制 / 状态检查");
+            GUI.Box(new Rect(12, 12, width, 266), "单摄像头 P1 控制 / 状态检查");
             string source;
             lock (messageLock) source = senderError ?? senderMessage;
             bool active = sender != null && !sender.HasExited;
+            if (!active && sender == null && receiver.IsReceiving)
+                source = "外部数据源（命令行里的 run.cmd 或发送程序）";
             if (!active && sender != null && !source.StartsWith("ERROR", StringComparison.OrdinalIgnoreCase)) source = "发送程序已退出，请检查摄像头或授权。";
             GUI.Label(new Rect(25, 40, width - 24, 25), "数据源：" + source);
-            string connection = !string.IsNullOrEmpty(receiver.LastError) ? receiver.LastError :
-                !receiver.IsReceiving ? "未收到数据：启动摄像头或模拟数据。" :
-                receiver.LatestFrame.simulated ? "已收到模拟数据" : "已收到摄像头数据";
-            GUI.Label(new Rect(25, 65, width - 24, 25), "连接：" + connection);
-            string bodyState = !receiver.IsReceiving ? "等待数据" : receiver.LatestFrame.bodies.Length == 0 ?
+            string connection = receiver.IsReceiving ?
+                (receiver.LatestFrame.simulated ? "已收到模拟数据" : "已收到摄像头数据") :
+                !receiver.IsListening ? "UDP 7001 未绑定（端口被占用）" : "已监听 7001，等待数据";
+            GUI.Label(new Rect(25, 65, width - 130, 25), "连接：" + connection);
+            if (GUI.Button(new Rect(width - 105, 63, 98, 24), "重连 UDP"))
+            {
+                receiver.Reconnect();
+                if (handReceiver != null) handReceiver.Reconnect();
+            }
+            string bodyState = !receiver.IsListening ? "UDP 7001 未绑定" : !receiver.IsReceiving ? "已监听，等待数据" :
+                receiver.LatestFrame.bodies.Length == 0 ?
                 "未识别到人：请全身入镜、面向摄像头。" : "已识别 1 人，编号 " + receiver.SelectedBodyId;
             GUI.Label(new Rect(25, 90, width - 24, 25), "人体：" + bodyState);
             string pose = game == null || !game.Ready ? "等待游戏人物加载" : game.SelectionOpen ?
                 "请先完成选角和场地选择" : Time.unscaledTime < calibrationMessageUntil ? calibrationMessage :
-                Calibrated ? "已校准，控制 P1（战斗回放暂停）" : "双臂平举，等待自动校准";
+                Calibrated ? (legNote == null ? "已校准，控制 P1（战斗回放暂停）"
+                    : "已校准（" + legNote + "未追踪，腿部保持站立）")
+                : "双臂平举，等待自动校准";
             GUI.Label(new Rect(25, 115, width - 24, 25), "控制：" + pose);
-            if (GUI.Button(new Rect(25, 150, 120, 35), "启动摄像头")) StartSender(false);
-            if (GUI.Button(new Rect(155, 150, 120, 35), "启动模拟")) StartSender(true);
-            if (GUI.Button(new Rect(285, 150, 120, 35), "停止数据源")) StopSender();
+            string handState = handReceiver == null ? "未接入" :
+                !handReceiver.IsListening ? "UDP 7011 未绑定" :
+                !handReceiver.IsReceiving ? "已监听 7011，未收到数据（tools\\hand_tracking\\run.cmd）" :
+                handReceiver.LatestFrame.hands.Length == 0 ? "已连接，画面中无手" :
+                actor == null || !actor.HandsReady ? "收到 " + handReceiver.LatestFrame.hands.Length + " 只手，但角色没有可用指骨" :
+                "已接入 " + handReceiver.LatestFrame.hands.Length + " 只手（21 点骨架 + 腕部旋转，" +
+                actor.HandBoneCount + " 根指骨）";
+            GUI.Label(new Rect(25, 138, width - 140, 22), "手部：" + handState);
+            if (GUI.Button(new Rect(width - 105, 136, 98, 24), flipPalmNormal ? "手掌：已反向" : "手掌：正常"))
+            {
+                flipPalmNormal = !flipPalmNormal;
+                if (actor != null) actor.ResetHandRoll();
+            }
+            if (GUI.Button(new Rect(25, 166, 120, 35), "启动摄像头")) StartSender(false);
+            if (GUI.Button(new Rect(155, 166, 120, 35), "启动模拟")) StartSender(true);
+            if (GUI.Button(new Rect(285, 166, 120, 35), "停止数据源")) StopSender();
             string countdown = nextCalibrationAt < 0 ? "等待人体" : "下次校准 " + Mathf.CeilToInt(Mathf.Max(0, nextCalibrationAt - Time.unscaledTime)) + " 秒";
-            GUI.Label(new Rect(415, 155, 155, 30), countdown);
-            GUI.Label(new Rect(25, 195, width - 24, 45), "操作：选角色和场地 → 启动摄像头 → 双臂平举并等待自动校准。\n每 5 秒尝试一次；姿势或关节不满足时保留上次校准。");
+            GUI.Label(new Rect(415, 171, 155, 30), countdown);
+            GUI.Label(new Rect(25, 208, width - 24, 46), "操作：选角色和场地 → 启动摄像头 → 双臂平举并等待自动校准。\n每 5 秒尝试一次；姿势或关节不满足时保留上次校准。");
             var body = receiver.IsReceiving && receiver.LatestFrame.bodies.Length > 0 ? receiver.LatestFrame.bodies[0] : null;
-            float previewHeight = Mathf.Clamp(Screen.height - 280, 150, 340);
-            DrawPreview(new Rect(12, 270, Mathf.Min(width, 330), previewHeight), body);
+            float previewHeight = Mathf.Clamp(Screen.height - 296, 150, 340);
+            DrawPreview(new Rect(12, 286, Mathf.Min(width, 330), previewHeight), body);
+            float handTop = 380f;
+            DrawHandPreview(new Rect(355, handTop, Mathf.Max(150, width - 345),
+                Mathf.Clamp(Screen.height - handTop - 16, 120, 210)));
             if (body != null && !Calibrated)
             {
                 var issue = CalibrationIssue(body);
@@ -431,6 +680,18 @@ namespace AstraUnity
             GUI.skin.label.wordWrap = oldWrap;
         }
 
-        void OnDestroy() { StopSender(); if (uiFont != null) Destroy(uiFont); }
+        void OnDestroy()
+        {
+            if (live == this) live = null;
+            StopSender();
+            if (uiFont != null) Destroy(uiFont);
+        }
+
+        // Exiting Play mode must not leave the bridge this panel started running:
+        // an orphan bridge used to keep the UDP ports pinned after the editor was
+        // gone, which made every later Play fail to bind.
+        void OnDisable() { if (live == this) StopSender(); }
+
+        void OnApplicationQuit() { StopSender(); }
     }
 }

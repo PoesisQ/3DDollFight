@@ -1,0 +1,116 @@
+# 手部骨架识别
+
+在全身骨架被追踪的同时，把 Astra 彩色画面里的双手变成 **21 个手部关节**，挂到角色手腕骨（也就是手臂骨架末端）上，逐个指节驱动。
+
+设计说明见 [docs/hand-tracking.md](../../docs/hand-tracking.md)。
+
+## 和一版（只有弯曲度）的区别
+
+| | 一版 | 现在 |
+|---|---|---|
+| 数据 | 15 个弯曲角度 | 21 个关节的局部坐标 + 15 个弯曲角度（兼容） |
+| 与身体骨架的关系 | 两路各自独立 | 手腕为锚点，手部骨架长在手臂末端 |
+| 驱动方式 | 按固定轴旋转 | 每根指骨沿对应的实测段方向旋转 |
+| 手指张开 / 拇指对掌 | 不支持 | 支持 |
+
+## 1. 装一次
+
+```bat
+cd tools\hand_tracking
+install.cmd       :: 建 .venv（Python 3.10）并装 MediaPipe
+fetch_model.cmd   :: 下载 hand_landmarker.task（约 7.8 MB）
+```
+
+模型不随仓库分发，`.venv` 与 `models/` 都已被 Git 忽略。
+
+## 2. 每次这样跑
+
+1. Unity 打开 `Assets/AstraUnity/SingleCameraGame.unity`，Play，完成选角。
+2. **先停止 Unity 面板上的「启动摄像头」**——一台 Astra 同时只能被一个进程占用。
+3. 双击 `run.cmd`（等价于 `python run.py --start-bridge --preview`）。
+
+`run.cmd` 会自己拉起发送程序：彩色帧走 TCP 7005，身体骨架同时镜像到 UDP 7012 供左右手配对，手部骨架发给 Unity 的 UDP 7011。
+
+身体骨架默认走 Orbbec SDK 内置试用，和 Unity 面板「启动摄像头」完全一致。有正式授权时，把授权文件放到 `H:\astra-lab-env\astra-body-license.txt`，或设置环境变量 `ASTRA_BODY_LICENSE` 指向它，脚本会自动带上 `--license`。
+
+Unity 面板的「连接」显示*已收到摄像头数据*，「手部」显示*已接入 N 只手（21 点骨架）*。
+
+关掉命令行窗口即停止。
+
+## 3. 参数
+
+```bat
+.venv\Scripts\python.exe run.py --help
+```
+
+| 参数 | 默认 | 说明 |
+|---|---|---|
+| `--start-bridge` | 关 | 由脚本拉起 `AstraUnityBridge.exe --color-port 7005 --mirror-port 7012` |
+| `--color-port` | 7005 | 彩色帧 TCP 端口 |
+| `--hand-port` | 7011 | 发给 Unity 的手部 UDP 端口 |
+| `--body-port` | 7012 | 镜像身体骨架的 UDP 端口，用于左右手配对；0 关闭 |
+| `--mirror` / `--no-mirror` | 开 | 交换 MediaPipe 左右手判定。Astra 彩色图未镜像，而 MediaPipe 按自拍镜像图输出，所以要交换 |
+| `--license` | 自动查找 | 身体跟踪授权文件。不填时依次查环境变量 `ASTRA_BODY_LICENSE`、`%ASTRA_LAB_ENV%\astra-body-license.txt`，与 Unity 面板的逻辑一致 |
+| `--preview` | 关 | 弹出窗口显示关键点，Esc 退出 |
+| `--min-confidence` | 0.5 | 低于该置信度的手直接丢弃 |
+
+有身体骨架时，左右手由**两只手腕的左右顺序**决定，`--mirror` 不再参与；只有拿不到身体数据时才回退到 MediaPipe 标签（此时 `--no-mirror` 可关闭交换）。
+
+## 4. 发给 Unity 的报文
+
+`dollfight-hands-3`，UDP 7011，UTF-8 JSON：
+
+```json
+{"version":3,"session":"...","sequence":12,"timestampMs":3456,
+ "hands":[{"side":"Left","confidence":0.93,"gesture":"open","scaleMm":82.4,
+           "joints":[63 个数],"curls":[15 个数],"basis":[9 个数]}]}
+```
+
+- `joints`：21 个关节 × (x, y, z)，以**手腕为原点**、按掌心长度归一化。坐标轴为
+  `x = 食指根 → 小指根`、`y = 手腕 → 中指根`、`z = x × y`，左右手用同一套构造。
+- `scaleMm`：实测掌心长度（手腕到中指根），用于诊断，不参与驱动。
+- `curls`：一版的 15 个弯曲度，保留给旧接收端和握拳判定。
+- `basis`：同样的三个坐标轴，但表达在 Astra 相机系下（X 右、Y 上、Z 朝向场景），每轴 3 个数。
+  21 点全在手的自身坐标系里，说不清手整体朝哪；`basis` 补的就是这个整体姿态，接收端用它
+  把角色的手腕三维朝向对齐到真人，翻掌、压腕都能跟上。
+- **关节来源**：由 `hand3d.py` 从二维关键点重建，**不用 MediaPipe 的 `world_landmarks`**。
+  那一层三维回归在手背离镜头时会塌（掌长 100→36 mm、掌宽 65→7 mm、帧间掌法线最大转 120°），
+  而且分不出手指弯没弯：同一段录屏按人眼分组，它给张开手 144.8°、握拳 134.6°，方向是反的。
+  重建方法：掌心当刚性平面定姿态，手指当一自由度链，用「弦长比 + 二维折返度」反解弯曲量，
+  再按真人屈曲曲线展开三个关节。拇指的起始方向从关键点直接测，因为「竖大拇指」是拇指摆出
+  掌面而不是弯曲。
+- **轴向**：重建在图像系里建轴（X 右、Y 下、Z 进场景），发报文前做 `(x, -y, -z)` 转到接收端
+  用的世界系（Y 上）。这步删不得：漏掉它腕子恒定差 180°，角色只露手背。两端放进同一个
+  数值模型量过——不换算 180°，换算后 0°，左右手都一样。21 个局部坐标不用动，点和轴一起
+  转动时「点 · 轴」不变。
+- **`PALM_SIDE`**：`z = x × y` 在左右手指的不是同一侧（右手指掌心、左手指手背），它是手指
+  该往哪边弯的唯一依据，符号反了会让所有手指朝手背折、并把首帧掌面分支选反。
+- 接收端校验：`version` 为 1/2/3；`hands` ≤ 2；v2 起必须 63 个有限坐标、`scaleMm` 在 12–250 mm；v3 还必须 9 个 `|值| ≤ 1` 的 basis 分量。
+
+报文仍然独立于 19 点身体报文，符合 `docs/contracts.md:47`「不能偷偷塞进固定 19 点字典」。
+
+## 5. 排查
+
+| 现象 | 处理 |
+|---|---|
+| `连接不上彩色流` | 发送程序没用 `--color-port` 启动，或被别的进程占着摄像头 |
+| `找不到手部模型` | 先跑 `fetch_model.cmd` |
+| 面板一直「未收到手部数据」 | 检查 UDP 7011 是否被占用；看命令行有没有在出帧 |
+| 面板「连接：UDP 7001 未绑定」 | 端口被上一次 Play 遗留的 socket 占着。先点面板「重连 UDP」；仍失败就彻底退出 Unity（不是退出 Play）再重开，用 `Get-NetUDPEndpoint -LocalPort 7001` 确认已释放 |
+| 手很小、识别不到 | 靠近到 1.5 m 内；开灯（Astra 彩色实测偏暗） |
+| 左右手反了 | 确认 7012 没被占用、发送程序带 `--mirror-port`；这会启用左右手配对。若仍相反，改用 `--no-mirror` |
+| 手指朝反方向弯 | 把 `--preview` 打开，确认 21 点贴在手指上；坐标轴构造见第 4 节 |
+| 握拳时手指不弯 / 张开时手指自己弯 | 先看 `--preview` 里 21 点是不是跟着手指走。弯曲量现在是**拟合**出来的：按候选弯曲量把手指重建、投影，再和观测到的三段指骨比（差一个整体缩放，最小二乘解出）。若仍不对，多半是掌面法线锁到了镜像分支——把手掌正对镜头停一下就复位。见 `_fit_curl` 与 `CURL_FLOOR` / `CURL_CEILING` |
+| 张手和握拳看起来一模一样 | 2026-11-09 出现过一次：一帧掌长塌陷把弦长参考放大 500 倍，此后恒判握拳（`CHORD_FLOOR` / `PALM_COLLAPSE` 兜这条）。2026-11-10 又出现过反向的一次：手掌前倾时掌长投影变短，弦长比冲到 2.35（比伸直的手指还长）被钳住，**握拳恒判张开**。这条现在由拟合取代，不再有比值可饱和；`tests/test_hand3d.py::CurlAcrossOrientations::test_a_foreshortened_palm_cannot_flip_the_verdict` 复现并钉住这个失效 |
+| 握拳只握到一半、手指像松开的爪子 | **C# 侧的问题，不在 Python**。`HumanoidReplay.ApplyHandSkeleton` 以前每帧先把指骨重置回绑定姿势、再朝目标 `Slerp`，重置把上一帧的进度抹掉，姿势只停在目标的 26 %（60 fps）——握拳只弯到 114° / 255°，腕部只转 23° / 90°，帧率越高越糟。2026-11-10 删掉腕与指骨两处重置，改成一阶滤波收敛（约 4 帧 / 67 ms）。若症状仍在，先确认 Unity 已重新编译 `HumanoidReplay.cs` |
+| 手腕朝向时不时翻 180° / 掌面方向乱跳 | 掌面过去是**推断**的（拿掌宽/掌长比推前倾），在录屏上量到与实测中位差 64°、p90 132°。现在掌面直接取 MediaPipe 的 world landmarks（`run.py::palm_frame` → `HandLift.solve(basis=...)`），推断只作退路。若仍然跳，看 `AstraLiveStatus.txt` 的 `rollL/rollR` 是否跟着走 |
+| 手拿在胸前（不是垂下、也不是正对镜头）骨架就乱 | 两个原因都修了：① 掌面朝向以前是推断的，前倾量拿掌宽/掌长比去猜，标定还是**这只手本次会话见过的最宽**，手一直举着就永远猜不准；现在朝向取自 world landmarks，推断只作退路。② 二维关键点按**投影后**掌长归一化，而投影矩阵用单位轴，求逆出的指根被放大 1/cos(前倾) —— 前倾 63° 时整只手大 2.2 倍，指骨却还是原长。现在矩阵先除以 cos 再求逆。仍乱则看 `AstraLiveStatus.txt` 的 `handBones` 与 `rollL/rollR` |
+| 手掌朝上/朝下但角色掌心朝反了 | 点 Unity 面板上的「手掌：正常」按钮切到「手掌：已反向」，等价于勾 `AstraLivePlayer.flipPalmNormal` |
+| 角色总是只露手背、拇指左右对不上 | 先看 `run.py` 的 `wire_axes` 有没有做 `(x, -y, -z)`。漏掉它腕子恒定差 180°，症状就是「无论真手掌心朝哪，角色永远手背朝你」，而且手指动作会左右镜像 |
+| 面板显示已收到手，但角色手指不动 | 看 Unity Console 有没有 `No finger bones resolved`。Tripo 角色的 Avatar 没有映射手指槽，`HumanoidReplay` 会按骨骼名回退（含 Pinky→Little 别名）；若角色本身没有指骨，就只能看掌心平面小窗 |
+
+## 6. 测试
+
+```bat
+.venv\Scripts\python.exe -m unittest discover -s tests -v
+```
