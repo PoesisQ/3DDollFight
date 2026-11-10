@@ -140,7 +140,7 @@ fetch_model.cmd    :: 下载 hand_landmarker.task（约 7.8 MB）
 
 ## 2.4 站位与手势
 
-- **距离**：1.0–1.5 m 最稳，2.0 m 起手掌不足 75 px，弯指开始飘。
+- **距离**：1.0–1.5 m 最稳；2.0 m 时手掌只剩约 75 px，弯指开始飘。
 - **光线**：Astra 彩色偏暗（中心像素实测 40–80），背光会显著掉点。
 - **入画**：双手都在画面内，手腕不要贴边。
 - **校准**：不需要专门动作。掌面姿态每帧直接从 world landmarks 取，没有「等它学」的过程；1 秒宽限只用于手被短暂遮挡。
@@ -192,8 +192,9 @@ status=Waiting for tracked person
 
 ## 2.7 性能与关闭
 
-- 单帧预算：MediaPipe 在 CPU 上约占 12–20 ms，整条链路在录屏环境稳定 25–30 fps（`--preview` 窗口左上角显示实时帧率）。
-- 手部报文约 25–35 Hz，Unity 侧 `timeoutSeconds=0.6`，超时即 `RelaxHand`。
+- 单帧开销主要在 MediaPipe 推理（CPU），实际帧率看 `--preview` 窗口左上角的 `fps`；低于 15 手感会明显发顿，先确认没有别的程序占着相机。
+- 发送频率与帧率相同，每帧一包；画面里没有手时每 0.2 s 发一包空报文保持心跳。
+- Unity 侧 `timeoutSeconds=0.6`，超过即视为断流并 `RelaxHand`。
 - 关闭：先关命令行窗口（会 terminate 它拉起的桥），再退出 Unity Play。反过来会让桥留在后台占相机。
 
 ---
