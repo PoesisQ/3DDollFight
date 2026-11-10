@@ -53,20 +53,32 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Astra colour -> hand skeleton -> Unity UDP")
     parser.add_argument("--color-port", type=int, default=7005, help="bridge colour TCP port")
     parser.add_argument("--hand-port", type=int, default=7011, help="Unity hand UDP port")
-    parser.add_argument("--body-port", type=int, default=7012,
-                        help="mirrored body UDP port; 0 disables wrist pairing")
+    parser.add_argument(
+        "--body-port",
+        type=int,
+        default=7012,
+        help="mirrored body UDP port; 0 disables wrist pairing",
+    )
     parser.add_argument("--host", default="127.0.0.1", help="Unity address")
-    parser.add_argument("--start-bridge", action="store_true",
-                        help="launch AstraUnityBridge with --color-port")
-    parser.add_argument("--bridge", type=Path, default=DEFAULT_BRIDGE,
-                        help="AstraUnityBridge.exe path")
-    parser.add_argument("--license", type=Path, default=None,
-                        help="Orbbec body tracking license file")
-    parser.add_argument("--mirror", action=argparse.BooleanOptionalAction, default=True,
-                        help="swap MediaPipe handedness (Astra colour is not mirrored)")
+    parser.add_argument(
+        "--start-bridge", action="store_true", help="launch AstraUnityBridge with --color-port"
+    )
+    parser.add_argument(
+        "--bridge", type=Path, default=DEFAULT_BRIDGE, help="AstraUnityBridge.exe path"
+    )
+    parser.add_argument(
+        "--license", type=Path, default=None, help="Orbbec body tracking license file"
+    )
+    parser.add_argument(
+        "--mirror",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="swap MediaPipe handedness (Astra colour is not mirrored)",
+    )
     parser.add_argument("--preview", action="store_true", help="show a local window with landmarks")
-    parser.add_argument("--min-confidence", type=float, default=0.5,
-                        help="drop hands below this score")
+    parser.add_argument(
+        "--min-confidence", type=float, default=0.5, help="drop hands below this score"
+    )
     return parser.parse_args()
 
 
@@ -116,8 +128,10 @@ def start_bridge(args: argparse.Namespace) -> subprocess.Popen:
     if process.poll() is not None and args.body_port > 0:
         # Older builds do not know --mirror-port. Keep running without wrist
         # pairing instead of failing the whole hand pipeline.
-        print("发送程序不支持 --mirror-port（可能是旧构建），本次不镜像身体报文；"
-              "重新运行 Build-Bridge.cmd 后左右手配对才会生效。")
+        print(
+            "发送程序不支持 --mirror-port（可能是旧构建），本次不镜像身体报文；"
+            "重新运行 Build-Bridge.cmd 后左右手配对才会生效。"
+        )
         args.body_port = 0
         process = launch(mirror=False)
         time.sleep(1.5)
@@ -229,8 +243,10 @@ def main() -> int:
             try:
                 body = BodyFeed(port=args.body_port)
             except OSError as error:
-                print(f"无法监听身体骨架 127.0.0.1:{args.body_port}（{error}），"
-                      "左右手改用 MediaPipe 标签。")
+                print(
+                    f"无法监听身体骨架 127.0.0.1:{args.body_port}（{error}），"
+                    "左右手改用 MediaPipe 标签。"
+                )
 
         sink = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         session = f"{Path(sys.executable).stat().st_size}-{int(time.time() * 1000)}"
@@ -282,9 +298,11 @@ def main() -> int:
                 smoother = left_smoother if side == "Left" else right_smoother
                 curls = smoother.apply(curl_module.compute_curls(hand["points"]), delta)
                 gesture = curl_module.classify(curls)
-                entries.append(protocol.hand_entry(
-                    side, hand["score"], points, palm_mm, curls, gesture,
-                    basis=wire_axes(axes)))
+                entries.append(
+                    protocol.hand_entry(
+                        side, hand["score"], points, palm_mm, curls, gesture, basis=wire_axes(axes)
+                    )
+                )
             for side in ("Left", "Right"):
                 if side in seen:
                     missing[side] = None
@@ -296,8 +314,10 @@ def main() -> int:
 
             # Keep a steady heartbeat so Unity can fall back when hands leave the view.
             if entries or now - last_send > 0.2:
-                sink.sendto(protocol.encode(session, sequence, int(now * 1000), entries),
-                            (args.host, args.hand_port))
+                sink.sendto(
+                    protocol.encode(session, sequence, int(now * 1000), entries),
+                    (args.host, args.hand_port),
+                )
                 last_send = now
             sequence += 1
             counted += 1
@@ -310,8 +330,15 @@ def main() -> int:
                             centre = (int(x * frame.shape[1]), int(y * frame.shape[0]))
                             preview.circle(frame, centre, 2, (0, 255, 0), -1)
                 rate = counted / max(1e-3, now - started)
-                preview.putText(frame, f"{rate:.1f} fps  hands={len(entries)}",
-                                (8, 24), preview.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
+                preview.putText(
+                    frame,
+                    f"{rate:.1f} fps  hands={len(entries)}",
+                    (8, 24),
+                    preview.FONT_HERSHEY_SIMPLEX,
+                    0.7,
+                    (0, 255, 255),
+                    2,
+                )
                 preview.imshow("DollFight hand tracking", frame)
                 if preview.waitKey(1) & 0xFF == 27:
                     break

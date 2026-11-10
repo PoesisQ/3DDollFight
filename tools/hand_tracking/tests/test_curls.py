@@ -34,8 +34,9 @@ class FlexionTests(unittest.TestCase):
         self.assertLess(float(result.max()), 1e-3)
 
     def test_right_angle_is_half_scale_for_180_degree_limit(self):
-        chain = np.array([[0.0, 0.0, 0.0], [0.0, 0.0, 1.0], [0.0, 1.0, 1.0],
-                          [0.0, 2.0, 1.0], [0.0, 3.0, 1.0]])
+        chain = np.array(
+            [[0.0, 0.0, 0.0], [0.0, 0.0, 1.0], [0.0, 1.0, 1.0], [0.0, 2.0, 1.0], [0.0, 3.0, 1.0]]
+        )
         degrees = curl_module._flexion_degrees(chain)
         self.assertAlmostEqual(degrees[0], 90.0, places=3)
         self.assertAlmostEqual(degrees[1], 0.0, places=3)

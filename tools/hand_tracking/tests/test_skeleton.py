@@ -67,11 +67,13 @@ class FrameTests(unittest.TestCase):
     def test_local_coordinates_ignore_hand_orientation(self):
         hand = straight_hand()
         angle = np.deg2rad(37.0)
-        rotation = np.array([
-            [np.cos(angle), 0.0, np.sin(angle)],
-            [0.0, 1.0, 0.0],
-            [-np.sin(angle), 0.0, np.cos(angle)],
-        ])
+        rotation = np.array(
+            [
+                [np.cos(angle), 0.0, np.sin(angle)],
+                [0.0, 1.0, 0.0],
+                [-np.sin(angle), 0.0, np.cos(angle)],
+            ]
+        )
         turned = hand @ rotation.T
         original, _ = skeleton.local_points(hand)
         rotated, _ = skeleton.local_points(turned)
@@ -99,7 +101,7 @@ class FrameTests(unittest.TestCase):
         y = np.array([0.0, 1.0, 0.0])
         z = np.cross(x, y)
         values = skeleton.to_astra_axes([x, y, z])
-        ax, ay, az = (np.array(values[i * 3:i * 3 + 3]) for i in range(3))
+        ax, ay, az = (np.array(values[i * 3 : i * 3 + 3]) for i in range(3))
         # Y is the only axis MediaPipe reports upside down.
         self.assertAlmostEqual(float(ay[1]), -1.0, places=6)
         # The conversion is a rotation, not a reflection: cross still matches,
@@ -120,15 +122,15 @@ class FrameTests(unittest.TestCase):
     def test_astra_axes_keep_palm_down_palm_down(self):
         # End-to-end semantic check. Left hand reaching forward in Astra's
         # frame: fingers along +z, palm down, so the back of the hand is +y.
-        x_astra = np.array([-1.0, 0.0, 0.0])   # index knuckle -> little knuckle
-        y_astra = np.array([0.0, 0.0, 1.0])    # wrist -> middle knuckle
-        z_astra = np.cross(x_astra, y_astra)   # back of the hand
+        x_astra = np.array([-1.0, 0.0, 0.0])  # index knuckle -> little knuckle
+        y_astra = np.array([0.0, 0.0, 1.0])  # wrist -> middle knuckle
+        z_astra = np.cross(x_astra, y_astra)  # back of the hand
         np.testing.assert_allclose(z_astra, [0.0, 1.0, 0.0], atol=1e-9)
 
         # How MediaPipe reports that same hand: x right, y down, z forward.
         mediapipe = [np.array([a[0], -a[1], -a[2]]) for a in (x_astra, y_astra, z_astra)]
         values = skeleton.to_astra_axes(mediapipe)
-        ax, ay, az = (np.array(values[i * 3:i * 3 + 3]) for i in range(3))
+        ax, ay, az = (np.array(values[i * 3 : i * 3 + 3]) for i in range(3))
         np.testing.assert_allclose(ax, x_astra, atol=1e-9)
         np.testing.assert_allclose(ay, y_astra, atol=1e-9)
         np.testing.assert_allclose(az, z_astra, atol=1e-9)

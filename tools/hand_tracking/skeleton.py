@@ -84,10 +84,13 @@ def solve(points) -> tuple[np.ndarray, float, tuple[np.ndarray, np.ndarray, np.n
         return None
     x, y, z, palm_length = basis
     offsets = hand - hand[WRIST]
-    local = np.stack(
-        (offsets @ x, offsets @ y, offsets @ z),
-        axis=1,
-    ) / palm_length
+    local = (
+        np.stack(
+            (offsets @ x, offsets @ y, offsets @ z),
+            axis=1,
+        )
+        / palm_length
+    )
     return np.clip(local, -LOCAL_LIMIT, LOCAL_LIMIT), palm_length, (x, y, z)
 
 

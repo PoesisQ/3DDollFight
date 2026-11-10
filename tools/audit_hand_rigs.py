@@ -57,7 +57,7 @@ def vrm_bones(path: Path) -> set[str]:
         return set()
     offset = 12
     length, _kind = struct.unpack_from("<II", data, offset)
-    document = json.loads(data[offset + 8:offset + 8 + length].decode("utf-8"))
+    document = json.loads(data[offset + 8 : offset + 8 + length].decode("utf-8"))
     names = {normalise(node.get("name", "")) for node in document.get("nodes", [])}
     humanoid = document.get("extensions", {}).get("VRMC_vrm", {}).get("humanoid", {})
     names |= {normalise(key) for key in humanoid.get("humanBones", {})}
@@ -84,9 +84,11 @@ def audit(entry: dict) -> tuple[int, int, list[str]]:
         for finger in FINGERS:
             # Tripo/FBX exports the little finger as "Pinky".
             names = [finger] + (["Pinky"] if finger == "Little" else [])
-            for segment in (thumb if finger == "Thumb" else SEGMENTS):
-                keys = [normalise(pattern.format(side=side, finger=name, segment=segment))
-                        for name in names]
+            for segment in thumb if finger == "Thumb" else SEGMENTS:
+                keys = [
+                    normalise(pattern.format(side=side, finger=name, segment=segment))
+                    for name in names
+                ]
                 if any(key in bones for key in keys):
                     found += 1
                 else:

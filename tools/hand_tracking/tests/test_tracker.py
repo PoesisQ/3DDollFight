@@ -19,7 +19,7 @@ from tracker import image_frame  # noqa: E402
 
 # Three landmarks, spread the way a hand's fingers are, in the two conventions.
 Y_UP = np.array([[0.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 2.0, 0.3]])
-SCREEN = np.array([[0.5, 0.5], [0.5, 0.4], [0.5, 0.3]])   # the picture grows down
+SCREEN = np.array([[0.5, 0.5], [0.5, 0.4], [0.5, 0.3]])  # the picture grows down
 
 
 def test_a_y_up_hand_is_turned_to_y_down():

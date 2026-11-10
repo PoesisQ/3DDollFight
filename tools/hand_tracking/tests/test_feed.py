@@ -16,8 +16,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import feed as feed_module  # noqa: E402
 
 
-def serve_once(connection: socket.socket, width: int, height: int, index: int,
-               stamp: int, pixels: bytes):
+def serve_once(
+    connection: socket.socket, width: int, height: int, index: int, stamp: int, pixels: bytes
+):
     header = struct.pack("<4sIIIII", b"DFCF", width, height, index, stamp & 0xFFFFFFFF, stamp >> 32)
     connection.sendall(header + pixels)
     connection.close()
@@ -32,7 +33,8 @@ class ColorFeedTests(unittest.TestCase):
         port = server.getsockname()[1]
         pixels = payload if payload is not None else bytes([7, 8, 9] * width * height)
         thread = threading.Thread(
-            target=lambda: serve_once(server.accept()[0], width, height, 42, 5_000_000_123, pixels))
+            target=lambda: serve_once(server.accept()[0], width, height, 42, 5_000_000_123, pixels)
+        )
         thread.start()
         try:
             client = feed_module.ColorFeed(port=port)

@@ -50,8 +50,14 @@ def image_frame(points: np.ndarray, screen) -> np.ndarray:
 
 
 class HandTracker:
-    def __init__(self, model_path: Path | None = None, max_hands: int = 2, detection: float = 0.5,
-                 tracking: float = 0.5, mirror_sides: bool = False):
+    def __init__(
+        self,
+        model_path: Path | None = None,
+        max_hands: int = 2,
+        detection: float = 0.5,
+        tracking: float = 0.5,
+        mirror_sides: bool = False,
+    ):
         if mp is None:
             raise RuntimeError("MediaPipe 未安装，请先运行 tools/hand_tracking/install.cmd")
         model = Path(model_path) if model_path else DEFAULT_MODEL
@@ -94,12 +100,14 @@ class HandTracker:
             if position < len(screens):
                 screen = np.array([[p.x, p.y] for p in screens[position]], dtype=np.float64)
             points = image_frame(points, screen)
-            hands.append({
-                "side": side,
-                "score": float(category.score),
-                "points": points,
-                "screen": screen,
-            })
+            hands.append(
+                {
+                    "side": side,
+                    "score": float(category.score),
+                    "points": points,
+                    "screen": screen,
+                }
+            )
         return hands
 
     def close(self) -> None:

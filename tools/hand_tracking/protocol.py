@@ -67,8 +67,15 @@ def _clean_basis(axes) -> list[float]:
     return [round(float(value), 4) for value in normalised.reshape(-1)]
 
 
-def hand_entry(side: str, confidence: float, local, scale_mm: float,
-               curls, gesture: str = "unknown", basis=None) -> dict:
+def hand_entry(
+    side: str,
+    confidence: float,
+    local,
+    scale_mm: float,
+    curls,
+    gesture: str = "unknown",
+    basis=None,
+) -> dict:
     if side not in SIDES:
         raise ValueError(f"side must be one of {SIDES}, got {side!r}")
     return {

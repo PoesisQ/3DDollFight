@@ -163,8 +163,8 @@ PALM_COLLAPSE = 0.30
 #
 # The cost is the residual of that fit, normalised by the observed chain, so it
 # is comparable across frames and finger sizes.
-MIN_FIT_SPAN = 0.25      # palm lengths of phalanx that must be visible to fit
-FIT_CONTINUITY = 0.12    # pull towards the previous frame, in residual units
+MIN_FIT_SPAN = 0.25  # palm lengths of phalanx that must be visible to fit
+FIT_CONTINUITY = 0.12  # pull towards the previous frame, in residual units
 
 # What the fitted curl has to be stretched by to mean "how closed is this hand".
 #
@@ -232,7 +232,7 @@ class HandLift:
         self._flat: dict[str, np.ndarray] = {}
 
     def reset(self, side: str | None = None) -> None:
-        for name in ([side] if side else list(self._normal)):
+        for name in [side] if side else list(self._normal):
             self._pixels.pop(name, None)
             self._normal.pop(name, None)
             self._curl.pop(name, None)
@@ -256,8 +256,9 @@ class HandLift:
         self._points[side] = local
         return local
 
-    def _calibrate(self, side: str, palm_px: float, width_px: float,
-                   chords: np.ndarray, trusted: bool):
+    def _calibrate(
+        self, side: str, palm_px: float, width_px: float, chords: np.ndarray, trusted: bool
+    ):
         """Track this hand's proportions so the readings are self-referential.
 
         The palm and its width are tracked as running maxima because a rigid
@@ -282,16 +283,23 @@ class HandLift:
         if trusted:
             state["palm"] = max(state["palm"] * DECAY, palm_px)
             state["width"] = max(state["width"] * DECAY, width_px)
-            state["chord"] = np.clip(np.maximum(state["chord"] * DECAY, chords),
-                                     straight * CHORD_FLOOR,
-                                     straight * CHORD_CEILING)
+            state["chord"] = np.clip(
+                np.maximum(state["chord"] * DECAY, chords),
+                straight * CHORD_FLOOR,
+                straight * CHORD_CEILING,
+            )
         self._pixels[side] = state
         ratio = float(state["width"]) / max(float(state["palm"]), 1e-6)
         return min(max(ratio, 0.40), 0.90), np.asarray(state["chord"], dtype=np.float64)
 
     @staticmethod
-    def _fit_curl(name: str, observed: np.ndarray, projected: np.ndarray,
-                  palm: np.ndarray, previous: float | None) -> float | None:
+    def _fit_curl(
+        name: str,
+        observed: np.ndarray,
+        projected: np.ndarray,
+        palm: np.ndarray,
+        previous: float | None,
+    ) -> float | None:
         """Which curl best reproduces the phalanges the camera saw.
 
         ``observed`` is the finger's three phalanx vectors as measured in the
@@ -323,8 +331,7 @@ class HandLift:
         best_cost, best = None, 0.0
         for candidate in grid:
             theta = angles * candidate
-            chain = lengths * (np.cos(theta)[:, None] * projected
-                               + np.sin(theta)[:, None] * palm)
+            chain = lengths * (np.cos(theta)[:, None] * projected + np.sin(theta)[:, None] * palm)
             denom = float(np.sum(chain * chain))
             if denom < 1e-12:
                 continue
@@ -336,8 +343,7 @@ class HandLift:
                 best_cost, best = residual, float(candidate)
         return best
 
-    def _frame(self, side: str, across: np.ndarray, along: np.ndarray,
-               ratio: float):
+    def _frame(self, side: str, across: np.ndarray, along: np.ndarray, ratio: float):
         """Orthonormal palm axes, or ``None`` when the palm is degenerate.
 
         ``ratio`` is how wide this hand is compared with its own palm, measured
@@ -443,10 +449,16 @@ class HandLift:
             return None
         trusted = width_pixels <= palm_pixels * PALM_ASPECT_MAX
         names = list(FINGERS)
-        chords = np.array([float(np.linalg.norm(q[FINGERS[name][0][3]] - q[FINGERS[name][0][0]]))
-                           for name in names]) / palm_pixels
-        ratio, chord_ratios = self._calibrate(
-            side, palm_pixels, width_pixels, chords, trusted)
+        chords = (
+            np.array(
+                [
+                    float(np.linalg.norm(q[FINGERS[name][0][3]] - q[FINGERS[name][0][0]]))
+                    for name in names
+                ]
+            )
+            / palm_pixels
+        )
+        ratio, chord_ratios = self._calibrate(side, palm_pixels, width_pixels, chords, trusted)
         u = q / palm_pixels  # palm length == 1 from here on
 
         across = u[PINKY_MCP] - u[INDEX_MCP]
@@ -486,8 +498,7 @@ class HandLift:
         # palm lies in the image plane, zero means it points at the lens.
         seen = float(np.hypot(y[0], y[1]))
         projection = np.array([[x[0], y[0]], [x[1], y[1]]])
-        footprint = float(projection[0, 0] * projection[1, 1]
-                          - projection[0, 1] * projection[1, 0])
+        footprint = float(projection[0, 0] * projection[1, 1] - projection[0, 1] * projection[1, 0])
         if np.isfinite(footprint) and abs(footprint) >= MIN_PALM_FOOTPRINT:
             flat = np.linalg.solve(projection / max(seen, 1e-9), u.T).T
             self._flat[side] = flat
@@ -538,21 +549,23 @@ class HandLift:
 
             observed = np.array([u[chain[k + 1]] - u[chain[k]] for k in range(3)])
             fitted = self._fit_curl(
-                name, observed, projection @ heading, palm_image, curls.get(name))
+                name, observed, projection @ heading, palm_image, curls.get(name)
+            )
             if fitted is None:
                 # Nothing but a smudge of pixels: keep what this finger was
                 # doing instead of re-deciding from noise.
                 wanted = curls.get(name)
             else:
-                wanted = min(max((fitted - CURL_FLOOR) / (CURL_CEILING - CURL_FLOOR),
-                                 0.0), 1.0)
+                wanted = min(max((fitted - CURL_FLOOR) / (CURL_CEILING - CURL_FLOOR), 0.0), 1.0)
             if wanted is None:
                 measured = float(np.linalg.norm(u[chain[3]] - u[chain[0]]))
-                wanted = curl_from_ratio(
-                    name, measured / max(float(chord_ratios[index]), 1e-6))
+                wanted = curl_from_ratio(name, measured / max(float(chord_ratios[index]), 1e-6))
             seen = curls.get(name)
-            curl = wanted if seen is None else (
-                (1.0 - CURL_SMOOTHING) * wanted + CURL_SMOOTHING * seen)
+            curl = (
+                wanted
+                if seen is None
+                else ((1.0 - CURL_SMOOTHING) * wanted + CURL_SMOOTHING * seen)
+            )
             curls[name] = curl
 
             cursor = points[chain[0]].copy()

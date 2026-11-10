@@ -13,8 +13,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from bodyfeed import BodyFeed  # noqa: E402
 
 
-def body_packet(left_x: float = -230.0, right_x: float = 230.0, status: int = 2,
-                left_status: int = 1, right_status: int = 1) -> bytes:
+def body_packet(
+    left_x: float = -230.0,
+    right_x: float = 230.0,
+    status: int = 2,
+    left_status: int = 1,
+    right_status: int = 1,
+) -> bytes:
     joints = []
     for joint_type in range(19):
         position = {"x": 0.0, "y": 0.0, "z": 2000.0}
@@ -27,11 +32,26 @@ def body_packet(left_x: float = -230.0, right_x: float = 230.0, status: int = 2,
         elif joint_type == 7:
             position = {"x": right_x, "y": 500.0, "z": 2000.0}
             joint_status = right_status
-        joints.append({"type": joint_type, "status": joint_status, "position": position,
-                       "orientation": [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]})
-    return json.dumps({"version": 1, "session": "s", "sequence": 3, "sourceFrame": 3,
-                       "timestampMs": 10, "simulated": False, "units": "mm",
-                       "bodies": [{"id": 12, "status": status, "joints": joints}]}).encode()
+        joints.append(
+            {
+                "type": joint_type,
+                "status": joint_status,
+                "position": position,
+                "orientation": [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0],
+            }
+        )
+    return json.dumps(
+        {
+            "version": 1,
+            "session": "s",
+            "sequence": 3,
+            "sourceFrame": 3,
+            "timestampMs": 10,
+            "simulated": False,
+            "units": "mm",
+            "bodies": [{"id": 12, "status": status, "joints": joints}],
+        }
+    ).encode()
 
 
 class BodyFeedTests(unittest.TestCase):

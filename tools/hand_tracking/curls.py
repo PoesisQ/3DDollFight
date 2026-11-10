@@ -64,7 +64,7 @@ def compute_curls(world_landmarks) -> np.ndarray:
         chain = points[list(CHAINS[name])]
         degrees = _flexion_degrees(chain)
         limits = np.asarray(MAX_DEGREES[name], dtype=np.float64)
-        curls[finger_index * 3:(finger_index + 1) * 3] = np.clip(degrees / limits, 0.0, 1.0)
+        curls[finger_index * 3 : (finger_index + 1) * 3] = np.clip(degrees / limits, 0.0, 1.0)
     return curls
 
 
@@ -88,8 +88,9 @@ def classify(curls) -> str:
 class CurlSmoother:
     """One Euro filter per curl channel, adapted for low-latency hand motion."""
 
-    def __init__(self, minimum_cutoff: float = 1.2, beta: float = 0.08,
-                 derivative_cutoff: float = 1.0):
+    def __init__(
+        self, minimum_cutoff: float = 1.2, beta: float = 0.08, derivative_cutoff: float = 1.0
+    ):
         self.minimum_cutoff = float(minimum_cutoff)
         self.beta = float(beta)
         self.derivative_cutoff = float(derivative_cutoff)

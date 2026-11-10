@@ -22,11 +22,15 @@ CATALOG = ROOT / "unity/Assets/Resources/DollFight/Characters.json"
 
 @pytest.mark.skipif(not CATALOG.exists(), reason="Unity character catalog not present")
 def test_every_character_has_fifteen_joints_per_hand():
-    result = subprocess.run([sys.executable, str(ROOT / "tools/audit_hand_rigs.py")],
-                            capture_output=True, text=True, check=False)
+    result = subprocess.run(
+        [sys.executable, str(ROOT / "tools/audit_hand_rigs.py")],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
     output = result.stdout + result.stderr
     if "skipped:" in output or "No character assets available" in output:
         pytest.skip("character assets are not available in this checkout")
     assert result.returncode == 0, output
-    assert output.count("/15") >= 8, output          # four characters, two hands
+    assert output.count("/15") >= 8, output  # four characters, two hands
     assert "All characters expose both hands" in output, output

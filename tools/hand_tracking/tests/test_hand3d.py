@@ -37,12 +37,12 @@ TO_FRAME = np.array([1.0, -1.0, 1.0])
 # Palm landmarks of a right hand, palm towards +Z, fingers up, thumb to the
 # viewer's left. Units are palm lengths (wrist -> middle knuckle == 1).
 PALM = {
-    0: (0.00, 0.00, 0.00),    # wrist
-    1: (-0.23, 0.12, 0.03),   # thumb CMC
-    5: (-0.33, 0.98, 0.00),   # index MCP
-    9: (0.00, 1.00, 0.00),    # middle MCP
-    13: (0.20, 0.96, 0.00),   # ring MCP
-    17: (0.36, 0.90, 0.00),   # little MCP
+    0: (0.00, 0.00, 0.00),  # wrist
+    1: (-0.23, 0.12, 0.03),  # thumb CMC
+    5: (-0.33, 0.98, 0.00),  # index MCP
+    9: (0.00, 1.00, 0.00),  # middle MCP
+    13: (0.20, 0.96, 0.00),  # ring MCP
+    17: (0.36, 0.90, 0.00),  # little MCP
 }
 # The four fingers that lie in the palm plane; the thumb is excluded from the
 # geometric assertions because its chord table treats it differently.
@@ -62,28 +62,32 @@ def build_hand(curl: float = 0.0, palm_normal=(0.0, 0.0, 1.0)) -> np.ndarray:
         cursor = points[chain[0]].copy()
         for segment, length in enumerate(lengths):
             angle = hand3d.FLEXION[name][segment] * curl
-            cursor = cursor + length * (math.cos(angle) * heading
-                                        + math.sin(angle) * normal)
+            cursor = cursor + length * (math.cos(angle) * heading + math.sin(angle) * normal)
             points[chain[segment + 1]] = cursor
     return points
 
 
 def rotate_y(points: np.ndarray, yaw: float) -> np.ndarray:
-    ry = np.array([[math.cos(yaw), 0.0, math.sin(yaw)],
-                   [0.0, 1.0, 0.0],
-                   [-math.sin(yaw), 0.0, math.cos(yaw)]])
+    ry = np.array(
+        [[math.cos(yaw), 0.0, math.sin(yaw)], [0.0, 1.0, 0.0], [-math.sin(yaw), 0.0, math.cos(yaw)]]
+    )
     return points @ ry.T
 
 
 def rotate_x(points: np.ndarray, pitch: float) -> np.ndarray:
-    rx = np.array([[1.0, 0.0, 0.0],
-                   [0.0, math.cos(pitch), -math.sin(pitch)],
-                   [0.0, math.sin(pitch), math.cos(pitch)]])
+    rx = np.array(
+        [
+            [1.0, 0.0, 0.0],
+            [0.0, math.cos(pitch), -math.sin(pitch)],
+            [0.0, math.sin(pitch), math.cos(pitch)],
+        ]
+    )
     return points @ rx.T
 
 
-def project_tilted(points: np.ndarray, yaw: float = 0.0, pitch: float = 0.0,
-                   scale: float = 0.25) -> np.ndarray:
+def project_tilted(
+    points: np.ndarray, yaw: float = 0.0, pitch: float = 0.0, scale: float = 0.25
+) -> np.ndarray:
     """Projection of a hand that is turned and tipped, not just turned."""
     turned = rotate_x(rotate_y(points, yaw), pitch) * TO_IMAGE
     return turned[:, :2] * scale + np.array([0.5, 0.5])
@@ -185,8 +189,7 @@ class HandLiftTests(unittest.TestCase):
         self.assertLess(float(offset.mean()), 0.60)
         # And they come back towards the wrist instead of reaching past the
         # knuckles: image y grows downwards, so the tips must sit lower.
-        self.assertGreater(float(tips[:, 1].mean()),
-                           float(points[list(KNUCKLES), 1].mean()) + 0.15)
+        self.assertGreater(float(tips[:, 1].mean()), float(points[list(KNUCKLES), 1].mean()) + 0.15)
 
     def test_curl_grows_monotonically(self):
         lift = hand3d.HandLift(aspect=1.0)
@@ -275,8 +278,10 @@ class CurlTests(unittest.TestCase):
         for _ in range(6):
             local, _, _ = solve(build_hand(), lift=lift)
         self.assertLessEqual(
-            float(np.max(lift._pixels["Right"]["chord"] / reference)), 1.05,
-            "a collapsed frame must not raise the chord reference")
+            float(np.max(lift._pixels["Right"]["chord"] / reference)),
+            1.05,
+            "a collapsed frame must not raise the chord reference",
+        )
         self.assertLess(self.mean_curl(lift), 0.20)
         self.assertLess(float(np.max(np.abs(local[list(FINGERTIPS), 2]))), 0.10)
 
@@ -351,8 +356,9 @@ class CurlAcrossOrientations(unittest.TestCase):
             for _ in range(2):
                 if lift.solve(image, "Right") is None:
                     break
-            readings.append((round(math.degrees(pitch)), round(math.degrees(yaw)),
-                             self.mean_curl(lift)))
+            readings.append(
+                (round(math.degrees(pitch)), round(math.degrees(yaw)), self.mean_curl(lift))
+            )
         return readings
 
     def test_a_fist_stays_a_fist_when_the_hand_turns(self):
@@ -363,8 +369,9 @@ class CurlAcrossOrientations(unittest.TestCase):
     def test_an_open_hand_stays_open_when_the_hand_turns(self):
         for pitch, yaw, value in self.orbit(0.0):
             with self.subTest(pitch=pitch, yaw=yaw):
-                self.assertLess(value, 0.25,
-                                f"an open hand read as a fist at pitch {pitch}, yaw {yaw}")
+                self.assertLess(
+                    value, 0.25, f"an open hand read as a fist at pitch {pitch}, yaw {yaw}"
+                )
 
     def test_a_foreshortened_palm_cannot_flip_the_verdict(self):
         """The measured failure, reproduced: the palm shrinks, the fingers do not.
@@ -386,8 +393,9 @@ class CurlAcrossOrientations(unittest.TestCase):
         lift = hand3d.HandLift(aspect=1.0)
         for _ in range(5):
             lift.solve(project(collapsed), "Right")
-        self.assertGreater(self.mean_curl(lift), 0.5,
-                           "a collapsed palm made the fist read as an open hand")
+        self.assertGreater(
+            self.mean_curl(lift), 0.5, "a collapsed palm made the fist read as an open hand"
+        )
 
 
 class MeasuredFrameTests(unittest.TestCase):
@@ -425,7 +433,8 @@ class MeasuredFrameTests(unittest.TestCase):
         hand = build_hand()
         basis, _ = self.reference(hand, 0.9)
         _, _, axes = hand3d.HandLift(aspect=1.0).solve(
-            project_tilted(hand, pitch=0.9), "Right", basis=basis)
+            project_tilted(hand, pitch=0.9), "Right", basis=basis
+        )
         for given, got in zip(basis, axes, strict=True):
             np.testing.assert_allclose(got, given, atol=1e-9)
 
@@ -453,26 +462,30 @@ class MeasuredFrameTests(unittest.TestCase):
                 basis, _ = self.reference(hand, float(pitch), float(yaw))
                 guessed = lift.solve(screen, "Right")
                 self.assertIsNotNone(guessed)
-                angle = math.degrees(math.acos(
-                    float(np.clip(guessed[2][1] @ basis[1], -1.0, 1.0))))
+                angle = math.degrees(math.acos(float(np.clip(guessed[2][1] @ basis[1], -1.0, 1.0))))
                 if angle > worst:
                     worst, at = angle, (float(pitch), float(yaw))
-        self.assertGreater(worst, 60.0,
-                           f"the guess stayed within {worst:.0f} degrees; "
-                           "the fixture may no longer reach the poses this is about")
+        self.assertGreater(
+            worst,
+            60.0,
+            f"the guess stayed within {worst:.0f} degrees; "
+            "the fixture may no longer reach the poses this is about",
+        )
         measured = hand3d.HandLift(aspect=1.0).solve(
-            project_tilted(hand, pitch=at[0], yaw=at[1]), "Right",
-            basis=self.reference(hand, at[0], at[1])[0])
+            project_tilted(hand, pitch=at[0], yaw=at[1]),
+            "Right",
+            basis=self.reference(hand, at[0], at[1])[0],
+        )
         np.testing.assert_allclose(
-            measured[2][1], self.reference(hand, at[0], at[1])[0][1], atol=1e-9)
+            measured[2][1], self.reference(hand, at[0], at[1])[0][1], atol=1e-9
+        )
 
     def test_a_degenerate_frame_falls_back_to_the_guess(self):
         hand = build_hand()
         _, truth = self.reference(hand, 0.0)
         bad = np.array([[np.nan, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]])
         screen = project_tilted(hand)
-        self.assertAlmostEqual(self.error(screen, truth, bad),
-                               self.error(screen, truth), places=12)
+        self.assertAlmostEqual(self.error(screen, truth, bad), self.error(screen, truth), places=12)
 
 
 class WireFrameTests(unittest.TestCase):
@@ -484,8 +497,8 @@ class WireFrameTests(unittest.TestCase):
     front no matter what the real palm does.
     """
 
-    M_IMAGE = np.array([1.0, -1.0, -1.0])   # y down, z into the scene
-    M_UNITY = np.array([1.0, 1.0, -1.0])    # y up,   z into the scene
+    M_IMAGE = np.array([1.0, -1.0, -1.0])  # y down, z into the scene
+    M_UNITY = np.array([1.0, 1.0, -1.0])  # y up,   z into the scene
 
     def test_a_measured_frame_also_matches_the_avatar(self):
         """The world-landmark path lands on the same axes as the guess does.
@@ -506,8 +519,7 @@ class WireFrameTests(unittest.TestCase):
                 image = physical * self.M_IMAGE
                 basis = skeleton.hand_basis(physical * TO_FRAME)
                 self.assertIsNotNone(basis)
-                solved = hand3d.HandLift(aspect=1.0).solve(
-                    image[:, :2], side, basis=basis[:3])
+                solved = hand3d.HandLift(aspect=1.0).solve(image[:, :2], side, basis=basis[:3])
                 self.assertIsNotNone(solved)
                 flat = np.asarray(run.wire_axes(solved[2])).reshape(3, 3)
                 sent = look_rotation(flat[2], flat[1])
@@ -517,10 +529,10 @@ class WireFrameTests(unittest.TestCase):
                 x = across - y * float(across @ y)
                 x /= np.linalg.norm(x)
                 avatar = look_rotation(np.cross(x, y), y)
-                error = np.degrees(np.arccos(
-                    np.clip((np.trace(sent @ avatar.T) - 1.0) / 2.0, -1.0, 1.0)))
-                self.assertLess(float(error), 1.0,
-                                f"{side} pitch {round(math.degrees(pitch))}")
+                error = np.degrees(
+                    np.arccos(np.clip((np.trace(sent @ avatar.T) - 1.0) / 2.0, -1.0, 1.0))
+                )
+                self.assertLess(float(error), 1.0, f"{side} pitch {round(math.degrees(pitch))}")
 
     def test_sender_frame_matches_the_avatar(self):
         import run  # noqa: PLC0415 - the module pulls in the tracker stack
@@ -543,8 +555,9 @@ class WireFrameTests(unittest.TestCase):
                 x = across - y * float(across @ y)
                 x /= np.linalg.norm(x)
                 avatar = look_rotation(np.cross(x, y), y)
-                error = np.degrees(np.arccos(
-                    np.clip((np.trace(sent @ avatar.T) - 1.0) / 2.0, -1.0, 1.0)))
+                error = np.degrees(
+                    np.arccos(np.clip((np.trace(sent @ avatar.T) - 1.0) / 2.0, -1.0, 1.0))
+                )
                 self.assertLess(float(error), 1.0, f"{side} curl {curl}")
 
 
@@ -558,7 +571,7 @@ class PointSmoothingTests(unittest.TestCase):
     the hand is held still.
     """
 
-    NOISE = 0.0025   # normalised image units, about 1.6 px on a 640 px frame
+    NOISE = 0.0025  # normalised image units, about 1.6 px on a 640 px frame
 
     @staticmethod
     def _sequence(frames, seed, smooth=True):
@@ -583,21 +596,31 @@ class PointSmoothingTests(unittest.TestCase):
     def test_a_held_hand_stops_crawling(self):
         raw = self._sequence(14, seed=7, smooth=False)
         settled = self._sequence(14, seed=7, smooth=True)
-        self.assertLess(settled, raw * 0.60,
-                        f"jitter only dropped from {raw:.4f} to {settled:.4f} palm lengths")
+        self.assertLess(
+            settled, raw * 0.60, f"jitter only dropped from {raw:.4f} to {settled:.4f} palm lengths"
+        )
 
     def test_a_closing_fist_is_not_slowed_down(self):
         # The filter is gated on motion: a hand that closes fast has to come
         # through untouched, otherwise the fix for jitter buys a laggy fist.
         lift = hand3d.HandLift(aspect=1.0)
-        open_height = float(lift.solve(project(build_hand()), "Right")[0]
-                            [list(FINGERTIPS), 1].mean())
+        open_height = float(
+            lift.solve(project(build_hand()), "Right")[0][list(FINGERTIPS), 1].mean()
+        )
         heights = []
         for _ in range(4):
-            heights.append(float(lift.solve(project(build_hand(curl=1.0)), "Right")[0]
-                                 [list(FINGERTIPS), 1].mean()))
-        self.assertLess(heights[1], open_height * 0.75,
-                        f"two frames after the fist started it was still at {heights[1]:.2f}")
+            heights.append(
+                float(
+                    lift.solve(project(build_hand(curl=1.0)), "Right")[0][
+                        list(FINGERTIPS), 1
+                    ].mean()
+                )
+            )
+        self.assertLess(
+            heights[1],
+            open_height * 0.75,
+            f"two frames after the fist started it was still at {heights[1]:.2f}",
+        )
 
 
 if __name__ == "__main__":
