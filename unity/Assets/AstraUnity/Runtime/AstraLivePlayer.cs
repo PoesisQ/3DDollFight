@@ -38,6 +38,20 @@ namespace AstraUnity
         private Vector3 initialHip;
         private Vector3 sourceRight, sourceDepth, modelRight, modelDepth;
         private Quaternion previousFacing = Quaternion.identity;
+        /// <summary>
+        /// Sensor frame to model frame, fixed at calibration.
+        ///
+        /// Every body bone is posed from a direction that went through
+        /// <see cref="MapSensorOffset"/>, so all of them already live in the
+        /// model's own frame. The hand basis arrives in the sensor's frame and
+        /// used to be handed to the wrist unchanged: the palm then keeps the
+        /// camera's idea of "forward" while the body is turned to the opponent,
+        /// which is a yaw of about 90 degrees in a side-on match - the avatar
+        /// holds its hand flat to the screen instead of along its own arm.
+        /// </summary>
+        private Quaternion sensorToModel = Quaternion.identity;
+        /// <summary>Yaw applied to the whole model so it faces the opponent.</summary>
+        private Quaternion liveFacing = Quaternion.identity;
         private static readonly int[,] segments = {
             {0,9,8},{1,8,1},{2,1,18},{3,18,0},
             {5,2,3},{6,3,16},{8,5,6},{9,6,17},
@@ -277,6 +291,16 @@ namespace AstraUnity
             sourceRight.Normalize(); modelRight.Normalize();
             sourceDepth = Vector3.Cross(sourceRight, Vector3.up);
             modelDepth = Vector3.Cross(modelRight, Vector3.up);
+            // The hand basis needs the same frame change the body directions
+            // get. Both depths are the direction their owner faces - the sensor
+            // frame's is where the person looks, the model frame's is where the
+            // avatar looks - so the rotation that carries one onto the other,
+            // with the shoulders as the common reference, is the whole of it.
+            // What is left over (`facing`) is the avatar turning during the
+            // match, applied per frame next to it.
+            liveFacing = Quaternion.identity;
+            sensorToModel = Quaternion.LookRotation(modelDepth, Vector3.up) *
+                            Quaternion.Inverse(Quaternion.LookRotation(sourceDepth, Vector3.up));
             for (int i = 0; i < segments.GetLength(0); i++)
             {
                 int bone = segments[i,0]; Vector3 v;
@@ -509,6 +533,9 @@ namespace AstraUnity
             Quaternion facingChange = facing * Quaternion.Inverse(previousFacing);
             for (int i = 0; i < liveRotations.Length; i++) liveRotations[i] = facingChange * liveRotations[i];
             previousFacing = facing;
+            // The hands only borrow the wrist's *position* from the body, so
+            // whatever turn the body got has to be given to them explicitly.
+            liveFacing = facing;
             // Reorient the entire model, including bones that are not tracked.
             bones[0].rotation = facing * bindRotations[0];
             for (int i = 0; i < segments.GetLength(0); i++)
@@ -562,6 +589,17 @@ namespace AstraUnity
                         handPoints[i] = new Vector3(hand.joints[i * 3], hand.joints[i * 3 + 1], hand.joints[i * 3 + 2]);
                     Vector3 hx, hy, hz;
                     HandBasis(hand, out hx, out hy, out hz);
+                    // Bring the palm into the frame the body is posed in. The
+                    // sensor sees the person from the front; the avatar is
+                    // turned to the opponent, and in this match that is a right
+                    // angle. Skipping it leaves the hand flat to the screen
+                    // while the arm points elsewhere - the wrist is bent 90
+                    // degrees and the palm looks like it is facing the camera
+                    // on purpose.
+                    Quaternion toModel = liveFacing * sensorToModel;
+                    hx = toModel * hx;
+                    hy = toModel * hy;
+                    hz = toModel * hz;
                     actor.ApplyHandSkeleton(hand.IsLeft, handPoints, hx, hy, hz);
                     if (hand.HasBasis) measured = true;
                     if (hand.IsLeft) left = true; else right = true;
@@ -659,6 +697,18 @@ namespace AstraUnity
         }
 
         /// <summary>
+        /// How far the sensor's forward is turned away from the model's, in
+        /// degrees. This is the twist the wrist would carry if the hand basis
+        /// were used in the sensor frame: about 90 when the avatar fights side
+        /// on to the camera, 180 when it faces straight away.
+        /// </summary>
+        float FrameYawDegrees()
+        {
+            Vector3 forward = sensorToModel * Vector3.forward;
+            return Mathf.Atan2(forward.x, forward.z) * Mathf.Rad2Deg;
+        }
+
+        /// <summary>
         /// Writes a one-second snapshot to Library/AstraLiveStatus.txt. When the
         /// panel looks empty this file answers "did the socket bind, is data
         /// arriving, is the game found" without needing a screenshot.
@@ -689,6 +739,7 @@ namespace AstraUnity
                     " aimL=" + HandNumber(actor, true, true) + " aimR=" + HandNumber(actor, false, true) +
                     " bendL=" + HandNumber(actor, true, false) + " bendR=" + HandNumber(actor, false, false) +
                     " handFrames=" + (handReceiver != null ? handReceiver.AcceptedFrames : 0) +
+                    " frameYaw=" + FrameYawDegrees().ToString("F1") +
                     " legNote=" + (legNote ?? "-") + "\n" +
                     "status=" + status + "\n";
                 File.WriteAllText(Path.GetFullPath(Path.Combine(Application.dataPath, "..", "Library", "AstraLiveStatus.txt")), text);

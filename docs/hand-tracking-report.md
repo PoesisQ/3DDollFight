@@ -172,6 +172,7 @@ status=Waiting for automatic T-pose calibration
 | `rollL` / `rollR` | 手腕相对绑定姿势的转角（度） | 翻掌时应有明显变化；恒为 0 说明 basis 没到 |
 | `aimL` / `aimR` | 指骨离目标方向还差多少度（均值） | 应接近 0。持续偏大 = 有别人在写同一批骨头 |
 | `bendL` / `bendR` | 中指指尖相对掌面的弯角（0 直、90 折回掌心） | 张开手时应接近 0；它不动而 `aim` 在涨，就是手指没被驱动 |
+| `frameYaw` | 传感器朝向与角色朝向的偏航差（度） | 手部基向量必须先转这个角再交给手腕。单人正面站位约 180，侧面对战约 ±90 |
 | `calibrated` | 身体是否完成标定 | **只影响身体**；False 时手指照常驱动 |
 | `legNote` | 缺的关节名 | 如「左膝、右膝」= 腿部没入画 |
 
@@ -357,3 +358,24 @@ for (...) bone.rotation = Quaternion.Slerp(bone.rotation,
 6. 诊断：状态文件新增 `aimL/aimR`（指骨离目标还差多少度）、`bendL/bendR`（中指指尖相对掌面的弯角）。面板手部行直接显示「中指屈 L/R」。这两个数能把「手指在跟」和「有别人按着这只手」分开。
 
 **验证**：手部 25 passed（新增 2 条：翻转的基向量不许甩手腕、25°/帧的真翻掌不许被滤波拖住）；全仓库 230 passed / 9 skipped；ruff 全过；离线 Unity 编译 0 错误。
+
+## 2026-11-11 上午（二）｜手掌朝向差 90°：手部基向量没进角色坐标系
+
+**症状**（用户原话）：手指终于正常了，但手掌是面向屏幕正前方的；真手掌平行于身体时，皮套的手掌却垂直于角色。怀疑多转了 90°。
+
+**查证**：不是多转了一个写死的 90°，是**少转了一个不固定的偏航角**，只是这一局恰好是 90°。
+
+- 身体每根骨头都由 `Direction()` 给出方向，而 `Direction()` 会先过 `MapSensorOffset`，把「传感器右/上/前」换成「角色右/上/前」；再叠一个逐帧的 `facing`（转向对手）。所以身体上的每一个旋转都已经活在**角色坐标系**里。
+- 手部基向量走的是另一条路：`HandBasis()` 只把数据从相机系换到 Unity 世界系（`wire_axes` 的 `(x,-y,-z)` + `receiver.transform`），**没有过 `sensorToModel`，也没有乘 `facing`**，然后直接交给 `LookRotation`。于是手掌保持「相机眼里的正前方」，而身体被游戏转去面向对手。
+- 这局是两人对战，摄像机在侧面：人面向镜头（传感器前向），角色面向对手（模型前向），两者正好差 90°。所以掌面平行于屏幕、手腕看起来像被掰了 90°。
+- 手指不受影响，因为 21 个点表达在**手自己的**坐标系里，局部形状与整体朝向无关——这也解释了为什么「手指正常、手掌歪」。
+
+**改动**（只动坐标系，不动锚点映射与阈值）：
+
+1. 标定（`Calibrate`）时算一次 `sensorToModel = LookRotation(modelDepth, up) × LookRotation(sourceDepth, up)⁻¹`：把传感器前向转到模型前向、以双肩为共同参考。两个前向都是「它的主人看向哪」，所以这个旋转同时把掌心朝向带对。
+2. `ApplyBodyPose` 每帧把 `facing` 存进 `liveFacing`；`ApplyHands` 里手部三个轴先过 `liveFacing * sensorToModel` 再交给 `ApplyHandSkeleton`。整个手的 21 点、掌心法线、手指指向因此和身体在同一个系里。
+3. 状态文件新增 `hands.frameYaw`：传感器与角色朝向的偏航差。侧面对战约 ±90，正面站位约 180——这个数就是修好之前掌面会歪掉的角度。
+
+**没动什么**：`wire_axes` 的 `(x,-y,-z)`、`hand3d` 的 `_settle_basis` / `PALM_SIDE` / `CURL_FLOOR` 阈值、`ApplyHandSkeleton` 的轴对齐公式，一行都没改。上一轮定位的「回放每帧重置」也保持原样。
+
+**验证**：离线 Unity 编译 0 错误；手部 58 passed / 1 skipped；全仓库 230 passed / 9 skipped；ruff 全过。Unity 侧无法在本机运行，实际掌面朝向需要重新 Play 后由 `frameYaw` 与画面确认。
