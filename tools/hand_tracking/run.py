@@ -52,10 +52,10 @@ HAND_GRACE = 1.0
 # hands for up to 2.4 seconds while the palms overlap, so 0.4 s of cover ran out
 # in the middle of the gesture and the receiver relaxed both hands to the bind
 # pose before re-acquiring them - the "it glitches and does the opposite of my
-# hand" report. 0.8 s covers the short gaps; the receiver also holds a hand it
-# has seen within the last 0.5 s instead of relaxing it, so a longer gap freezes
-# the pose that was last tracked rather than snapping it.
-HAND_HOLD = 0.8
+# hand" report. The receiver now holds a hand it has seen within the last 2.5 s
+# instead of relaxing it, so this only has to cover the gap up to the point where
+# the pose stops being re-sent at all; 1.5 s keeps the two windows ordered.
+HAND_HOLD = 1.5
 
 # Image components (x right, y down, z into the scene) to the receiver's axes
 # (x right, y up, z into the scene). A 180 degree turn about x, so the three

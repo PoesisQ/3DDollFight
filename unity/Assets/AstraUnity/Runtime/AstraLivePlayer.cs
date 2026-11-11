@@ -23,6 +23,8 @@ namespace AstraUnity
         public float smoothing = 12f;
         [Tooltip("Flip if the tracked palm comes out mirrored (back of hand where the palm should be).")]
         public bool flipPalmNormal;
+        [Tooltip("Flip if a forward reach puts the avatar's arms behind its back.")]
+        public bool flipArmDepth;
         public string status = "Waiting for game and camera";
         public bool Calibrated { get; private set; }
         public int CalibratedBodyId { get; private set; }
@@ -88,7 +90,14 @@ namespace AstraUnity
         // lost hand relax while its partner carried on being tracked.
         private float lastLeftHandAt = -100f;
         private float lastRightHandAt = -100f;
-        private const float HandGrace = 0.5f;
+        // Crossed forearms are the one pose a single camera cannot keep: both
+        // palms overlap in the picture, MediaPipe drops them together, and the
+        // 2026-11-11 14:45 clip has 2.4 s of no hands at all in the middle of the
+        // cross. Any window shorter than that turns the cross into "the hands
+        // vanish and come back", because the receiver lets go, the hand eases to
+        // its bind pose and the next packet snaps it back. Hold the pose for
+        // longer than the detector is known to lose it.
+        private const float HandGrace = 2.5f;
         private float nextGameLookupAt;
         private float nextStatusWriteAt;
         private string calibrationMessage;
@@ -331,28 +340,38 @@ namespace AstraUnity
 
         Vector3 MapSensorOffset(Vector3 offset)
         {
-            // The same rotation the hands go through, not a second opinion on it.
+            // Two senders, two conventions, and they are not the same one.
             //
-            // This used to be written out by hand as
-            //     modelRight * (offset . sourceRight) + up * offset.y
-            //     - modelDepth * (offset . sourceDepth)
-            // which maps the person's right onto the avatar's right, up onto up,
-            // and their *forward onto the avatar's backward*. That is a reflection,
-            // not a rotation: it preserves `right` and flips `depth`, which no
-            // orientation of two bodies can do. Every bone was then aimed along a
-            // mirrored direction while the palm basis was mapped by the rotation in
-            // `sensorToModel` - so the arm and the hand hanging off it lived in two
-            // frames a mirror apart, and the two only agree for motion that has no
-            // forward component. Reaching forward, and above all crossing the arms,
-            // is exactly where that shows: on the 2026-11-11 recording the user
-            // holds both forearms in front of the chest and the avatar answers by
-            // folding them up and back, which reads as "it moves the opposite way
-            // to me".
+            // The hand sender builds its axes in the *camera* frame and converts
+            // them on the way out (`run.py: WIRE_TO_UNITY`), which was measured
+            // against the avatar's own knuckle frame and lands on 0 degrees. The
+            // body skeleton does not: it is the Astra SDK's joint positions passed
+            // through untouched (`axisSigns` is 1,1,1), and that frame is the
+            // sensor's, not Unity's.
             //
-            // One rotation, one frame: `sensorToModel` already maps sourceRight to
-            // modelRight, up to up and sourceDepth to modelDepth, and the receiver
-            // turns the whole pose by `facing` on top of it.
-            return sensorToModel * offset;
+            // Which is why this map and `sensorToModel` are allowed to disagree
+            // about depth. `sensorToModel` is the rotation that carries the
+            // *hand*'s frame onto the model's; taking it for the body as well
+            // (the 2026-11-11 15:20 commit) sends the arms behind the torso the
+            // moment they reach forward, and reads on the 16:07 recording as "the
+            // hand runs backwards and the arms fold in when I open them". The
+            // torso and the hips barely move in depth in a standing session,
+            // which is why only the arms showed it.
+            //
+            // So the body keeps its own map: right onto right, up onto up, and
+            // the sensor's depth onto the model's *reversed*. Written as a
+            // matrix that is a reflection (determinant minus one) - and it has to
+            // be, because the two frames are mirror images of each other for the
+            // body channel. A reflection maps directions correctly but would
+            // mirror anything with a handedness, which is exactly why the palm
+            // basis must not come through here.
+            //
+            // `flipArmDepth` exists because this is the kind of claim that is
+            // cheaper to settle on the real camera than in a comment: press it
+            // while reaching forward and the panel records which way was right.
+            if (flipArmDepth) return sensorToModel * offset;
+            return modelRight * Vector3.Dot(offset, sourceRight) +
+                   Vector3.up * offset.y - modelDepth * Vector3.Dot(offset, sourceDepth);
         }
 
         bool DirectionToOpponent(Vector3 position, out Vector3 direction)
@@ -592,15 +611,22 @@ namespace AstraUnity
             if (frame == null || frame.hands == null || frame.hands.Length == 0)
             {
                 handsDriving = false;
-                bool recent = Time.unscaledTime - lastHandApplyAt <= 1f;
-                actor.handPoseOverridden = recent;
-                actor.wristOverridden = recent;
+                float idle = Time.unscaledTime - lastHandApplyAt;
+                // Hold through a drop-out instead of letting go on the first
+                // empty frame: an empty packet means the detector blinked, not
+                // that the person moved their hands. Both palettes overlapping on
+                // a cross is the usual reason, and relaxing there is the
+                // "disappear and come back" that was reported.
+                bool holding = idle <= HandGrace;
+                actor.handPoseOverridden = holding;
+                actor.wristOverridden = holding;
                 // Nothing has ever been driven here, so the avatar's own hand
                 // pose belongs to the game: leave it alone instead of easing it
                 // to a bind pose nobody asked for.
-                if (!recent) return;
-                // Tracking lost: ease both hands back to the bind pose instead of
-                // freezing them mid-gesture.
+                if (holding) return;
+                if (idle > HandGrace + 1f) return;
+                // Given up: ease both hands back to the bind pose once, rather
+                // than freezing them mid-gesture forever.
                 actor.RelaxHand(true);
                 actor.RelaxHand(false);
                 return;
@@ -640,8 +666,8 @@ namespace AstraUnity
             // in the 2026-11-11 recording lost both hands for two and a half
             // seconds, and every one of those frames the receiver was posing the
             // hand from somewhere else. Hold it instead, and only give up after
-            // HandGrace - the sender already re-sends a solved pose for HAND_HOLD
-            // (0.8 s) before a hand stops appearing at all.
+            // HandGrace - the sender re-sends a solved pose for HAND_HOLD
+            // (1.5 s) before a hand stops appearing at all.
             if (!left && Time.unscaledTime - lastLeftHandAt <= HandGrace) left = true;
             if (!right && Time.unscaledTime - lastRightHandAt <= HandGrace) right = true;
             if (!left) actor.RelaxHand(true);
@@ -736,6 +762,33 @@ namespace AstraUnity
         }
 
         /// <summary>
+        /// +1 when the tracked right wrist ends up on the same side of the body
+        /// as the avatar's, -1 when the two disagree, 0 when it cannot be told.
+        ///
+        /// A body tracker that swaps the two arms while they cross is the only
+        /// thing that makes the avatar fold its arms in when the person opens
+        /// them, and it is invisible in a screenshot where both arms happen to
+        /// be symmetric. Projecting the wrist-to-wrist offset onto the model's
+        /// own right axis makes it a single number: -1 is a swapped pair.
+        /// </summary>
+        int ArmOrder()
+        {
+            if (actor == null || receiver == null || !receiver.IsReceiving ||
+                receiver.LatestFrame.bodies.Length == 0 || modelRight.sqrMagnitude < 0.5f) return 0;
+            var body = receiver.LatestFrame.bodies[0];
+            var leftWrist = body.Joint(JointType.LeftWrist); var rightWrist = body.Joint(JointType.RightWrist);
+            if (leftWrist == null || rightWrist == null || leftWrist.status == 0 || rightWrist.status == 0) return 0;
+            Vector3 sensor = MapSensorOffset(receiver.ToWorldPosition(rightWrist.position) -
+                                             receiver.ToWorldPosition(leftWrist.position));
+            Vector3 avatar = actor.Bones[10].position - actor.Bones[7].position;
+            float measured = Vector3.Dot(sensor, modelRight), posed = Vector3.Dot(avatar, modelRight);
+            // Wrists within a few centimetres of each other on that axis say
+            // nothing either way - that is a cross, not a swapped pair.
+            if (Mathf.Abs(measured) < 0.05f || Mathf.Abs(posed) < 0.05f) return 0;
+            return (measured < 0f) == (posed < 0f) ? 1 : -1;
+        }
+
+        /// <summary>
         /// How far the sensor's forward is turned away from the model's, in
         /// degrees. This is the twist the wrist would carry if the hand basis
         /// were used in the sensor frame: about 90 when the avatar fights side
@@ -779,6 +832,8 @@ namespace AstraUnity
                     " bendL=" + HandNumber(actor, true, false) + " bendR=" + HandNumber(actor, false, false) +
                     " handFrames=" + (handReceiver != null ? handReceiver.AcceptedFrames : 0) +
                     " frameYaw=" + FrameYawDegrees().ToString("F1") +
+                    " armDepth=" + (flipArmDepth ? "rotation" : "mirror") +
+                    " armOrder=" + ArmOrder() +
                     " legNote=" + (legNote ?? "-") + "\n" +
                     "status=" + status + "\n";
                 File.WriteAllText(Path.GetFullPath(Path.Combine(Application.dataPath, "..", "Library", "AstraLiveStatus.txt")), text);
@@ -841,11 +896,13 @@ namespace AstraUnity
                 flipPalmNormal = !flipPalmNormal;
                 if (actor != null) actor.ResetHandRoll();
             }
+            if (GUI.Button(new Rect(width - 105, 162, 98, 22), flipArmDepth ? "手臂：旋转" : "手臂：镜像"))
+                flipArmDepth = !flipArmDepth;
             if (GUI.Button(new Rect(25, 166, 120, 35), "启动摄像头")) StartSender(false);
             if (GUI.Button(new Rect(155, 166, 120, 35), "启动模拟")) StartSender(true);
             if (GUI.Button(new Rect(285, 166, 120, 35), "停止数据源")) StopSender();
             string countdown = nextCalibrationAt < 0 ? "等待人体" : "下次校准 " + Mathf.CeilToInt(Mathf.Max(0, nextCalibrationAt - Time.unscaledTime)) + " 秒";
-            GUI.Label(new Rect(415, 171, 155, 30), countdown);
+            GUI.Label(new Rect(415, 186, 158, 18), countdown);
             GUI.Label(new Rect(25, 208, width - 24, 46), "操作：选角色和场地 → 启动摄像头 → 双臂平举并等待自动校准。\n手指不需要校准：只要收到 7011 报文就在驱动。身体每 5 秒尝试一次，姿势不满足时保留上次校准。");
             var body = receiver.IsReceiving && receiver.LatestFrame.bodies.Length > 0 ? receiver.LatestFrame.bodies[0] : null;
             float previewHeight = Mathf.Clamp(Screen.height - 296, 150, 340);
