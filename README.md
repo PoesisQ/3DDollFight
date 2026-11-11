@@ -14,7 +14,7 @@ Unity 当前默认展示采用 1.2 倍源速率、55 秒常规时限的 showcase
 
 ## Astra 摄像头接入
 
-本分支提供单台 Astra 控制游戏 P1 的实验场景，以及双摄骨架并排展示。首次使用请先阅读 [Astra 接入说明](integrations/astra-unity-bridge/README.md)和[中文操作指南](integrations/astra-unity-bridge/操作指南.md)，其中包含环境准备、校准和故障排查。手部 21 点骨架由独立的彩色通道估计，挂到身体骨架的手腕上驱动手指，见[手部识别说明](tools/hand_tracking/README.md)。双人实时对战尚未完成。
+本分支提供单台 Astra 控制游戏 P1 的实验场景，以及双摄骨架并排展示。首次使用请先阅读 [Astra 接入说明](integrations/astra-unity-bridge/README.md)和[中文操作指南](integrations/astra-unity-bridge/操作指南.md)，其中包含环境准备、校准和故障排查。手部 21 点骨架由独立的彩色通道估计，挂到身体骨架的手腕上驱动手指，见[手部识别说明](tools/hand_tracking/README.md)；**使用时注意双臂交叉不要超过三秒**，超过后双手会松掉、需要重开 `run.cmd` 才能恢复（原因与修法见[交付说明](docs/hand-tracking-report.md#2026-11-11-傍晚交叉不要超过三秒先把它写成规矩)）。双人实时对战尚未完成。
 
 ## Unity 入口
 
