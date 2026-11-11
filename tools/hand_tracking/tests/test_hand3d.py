@@ -465,8 +465,8 @@ class MeasuredFrameTests(unittest.TestCase):
         for given, got in zip(basis, axes, strict=True):
             np.testing.assert_allclose(got, given, atol=1e-9)
 
-    def test_a_flipped_palm_frame_does_not_spin_the_wrist(self):
-        """One bad basis frame used to turn the avatar's hand inside out.
+    def test_a_basis_that_contradicts_the_picture_is_corrected(self):
+        """One bad basis frame must not turn the avatar's hand inside out.
 
         Replayed over eight seconds of this project's own recording, the palm
         frame MediaPipe reports moves 3.7 degrees per frame at the median and
@@ -476,9 +476,10 @@ class MeasuredFrameTests(unittest.TestCase):
         the twitch that made the puppet unreadable while the skeleton preview,
         drawn from the joints, kept looking fine.
 
-        A wrist cannot turn 35 degrees between two frames at 30 fps, so the
-        frame is held instead, and the joints go with the frame that was
-        accepted - not with the one that was rejected.
+        The picture is not ambiguous about it: the same 2D landmarks that
+        produced the joints decide which side of the palm is on show, so the
+        frame is put back on the right side of the hand on the very frame it
+        arrives, instead of being held and hoped over.
         """
         hand = build_hand()
         screen = project_tilted(hand, pitch=0.4)
@@ -490,8 +491,76 @@ class MeasuredFrameTests(unittest.TestCase):
         second = lift.solve(screen, "Right", basis=flipped)
         self.assertIsNotNone(second)
         step = float(np.degrees(np.arccos(np.clip(first[2][2] @ second[2][2], -1, 1))))
-        self.assertLess(step, hand3d.BASIS_MAX_STEP)
+        self.assertLess(step, 0.5, "a basis that contradicts the picture still turned the hand")
         self.assertLess(float(np.mean(np.linalg.norm(second[0] - truth, axis=1))), 0.05)
+
+    def test_a_palm_turned_over_stays_turned_over(self):
+        """The half turn the filter used to swallow, and never gave back.
+
+        Turning a palm over is a half turn: it is the gesture this tracking
+        exists to show, and at the pace people do it it arrives in three or four
+        frames. A rule that rejected any step over 35 degrees therefore rejected
+        the flip - and, because a rejected frame does not update the reference,
+        rejected every frame after it as well. Measured on the recording that
+        prompted this: both hands latched 180 degrees out at 9.9 s of a 42 s
+        clip and stayed there, which reads as "the palm faces the screen unless
+        I turn it over".
+
+        The picture says which side of the hand is showing, so the turn is not a
+        guess and must not be filtered. It must also not be undone on the next
+        frame, which is what "held" used to mean.
+        """
+        hand = build_hand()
+        lift = hand3d.HandLift(aspect=1.0)
+        for pitch in (0.3, 0.9):
+            front_screen = project_tilted(hand, pitch=pitch)
+            front_basis, _ = self.reference(hand, pitch)
+            before = lift.solve(front_screen, "Right", basis=front_basis)
+            self.assertIsNotNone(before)
+            back_screen = project_tilted(hand, yaw=math.pi, pitch=pitch)
+            back_basis, truth = self.reference(hand, pitch=pitch, yaw=math.pi)
+            for frame in range(4):
+                after = lift.solve(back_screen, "Right", basis=back_basis)
+                self.assertIsNotNone(after)
+                got = np.asarray(after[2][2], dtype=float)
+                want = np.asarray(back_basis[2], dtype=float)
+                self.assertGreater(
+                    float(got @ want),
+                    0.99,
+                    f"pitch {pitch}, frame {frame}: the frame did not follow the palm over",
+                )
+                self.assertNotEqual(
+                    np.sign(got[2]),
+                    np.sign(before[2][2][2]),
+                    f"pitch {pitch}, frame {frame}: still on the near side of the hand",
+                )
+                # The joints are expressed in that frame, so a frame that turned
+                # over has to carry a hand that turned over with it - not a
+                # mirrored one whose fingers close towards the back of the hand.
+                self.assertLess(
+                    float(np.mean(np.linalg.norm(after[0] - truth, axis=1))),
+                    0.05,
+                    f"pitch {pitch}, frame {frame}: the joints came out mirrored",
+                )
+
+    def test_the_picture_cannot_call_a_palm_that_is_edge_on(self):
+        """Halfway through a flip the palm is a line, and a line has no side.
+
+        ``palm_depth_sign`` returns zero there so the caller keeps the frame it had
+        rather than inventing a half turn from a few pixels of width. Getting it
+        wrong would be worse than useless: it would flip the hand at the exact
+        moment nobody can tell, and flip it back again on the way out.
+        """
+        hand = build_hand()
+        for yaw in (0.0, 0.4, 1.2):
+            screen = project_tilted(hand, yaw=yaw)
+            along = screen[hand3d.MIDDLE_MCP] - screen[hand3d.WRIST]
+            across = screen[hand3d.PINKY_MCP] - screen[hand3d.INDEX_MCP]
+            self.assertNotEqual(0.0, hand3d.palm_depth_sign(across, along), yaw)
+        edge = project_tilted(hand, yaw=math.pi / 2)
+        along = edge[hand3d.MIDDLE_MCP] - edge[hand3d.WRIST]
+        across = edge[hand3d.PINKY_MCP] - edge[hand3d.INDEX_MCP]
+        self.assertEqual(0.0, hand3d.palm_depth_sign(across, along))
 
     def test_a_real_turn_still_gets_through(self):
         """The gate must not cost a hand that is genuinely rolling.
@@ -589,26 +658,34 @@ class WireFrameTests(unittest.TestCase):
 
         for side in ("Right", "Left"):
             for pitch in (0.0, 0.7, 1.1):
-                physical = rotate_x(rotate_y(build_hand(curl=0.4), 0.5), pitch)
-                if side == "Left":
-                    physical = physical * np.array([-1.0, 1.0, 1.0])
-                image = physical * self.M_IMAGE
-                basis = skeleton.hand_basis(physical * TO_FRAME)
-                self.assertIsNotNone(basis)
-                solved = hand3d.HandLift(aspect=1.0).solve(image[:, :2], side, basis=basis[:3])
-                self.assertIsNotNone(solved)
-                flat = np.asarray(run.wire_axes(solved[2])).reshape(3, 3)
-                sent = look_rotation(flat[2], flat[1])
-                across = (physical[17] - physical[5]) * self.M_UNITY
-                along = (physical[9] - physical[0]) * self.M_UNITY
-                y = along / np.linalg.norm(along)
-                x = across - y * float(across @ y)
-                x /= np.linalg.norm(x)
-                avatar = look_rotation(np.cross(x, y), y)
-                error = np.degrees(
-                    np.arccos(np.clip((np.trace(sent @ avatar.T) - 1.0) / 2.0, -1.0, 1.0))
-                )
-                self.assertLess(float(error), 1.0, f"{side} pitch {round(math.degrees(pitch))}")
+                # Yaw 0.5 looks at the palm, yaw pi at the back of the same
+                # hand: the half turn the avatar got wrong while every joint in
+                # it stayed in the right place.
+                for yaw in (0.5, math.pi):
+                    physical = rotate_x(rotate_y(build_hand(curl=0.4), yaw), pitch)
+                    if side == "Left":
+                        physical = physical * np.array([-1.0, 1.0, 1.0])
+                    image = physical * self.M_IMAGE
+                    basis = skeleton.hand_basis(physical * TO_FRAME)
+                    self.assertIsNotNone(basis)
+                    solved = hand3d.HandLift(aspect=1.0).solve(image[:, :2], side, basis=basis[:3])
+                    self.assertIsNotNone(solved)
+                    flat = np.asarray(run.wire_axes(solved[2])).reshape(3, 3)
+                    sent = look_rotation(flat[2], flat[1])
+                    across = (physical[17] - physical[5]) * self.M_UNITY
+                    along = (physical[9] - physical[0]) * self.M_UNITY
+                    y = along / np.linalg.norm(along)
+                    x = across - y * float(across @ y)
+                    x /= np.linalg.norm(x)
+                    avatar = look_rotation(np.cross(x, y), y)
+                    error = np.degrees(
+                        np.arccos(np.clip((np.trace(sent @ avatar.T) - 1.0) / 2.0, -1.0, 1.0))
+                    )
+                    self.assertLess(
+                        float(error),
+                        1.0,
+                        f"{side} pitch {round(math.degrees(pitch))} yaw {round(math.degrees(yaw))}",
+                    )
 
     def test_sender_frame_matches_the_avatar(self):
         import run  # noqa: PLC0415 - the module pulls in the tracker stack

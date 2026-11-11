@@ -204,28 +204,39 @@ THUMB_LIFT = 0.35
 # fingers, where the same prior is doing real work.
 THUMB_CONTINUITY = 0.02
 
+# How much of the palm has to survive into the picture before the picture is
+# allowed to say which side of the hand faces the camera. This is the ratio the
+# rest of the file already measures the palm by - its width against its length
+# on screen - so a hand square to the lens is about 0.70 and a hand turned
+# edge-on is 0. At 0.15 the palm is 12 degrees off being a line, which is the
+# one pose where a palm and its mirror image are the same picture.
+PALM_EDGE_ON = 0.15
+
 # The palm frame that goes on the wire has to be a *continuous* function of
 # time, because the receiver turns it straight into the avatar's wrist rotation.
 #
 # MediaPipe's world landmarks are the only direct measurement of how far the
-# palm is tipped away from the lens, and they are not stable: replayed over
-# eight seconds of this project's own recording the frame moves 3.7 degrees per
-# frame at the median and 9 at the ninetieth percentile, but it jumps 167 at
-# worst - the palm normal landing on the other side of the hand. Unity slerps
-# the wrist a quarter of the way towards that target every frame, so one such
-# frame spins the hand 180 degrees round and the next spins it back. That is the
-# twitching that made the avatar's hand unreadable while the skeleton preview -
-# which is drawn from the joints, not from this frame - kept looking fine.
+# palm is tipped away from the lens, and they are not quiet: replayed over eight
+# seconds of this project's own recording the frame moves 3.7 degrees per frame
+# at the median and 9 at the ninetieth percentile. Unity turns the wrist towards
+# that target every frame, so noise at that level is a hand that crawls.
 #
-# A wrist cannot turn 35 degrees in one frame at 30 fps (that is 1000 deg/s), so
-# anything past this is the basis flipping branches rather than the hand moving.
-# On a rejected frame the previous frame's axes are kept: the hand holds its
-# orientation for 33 ms instead of snapping inside out.
-BASIS_MAX_STEP = 35.0
 # Below BASIS_SNAP the motion is the landmark noise floor rather than a wrist,
-# and the frame is blended with the previous one to stop it crawling. Above it
-# the frame is taken as given, so a real turn costs no lag - the same one-sided
-# filter ``POINT_SMOOTHING``/``POINT_SNAP`` uses on the joints.
+# and the frame is blended with the previous one. Above it the frame is taken as
+# given, so a real turn costs no lag - the same one-sided filter
+# ``POINT_SMOOTHING``/``POINT_SNAP`` uses on the joints.
+#
+# This used to *reject* any step past 35 degrees instead, on the theory that a
+# wrist cannot turn that fast. The theory is true and the conclusion was still
+# wrong: turning a palm over is a half turn, it is what the tracking exists to
+# show, and it arrives in three or four frames. The rejected frame kept the
+# previous axes - and because a rejected frame does not update them, every
+# later frame was measured against the same stale reference and rejected too.
+# One flip and that hand held its old palm orientation until it left the frame.
+# Recorded: at 9.9 s of a 42 s clip its owner turned both palms over, both
+# hands kept their old orientation for the remaining 32 s, and the pair of them
+# read as "the palm faces the screen only while my palm does".
+# ``palm_depth_sign`` is what makes rejection unnecessary.
 BASIS_SNAP = 10.0
 BASIS_SMOOTHING = 0.5
 
@@ -260,6 +271,41 @@ def curl_from_ratio(name: str, ratio: float) -> float:
     grid, chords = _TABLES[name]
     value = min(max(float(ratio), float(chords[-1])), 1.0)
     return float(np.interp(-value, -chords, grid))
+
+
+def palm_depth_sign(across: np.ndarray, along: np.ndarray) -> float:
+    """Which way round the palm is, straight from the picture.
+
+    The palm frame is ``x = pinky - index``, ``y = wrist -> middle``, so
+    ``z = x cross y`` is not a matter of opinion: both of those vectors lie in
+    the image plane, and the z component of their cross product is just their
+    2D determinant. Two subtractions and a multiply, no state, no continuity -
+    and it holds on every frame, including the frame a palm turns over on,
+    which is the frame continuity cannot call.
+
+    It is also the answer to "which side of the hand am I looking at", which is
+    asked every time a palm is flipped towards the camera. ``x`` runs from the
+    thumb's side towards the little finger; hold a right hand up, palm to the
+    lens, fingers up, and the little finger is on the viewer's right, so the
+    determinant comes out negative. Hold the same hand up with its back to the
+    lens and the thumb changes sides and the determinant comes out positive. On
+    a left hand both signs invert. That is exactly ``PALM_SIDE``, which is why
+    ``PALM_SIDE * z`` is the palm normal on both hands, and why one number is
+    enough to settle the half turn.
+
+    Returns the sign ``z``'s depth component has to have. ``0.0`` means the
+    palm is too close to edge-on for the picture to say - there the knuckle rows
+    have merged into one line and the palm is its own mirror image, so a caller
+    should keep what it had rather than invent a half turn.
+    """
+    a = np.asarray(across, dtype=np.float64)[:2]
+    b = np.asarray(along, dtype=np.float64)[:2]
+    length = float(np.linalg.norm(b))
+    if length < 1e-9 or float(np.linalg.norm(a)) / length < PALM_EDGE_ON:
+        # Width against length, so the answer does not depend on how big the hand
+        # is on screen or on which units the caller measured it in.
+        return 0.0
+    return 1.0 if float(a[0] * b[1] - a[1] * b[0]) > 0.0 else -1.0
 
 
 class HandLift:
@@ -417,7 +463,7 @@ class HandLift:
         lifted = _unit(lifted)
         return lifted if lifted is not None else across
 
-    def _settle_basis(self, side: str, basis):
+    def _settle_basis(self, side: str, basis, across=None, along=None):
         """Make the measured palm frame continuous, and rebuild it orthonormal.
 
         ``basis`` is MediaPipe's own estimate of the palm's orientation. It is
@@ -429,11 +475,18 @@ class HandLift:
         hand inside out - and the next frame turns it back, which is a twitch,
         not a gesture.
 
-        So the frame is treated like any other tracked quantity: reject a step
-        nobody could make, blend the rest. The ``y`` axis (wrist -> knuckles) is
-        kept as measured because it *is* reliable - it comes from two well
-        separated landmarks and it is what the joints are expressed against; only
-        the roll around it is filtered. The result is orthonormalised with
+        The half turn is settled by the picture, not by time: ``palm_depth_sign``
+        reads which side of the hand is on show off the 2D landmarks and the
+        measured normal is flipped to agree with it. What is left over is the
+        roll, which is small and is blended when it looks like noise. A genuine
+        flip and a noise flip are no longer the same event, so nothing has to be
+        rejected - and a filter that rejects is a filter that can latch, which
+        is what held both hands of a real session 180 degrees out from the first
+        time their owner turned them over.
+
+        The ``y`` axis (wrist -> knuckles) is kept as measured because it *is*
+        reliable - it comes from two well separated landmarks and it is what the
+        joints are expressed against. The result is orthonormalised with
         ``x = y cross z``, so the triple stays right-handed and the receiver's
         ``LookRotation`` never sees a skewed frame.
 
@@ -446,11 +499,16 @@ class HandLift:
         z = _unit(z - y * float(z @ y))
         if z is None:
             return None
+        if across is not None and along is not None:
+            want = palm_depth_sign(across, along)
+            if want and float(z[2]) * want < 0.0:
+                # Flipping z alone would mirror the hand; the orthonormalisation
+                # below rebuilds x = y cross z, which flips x with it, so the
+                # result is the half turn about y that the palm actually made.
+                z = -z
         previous = self._axes.get(side)
         if previous is not None:
             step = math.degrees(math.acos(max(-1.0, min(1.0, float(z @ previous[2])))))
-            if step > BASIS_MAX_STEP:
-                return previous
             if step <= BASIS_SNAP:
                 blended = _unit(previous[2] * BASIS_SMOOTHING + z * (1.0 - BASIS_SMOOTHING))
                 if blended is not None:
@@ -594,12 +652,12 @@ class HandLift:
             # Measured orientation wins over the inferred one. It is already in
             # the image frame (see ``tracker.image_frame``) and orthonormal, so
             # the projection below is a plain 2x2 map with no correction terms.
-            # ``_settle_basis`` makes it continuous first: the joints are then
-            # built in exactly the frame that goes on the wire, so the receiver
-            # never has to relate two different ones.
+            # ``_settle_basis`` settles which of the two half turns it means and
+            # then filters it: the joints are built in exactly the frame that
+            # goes on the wire, so the receiver never has to relate two of them.
             axes = [np.asarray(axis, dtype=np.float64) for axis in basis]
             if len(axes) == 3 and all(np.all(np.isfinite(a)) for a in axes):
-                settled = self._settle_basis(side, axes)
+                settled = self._settle_basis(side, axes, across, along)
                 if settled is not None:
                     x, y, z = settled
         if x is None:

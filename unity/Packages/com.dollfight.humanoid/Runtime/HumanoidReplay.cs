@@ -542,11 +542,16 @@ namespace DollFight
         /// <param name="humanX">Index knuckle to little knuckle, in world space.</param>
         /// <param name="humanY">Wrist to middle knuckle, in world space.</param>
         /// <param name="humanZ">
-        /// Back-of-hand normal in world space, or <c>Vector3.zero</c> when the
-        /// sender has no wrist rotation. The 21 joints live inside the hand's
-        /// own frame, so they cannot say how the whole hand is oriented; the
-        /// three axes supply exactly that, and drive the wrist in all three
-        /// degrees of freedom instead of only the roll around the forearm.
+        /// x cross y in world space - the palm normal on a right hand, the back
+        /// of the hand on a left - or <c>Vector3.zero</c> when the sender has no
+        /// wrist rotation. <see cref="BindHandSkeletons"/> builds the avatar's
+        /// frame the same way from its own knuckles, so the two cancel; only the
+        /// sign in depth has to be right, and the sender takes that from the
+        /// picture rather than from the previous frame. The 21 joints live inside
+        /// the hand's own frame, so they cannot say how the whole hand is
+        /// oriented; the three axes supply exactly that, and drive the wrist in
+        /// all three degrees of freedom instead of only the roll around the
+        /// forearm.
         /// </param>
         public void ApplyHandSkeleton(bool isLeft, Vector3[] points,
                                       Vector3 humanX, Vector3 humanY, Vector3 humanZ)
@@ -563,9 +568,10 @@ namespace DollFight
                 Vector3 avatarZ = hand.rotation * handLocalZ[side];
                 if (avatarY.sqrMagnitude > 1e-8f && avatarZ.sqrMagnitude > 1e-8f)
                 {
-                    // Map the avatar's own hand frame onto the tracked one:
-                    // back-of-hand normal and finger direction both line up, so
-                    // palm-up/palm-down and wrist pitch follow the real hand.
+                    // Map the avatar's own hand frame onto the tracked one: the
+                    // knuckle axis and the finger direction both line up, so
+                    // palm-up/palm-down, the half turn of a palm and the wrist
+                    // pitch all follow the real hand.
                     Quaternion from = Quaternion.LookRotation(avatarZ, avatarY);
                     Quaternion to = Quaternion.LookRotation(humanZ, humanY);
                     Quaternion target = to * Quaternion.Inverse(from) * hand.rotation;

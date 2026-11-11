@@ -41,7 +41,14 @@ namespace AstraUnity
         /// <summary>Across the palm, index knuckle towards the little finger.</summary>
         public Vector3 BaseX { get { return HasBasis ? new Vector3(basis[0], basis[1], basis[2]) : Vector3.right; } }
 
-        /// <summary>Back-of-hand normal: x cross y. Palm up means this points down.</summary>
+        /// <summary>
+        /// x cross y, the axis the wrist is aimed by: the palm normal on a right
+        /// hand, the back of the hand on a left hand. That asymmetry is not a
+        /// bug and must not be "fixed" per side - the avatar's frame is built the
+        /// same way from its own little/index knuckles, so the two agree. What
+        /// has to be right is its sign in depth, which is why the sender derives
+        /// that from the 2D landmarks rather than from continuity.
+        /// </summary>
         public Vector3 BaseZ { get { return HasBasis ? new Vector3(basis[6], basis[7], basis[8]) : Vector3.forward; } }
 
         public bool IsValid(int version)

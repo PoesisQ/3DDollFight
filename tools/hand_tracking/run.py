@@ -209,6 +209,28 @@ def palm_millimetres(hand: dict) -> float:
     return float(np.linalg.norm(points[skeleton.MIDDLE_MCP] - points[0])) * 1000.0
 
 
+def palm_facing(hand: dict) -> str:
+    """``palm`` / ``back`` / ``edge``, as the 2D landmarks see it.
+
+    ``palm_depth_sign`` says which sign the palm frame's depth has to have; the
+    palm normal is ``PALM_SIDE * z``, and a normal pointing along -z (out of the
+    scene) is a palm facing the lens. So the product of the two being negative
+    is "palm towards the camera", on both hands. Nothing here reads the world
+    landmarks - this is the independent opinion the diagnosis needs.
+
+    ASCII because OpenCV's Hershey fonts have no other glyphs.
+    """
+    screen = hand.get("screen")
+    if screen is None:
+        return "?"
+    along = screen[skeleton.MIDDLE_MCP] - screen[skeleton.WRIST]
+    across = screen[skeleton.PINKY_MCP] - screen[skeleton.INDEX_MCP]
+    sign = hand3d.palm_depth_sign(across, along)
+    if sign == 0.0:
+        return "edge"
+    return "palm" if sign * hand3d.PALM_SIDE[hand["side"]] < 0.0 else "back"
+
+
 def assign_sides(detected: list[dict], body: BodyFeed | None) -> bool:
     """Pair two detected hands with the body's two wrists, in place.
 
@@ -329,6 +351,24 @@ def main() -> int:
                         for x, y in hand["screen"]:
                             centre = (int(x * frame.shape[1]), int(y * frame.shape[0]))
                             preview.circle(frame, centre, 2, (0, 255, 0), -1)
+                    if hand["screen"] is None:
+                        continue
+                    # Which side of the hand the picture is showing, decided by
+                    # the same 2D landmarks that build the skeleton. Printed
+                    # next to the hand so "the avatar shows the back of its hand
+                    # while I am showing my palm" can be split into "the
+                    # tracker lost the side" and "the avatar lost the side"
+                    # without reading any numbers.
+                    wrist = hand["screen"][skeleton.WRIST]
+                    preview.putText(
+                        frame,
+                        f"{hand['side'][0]} {palm_facing(hand)}",
+                        (int(wrist[0] * frame.shape[1]) - 20, int(wrist[1] * frame.shape[0]) + 18),
+                        preview.FONT_HERSHEY_SIMPLEX,
+                        0.6,
+                        (0, 255, 255),
+                        2,
+                    )
                 rate = counted / max(1e-3, now - started)
                 preview.putText(
                     frame,
