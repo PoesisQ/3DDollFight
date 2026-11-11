@@ -39,6 +39,12 @@ namespace DollFight
         public bool externallyDriven;
         [Tooltip("World-rotation smoothing for tracked finger bones, in 1/s.")]
         public float handSmoothing = 18f;
+        [Tooltip("Limit on how fast the wrist may be turned, in degrees per second.")]
+        public float wristTurnRate = 720f;
+        [Tooltip("Set while live tracking owns the fingers, so the replay stops writing them.")]
+        public bool handPoseOverridden;
+        [Tooltip("Set while live tracking owns the wrists, so the replay stops writing them.")]
+        public bool wristOverridden;
         public bool Ready => ready;
         public Vrm10Instance Instance => instance;
         public Transform ModelRoot => modelRoot;
@@ -93,6 +99,14 @@ namespace DollFight
         int[][] handTargets;
         int[][] handParents;
         bool handsBound;
+        // How far the hand actually got from what the tracker asked for, in
+        // degrees, and how far the middle fingertip sits out of the palm plane
+        // (0 straight, 90 folded into the palm). Two numbers that tell "the
+        // fingers are following the camera" apart from "something else is
+        // holding this hand in a fist" without having to look at a 20 pixel
+        // glove on a 1440p screen.
+        readonly float[] handAimError = new float[2];
+        readonly float[] handFingerBend = new float[2];
         // The avatars in this project leave the finger slots of their Humanoid
         // avatar empty, so Animator.GetBoneTransform returns null for every
         // finger even though the bones exist. Keep a name index to fall back on.
@@ -244,13 +258,31 @@ namespace DollFight
             for (int i = 0; i < 19; i++)
             {
                 sourceRotations[i] = Quaternion.Slerp(a.rotations[i], b.rotations[i], alpha);
-                bones[i].rotation = modelRoot.rotation * StageToUnity(sourceRotations[i]) * bindWorld[i];
+                // LeftHand is 7 and RightHand is 10. Writing them while the
+                // live tracker is aiming them is not a conflict the tracker can
+                // win: this runs every frame and resets the wrist to the clip's,
+                // and the tracker only nudges it a fraction of the way per frame
+                // (1 - exp(-18 * dt), which is 13 % at 130 fps). The pose on
+                // screen therefore settles at 87 % replay and 13 % tracking - a
+                // hand that follows a gesture an eighth of the way and no
+                // further. The same defect, one level up, as the per-frame reset
+                // that used to hold fists at 26 %.
+                if (!(wristOverridden && (i == 7 || i == 10)))
+                    bones[i].rotation = modelRoot.rotation * StageToUnity(sourceRotations[i]) * bindWorld[i];
                 if (i > 0) sourcePoints[i] = sourcePoints[Parents[i]] + sourceRotations[Parents[i]] * (clip.rest[i] - clip.rest[Parents[i]]);
             }
             float delta = seconds - previousTime;
             soles?.Apply(sourcePoints, clip.rest, rootScale, Mathf.Clamp(delta, 1f / 120, 0.1f), previousTime < 0 || delta < 0 || delta > 0.2f);
             previousTime = seconds;
             float close = Mathf.Clamp01(Mathf.Lerp(a.handClose, b.handClose, alpha));
+            // The replay has a hand pose of its own - a constant curl taken from
+            // the clip - and it used to write it unconditionally. Once the live
+            // tracker drives the fingers there are two writers for the same
+            // fifteen bones, and which one the frame ends with depends on the
+            // execution order of two unrelated components. Suppressing it here
+            // makes the live pose the only writer while it is live, instead of
+            // the last one to run.
+            if (handPoseOverridden) return;
             for (int i = 0; i < fingerBones.Length; i++)
                 fingerBones[i].localRotation = fingerBinds[i] *
                     Quaternion.AngleAxis((0.08f + close) * fingerAngles[i], fingerAxes[i]);
@@ -451,7 +483,13 @@ namespace DollFight
                         Vector3 direction;
                         if (k + 1 < count) direction = segments[k + 1].position - bone.position;
                         else if (k > 0) direction = bone.position - segments[k - 1].position;
-                        else direction = hand.position - bone.position;
+                        // A finger exported as a single bone has no child to
+                        // point at. This used to fall back to the wrist, which is
+                        // the *opposite* direction: the aim then treated the
+                        // bone as reversed and every frame pushed it 180 degrees
+                        // away from where the camera said the finger was, so the
+                        // finger folded back into the palm and stayed there.
+                        else direction = along;
                         if (direction.sqrMagnitude < 1e-10f) continue;
                         bones.Add(bone);
                         directions.Add(bone.InverseTransformDirection(direction.normalized));
@@ -531,7 +569,19 @@ namespace DollFight
                     Quaternion from = Quaternion.LookRotation(avatarZ, avatarY);
                     Quaternion to = Quaternion.LookRotation(humanZ, humanY);
                     Quaternion target = to * Quaternion.Inverse(from) * hand.rotation;
-                    hand.rotation = Quaternion.Slerp(hand.rotation, target, t);
+                    // A wrist cannot turn faster than about 1000 deg/s, and the
+                    // palm frame it is aimed at can flip to the other side of the
+                    // hand in a single frame when MediaPipe's world landmarks
+                    // lose the palm. Slerping a quarter of the way towards that
+                    // target every frame turned the hand 180 degrees round and
+                    // back within a few frames, which is the twitch that made
+                    // the puppet's hand unreadable. Capping the turn rate makes
+                    // a frame like that a 12 degree step instead - still wrong,
+                    // but no longer a different pose.
+                    float step = Quaternion.Angle(hand.rotation, target);
+                    float allowed = step > 1e-4f
+                        ? Mathf.Max(wristTurnRate * Time.deltaTime, 0.01f) / step : 1f;
+                    hand.rotation = Quaternion.Slerp(hand.rotation, target, Mathf.Min(t, allowed));
                     handRolls[side] = Quaternion.Angle(hand.localRotation, handLocalBinds[side]);
                 }
             }
@@ -578,7 +628,40 @@ namespace DollFight
                 bone.rotation = Quaternion.Slerp(bone.rotation,
                     Quaternion.FromToRotation(current, desired.normalized) * bone.rotation, t);
             }
+            // What the hand ended up doing, measured after the fact: the mean
+            // angle left between each finger bone and the direction it was
+            // aimed at, and how far the middle fingertip sits out of the palm
+            // plane. A hand that is following the camera shows an error near
+            // zero and a bend that moves; one held in a fist by somebody else
+            // shows the error growing while the bend stays put.
+            float residual = 0f;
+            int counted = 0;
+            for (int i = 0; i < bones.Length; i++)
+            {
+                Transform bone = bones[i];
+                if (bone == null) continue;
+                int target = handTargets[side][i];
+                int from = handParents[side][i];
+                if (target < 0 || target >= points.Length) continue;
+                if (from < 0 || from >= points.Length) continue;
+                Vector3 a = points[from];
+                Vector3 b = points[target];
+                Vector3 desired = x * (b.x - a.x) + y * (b.y - a.y) + z * (b.z - a.z);
+                if (desired.sqrMagnitude < 1e-10f) continue;
+                Vector3 current = bone.rotation * handBindDirections[side][i];
+                residual += Vector3.Angle(current, desired);
+                counted++;
+                if (target == 12) handFingerBend[side] = Vector3.Angle(current, y);
+            }
+            handAimError[side] = counted > 0 ? residual / counted : 0f;
+            if (counted == 0) handFingerBend[side] = 0f;
         }
+
+        /// <summary>Mean angle, in degrees, between the finger bones and the tracked aim.</summary>
+        public float HandAimError(bool isLeft) { return handAimError[isLeft ? 0 : 1]; }
+
+        /// <summary>Middle fingertip's angle out of the palm plane: 0 straight, 90 folded.</summary>
+        public float HandFingerBend(bool isLeft) { return handFingerBend[isLeft ? 0 : 1]; }
 
         /// <summary>Drops the wrist roll so the next frame re-derives it from scratch.</summary>
         public void ResetHandRoll()

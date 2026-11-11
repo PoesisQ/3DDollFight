@@ -204,6 +204,31 @@ THUMB_LIFT = 0.35
 # fingers, where the same prior is doing real work.
 THUMB_CONTINUITY = 0.02
 
+# The palm frame that goes on the wire has to be a *continuous* function of
+# time, because the receiver turns it straight into the avatar's wrist rotation.
+#
+# MediaPipe's world landmarks are the only direct measurement of how far the
+# palm is tipped away from the lens, and they are not stable: replayed over
+# eight seconds of this project's own recording the frame moves 3.7 degrees per
+# frame at the median and 9 at the ninetieth percentile, but it jumps 167 at
+# worst - the palm normal landing on the other side of the hand. Unity slerps
+# the wrist a quarter of the way towards that target every frame, so one such
+# frame spins the hand 180 degrees round and the next spins it back. That is the
+# twitching that made the avatar's hand unreadable while the skeleton preview -
+# which is drawn from the joints, not from this frame - kept looking fine.
+#
+# A wrist cannot turn 35 degrees in one frame at 30 fps (that is 1000 deg/s), so
+# anything past this is the basis flipping branches rather than the hand moving.
+# On a rejected frame the previous frame's axes are kept: the hand holds its
+# orientation for 33 ms instead of snapping inside out.
+BASIS_MAX_STEP = 35.0
+# Below BASIS_SNAP the motion is the landmark noise floor rather than a wrist,
+# and the frame is blended with the previous one to stop it crawling. Above it
+# the frame is taken as given, so a real turn costs no lag - the same one-sided
+# filter ``POINT_SMOOTHING``/``POINT_SNAP`` uses on the joints.
+BASIS_SNAP = 10.0
+BASIS_SMOOTHING = 0.5
+
 _TABLE_STEPS = 41
 
 
@@ -251,6 +276,7 @@ class HandLift:
         self._curl: dict[str, dict[str, float]] = {}
         self._points: dict[str, np.ndarray] = {}
         self._flat: dict[str, np.ndarray] = {}
+        self._axes: dict[str, tuple[np.ndarray, np.ndarray, np.ndarray]] = {}
 
     def reset(self, side: str | None = None) -> None:
         for name in [side] if side else list(self._normal):
@@ -259,6 +285,7 @@ class HandLift:
             self._curl.pop(name, None)
             self._points.pop(name, None)
             self._flat.pop(name, None)
+            self._axes.pop(name, None)
 
     # ---------------------------------------------------------------- helpers
 
@@ -390,6 +417,56 @@ class HandLift:
         lifted = _unit(lifted)
         return lifted if lifted is not None else across
 
+    def _settle_basis(self, side: str, basis):
+        """Make the measured palm frame continuous, and rebuild it orthonormal.
+
+        ``basis`` is MediaPipe's own estimate of the palm's orientation. It is
+        the only signal that knows how far the palm is tipped towards the lens,
+        and it is also the noisiest: on this project's recordings one frame in a
+        hundred lands the palm normal on the far side of the hand, 167 degrees
+        from where it was. The receiver maps this frame onto the avatar's wrist
+        in world space, so a frame like that does not add noise, it turns the
+        hand inside out - and the next frame turns it back, which is a twitch,
+        not a gesture.
+
+        So the frame is treated like any other tracked quantity: reject a step
+        nobody could make, blend the rest. The ``y`` axis (wrist -> knuckles) is
+        kept as measured because it *is* reliable - it comes from two well
+        separated landmarks and it is what the joints are expressed against; only
+        the roll around it is filtered. The result is orthonormalised with
+        ``x = y cross z``, so the triple stays right-handed and the receiver's
+        ``LookRotation`` never sees a skewed frame.
+
+        Returns the frame to use, or ``None`` when the input is degenerate.
+        """
+        y = _unit(np.asarray(basis[1], dtype=np.float64))
+        z = _unit(np.asarray(basis[2], dtype=np.float64))
+        if y is None or z is None:
+            return None
+        z = _unit(z - y * float(z @ y))
+        if z is None:
+            return None
+        previous = self._axes.get(side)
+        if previous is not None:
+            step = math.degrees(math.acos(max(-1.0, min(1.0, float(z @ previous[2])))))
+            if step > BASIS_MAX_STEP:
+                return previous
+            if step <= BASIS_SNAP:
+                blended = _unit(previous[2] * BASIS_SMOOTHING + z * (1.0 - BASIS_SMOOTHING))
+                if blended is not None:
+                    flattened = _unit(blended - y * float(blended @ y))
+                    if flattened is not None:
+                        z = flattened
+        x = _unit(np.cross(y, z))
+        if x is None:
+            return None
+        z = _unit(np.cross(x, y))
+        if z is None:
+            return None
+        frame = (x, y, z)
+        self._axes[side] = frame
+        return frame
+
     def _frame(self, side: str, across: np.ndarray, along: np.ndarray, ratio: float):
         """Orthonormal palm axes, or ``None`` when the palm is degenerate.
 
@@ -517,14 +594,20 @@ class HandLift:
             # Measured orientation wins over the inferred one. It is already in
             # the image frame (see ``tracker.image_frame``) and orthonormal, so
             # the projection below is a plain 2x2 map with no correction terms.
+            # ``_settle_basis`` makes it continuous first: the joints are then
+            # built in exactly the frame that goes on the wire, so the receiver
+            # never has to relate two different ones.
             axes = [np.asarray(axis, dtype=np.float64) for axis in basis]
             if len(axes) == 3 and all(np.all(np.isfinite(a)) for a in axes):
-                x, y, z = axes
+                settled = self._settle_basis(side, axes)
+                if settled is not None:
+                    x, y, z = settled
         if x is None:
             picked = self._frame(side, across, along, ratio)
             if picked is None:
                 return None
             x, y, z = picked
+            self._axes[side] = picked
         self._normal[side] = z
 
         # The palm's own projection, as a 2x2 map from palm coordinates to

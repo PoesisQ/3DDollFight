@@ -517,7 +517,13 @@ namespace AstraUnity
                 if (!valid[bone] || !Direction(body, segments[i,1], segments[i,2], out current)) continue;
                 Quaternion desired = facing * Quaternion.FromToRotation(baseline[bone], current) * bindRotations[bone];
                 liveRotations[bone] = Quaternion.Slerp(liveRotations[bone], desired, t);
-                bones[bone].rotation = liveRotations[bone];
+                // 7 and 10 are the wrists. Keep their accumulated rotation
+                // current so handing them back does not jump, but do not write
+                // them: the palm's own orientation is measured, and a body
+                // rotation that overwrites it every frame would leave the hand
+                // following the tracked palm only a fraction of the way.
+                if (!(actor.wristOverridden && (bone == 7 || bone == 10)))
+                    bones[bone].rotation = liveRotations[bone];
             }
             // The sensor foot joints are intentionally unused. Override the
             // replay pose so each model shin points straight down from its knee.
@@ -533,10 +539,13 @@ namespace AstraUnity
             if (frame == null || frame.hands == null || frame.hands.Length == 0)
             {
                 handsDriving = false;
+                bool recent = Time.unscaledTime - lastHandApplyAt <= 1f;
+                actor.handPoseOverridden = recent;
+                actor.wristOverridden = recent;
                 // Nothing has ever been driven here, so the avatar's own hand
                 // pose belongs to the game: leave it alone instead of easing it
                 // to a bind pose nobody asked for.
-                if (Time.unscaledTime - lastHandApplyAt > 1f) return;
+                if (!recent) return;
                 // Tracking lost: ease both hands back to the bind pose instead of
                 // freezing them mid-gesture.
                 actor.RelaxHand(true);
@@ -544,7 +553,7 @@ namespace AstraUnity
                 return;
             }
             if (handPoints == null) handPoints = new Vector3[HandEntry.JointCount];
-            bool left = false, right = false;
+            bool left = false, right = false, measured = false;
             foreach (var hand in frame.hands)
             {
                 if (hand.HasSkeleton)
@@ -554,12 +563,23 @@ namespace AstraUnity
                     Vector3 hx, hy, hz;
                     HandBasis(hand, out hx, out hy, out hz);
                     actor.ApplyHandSkeleton(hand.IsLeft, handPoints, hx, hy, hz);
+                    if (hand.HasBasis) measured = true;
                     if (hand.IsLeft) left = true; else right = true;
                 }
             }
             if (!left) actor.RelaxHand(true);
             if (!right) actor.RelaxHand(false);
             handsDriving = left || right;
+            // Fingers belong to the tracker from here on. The replay writes its
+            // own constant curl into the same fifteen bones on every frame, and
+            // the aim only closes 1 - exp(-18 * dt) of the gap per frame - 13 %
+            // at 130 fps. Against a write that lands first every frame that is
+            // not a filter, it is an 87 % follow limit.
+            actor.handPoseOverridden = handsDriving;
+            // The wrist is only taken over when there is a measured palm frame
+            // to aim it at. Without one the replay keeps posing the arm and the
+            // hand has to stay with it.
+            actor.wristOverridden = handsDriving && measured;
             // Version 1 senders only have curls; keep them working as a fallback.
             if (left || right)
             {
@@ -575,6 +595,7 @@ namespace AstraUnity
                 for (int i = 0; i < 15; i++) handCurls[offset + i] = hand.curls[i];
             }
             actor.ApplyFingerCurls(handCurls);
+            actor.handPoseOverridden = true;
             handsDriving = true;
             lastHandApplyAt = Time.unscaledTime;
         }
@@ -631,6 +652,12 @@ namespace AstraUnity
             playerBodyCamera.transform.SetPositionAndRotation(eye, rotation);
         }
 
+        static string HandNumber(HumanoidReplay hand, bool isLeft, bool aim)
+        {
+            if (hand == null) return "-";
+            return (aim ? hand.HandAimError(isLeft) : hand.HandFingerBend(isLeft)).ToString("F0");
+        }
+
         /// <summary>
         /// Writes a one-second snapshot to Library/AstraLiveStatus.txt. When the
         /// panel looks empty this file answers "did the socket bind, is data
@@ -659,6 +686,8 @@ namespace AstraUnity
                     " curlBones=" + (actor != null ? actor.CurlBoneCount : 0) +
                     " rollL=" + (actor != null ? actor.HandRollDegrees(true).ToString("F0") : "-") +
                     " rollR=" + (actor != null ? actor.HandRollDegrees(false).ToString("F0") : "-") +
+                    " aimL=" + HandNumber(actor, true, true) + " aimR=" + HandNumber(actor, false, true) +
+                    " bendL=" + HandNumber(actor, true, false) + " bendR=" + HandNumber(actor, false, false) +
                     " handFrames=" + (handReceiver != null ? handReceiver.AcceptedFrames : 0) +
                     " legNote=" + (legNote ?? "-") + "\n" +
                     "status=" + status + "\n";
@@ -714,7 +743,8 @@ namespace AstraUnity
                 handReceiver.LatestFrame.hands.Length == 0 ? "已连接，画面中无手" :
                 actor == null || !actor.HandsReady ? "收到 " + handReceiver.LatestFrame.hands.Length + " 只手，但角色没有可用指骨" :
                 (handsDriving ? "正在驱动 " : "已接入 ") + handReceiver.LatestFrame.hands.Length + " 只手（21 点骨架 + 腕部旋转，" +
-                actor.HandBoneCount + " 根指骨）";
+                actor.HandBoneCount + " 根指骨）" +
+                (handsDriving ? "　中指屈 " + HandNumber(actor, true, false) + "/" + HandNumber(actor, false, false) + "°" : "");
             GUI.Label(new Rect(25, 138, width - 140, 22), "手部：" + handState);
             if (GUI.Button(new Rect(width - 105, 136, 98, 24), flipPalmNormal ? "手掌：已反向" : "手掌：正常"))
             {

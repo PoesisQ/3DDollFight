@@ -465,6 +465,55 @@ class MeasuredFrameTests(unittest.TestCase):
         for given, got in zip(basis, axes, strict=True):
             np.testing.assert_allclose(got, given, atol=1e-9)
 
+    def test_a_flipped_palm_frame_does_not_spin_the_wrist(self):
+        """One bad basis frame used to turn the avatar's hand inside out.
+
+        Replayed over eight seconds of this project's own recording, the palm
+        frame MediaPipe reports moves 3.7 degrees per frame at the median and
+        167 at worst - the normal landing on the far side of the hand. The
+        receiver maps that frame straight onto the wrist's world rotation, so
+        the hand snapped half a turn round and back on the next frame, which is
+        the twitch that made the puppet unreadable while the skeleton preview,
+        drawn from the joints, kept looking fine.
+
+        A wrist cannot turn 35 degrees between two frames at 30 fps, so the
+        frame is held instead, and the joints go with the frame that was
+        accepted - not with the one that was rejected.
+        """
+        hand = build_hand()
+        screen = project_tilted(hand, pitch=0.4)
+        basis, truth = self.reference(hand, 0.4)
+        lift = hand3d.HandLift(aspect=1.0)
+        first = lift.solve(screen, "Right", basis=basis)
+        self.assertIsNotNone(first)
+        flipped = [basis[0], basis[1], -np.asarray(basis[2], dtype=float)]
+        second = lift.solve(screen, "Right", basis=flipped)
+        self.assertIsNotNone(second)
+        step = float(np.degrees(np.arccos(np.clip(first[2][2] @ second[2][2], -1, 1))))
+        self.assertLess(step, hand3d.BASIS_MAX_STEP)
+        self.assertLess(float(np.mean(np.linalg.norm(second[0] - truth, axis=1))), 0.05)
+
+    def test_a_real_turn_still_gets_through(self):
+        """The gate must not cost a hand that is genuinely rolling.
+
+        Turning the palm about the finger axis moves the frame further per
+        frame than anything else a wrist does. At 25 degrees a frame - 750
+        degrees a second at 30 fps, faster than a hand actually rolls - the
+        frame has to arrive unfiltered, or the avatar's wrist would trail the
+        real one by a visible margin.
+        """
+        hand = build_hand()
+        lift = hand3d.HandLift(aspect=1.0)
+        for step_index in range(1, 7):
+            yaw = math.radians(25.0) * step_index
+            basis, _ = self.reference(hand, 0.3, yaw)
+            solved = lift.solve(project_tilted(hand, yaw=yaw, pitch=0.3), "Right", basis=basis)
+            self.assertIsNotNone(solved)
+            got = np.asarray(solved[2][2], dtype=float)
+            want = np.asarray(basis[2], dtype=float)
+            angle = float(np.degrees(np.arccos(np.clip(got @ want, -1, 1))))
+            self.assertLess(angle, 2.0, f"z axis {angle:.1f} deg behind at yaw {yaw:.2f}")
+
     def test_the_guess_can_be_a_hundred_degrees_out(self):
         """How far the inferred palm axis goes, and what fixes it.
 

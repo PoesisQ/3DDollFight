@@ -170,6 +170,8 @@ status=Waiting for automatic T-pose calibration
 | `hands.driving` | 这一帧是否真的把手指写进了角色 | False 但 `receiving=True`：报文里没有可用骨架，或选角界面还开着 |
 | `handBones` / `curlBones` | 绑定到的指骨数 | 正常 30/30 |
 | `rollL` / `rollR` | 手腕相对绑定姿势的转角（度） | 翻掌时应有明显变化；恒为 0 说明 basis 没到 |
+| `aimL` / `aimR` | 指骨离目标方向还差多少度（均值） | 应接近 0。持续偏大 = 有别人在写同一批骨头 |
+| `bendL` / `bendR` | 中指指尖相对掌面的弯角（0 直、90 折回掌心） | 张开手时应接近 0；它不动而 `aim` 在涨，就是手指没被驱动 |
 | `calibrated` | 身体是否完成标定 | **只影响身体**；False 时手指照常驱动 |
 | `legNote` | 缺的关节名 | 如「左膝、右膝」= 腿部没入画 |
 
@@ -185,6 +187,7 @@ status=Waiting for automatic T-pose calibration
 | 角色手指完全不动 | `hands.ready` / `hands.driving` / Console | `no finger bones`：角色没有指骨，或 Avatar 没映射（已按名字回退，含 `Pinky→Little`、`*End` 跳过）；`driving=False` 而 receiving=True：报文里没有骨架（Python 侧 `solve` 返回 None，多半是手掌侧对镜头） |
 | 校准好了过一会儿又变成「失败」 | 控制行 | 历史原因：单帧丢人就把校准清掉、且每 5 秒复检的失败文案会盖掉「已校准」。现已加 2 秒宽限，已校准就不再报失败 |
 | 握拳只握到一半 / 手指像爪子 | 手感 + `rollL/rollR` | 已修：Unity 侧每帧重置导致只走到目标的 26%。若仍如此，确认 `HumanoidReplay.cs` 是最新版本并已重编译 |
+| **手一直是握拳、只跟着动一点点、还在抖** | `aimL/aimR` + `bendL/bendR` | 2026-11-11 修：回放每帧先把 19 根骨头（含两只手腕）写回片段姿势，手部再往上叠 13%（130 fps 下的 `handSmoothing`），于是屏幕上是「87% 回放 + 13% 追踪」——一个几乎不动的半握拳。现在实时驱动期间回放不再写手腕与指骨，`bend` 应随张开/握拳大幅变化 |
 | 手腕朝向翻 180° | `rollL/rollR` | 历史原因：`wire_axes` 少做 `(x,-y,-z)`，腕子恒定差 180°。现已固定 |
 | 手拿在胸前就乱 | 手掌在画面里的大小 | 历史原因：掌面靠推断 + 投影矩阵尺度错（放大 1/cos 前倾）。现已改为实测 basis |
 | 手掌朝上/朝下但角色掌心朝反 | — | 点面板「手掌：正常 / 已反向」，等价于 `AstraLivePlayer.flipPalmNormal` |
@@ -324,3 +327,33 @@ for (...) bone.rotation = Quaternion.Slerp(bone.rotation,
 1. 新增 `tools/check_unity_scripts.py`：用 .NET SDK 引用编辑器自带引擎程序集做离线类型检查。此前每次都说「编辑器开着工程，编译不了」，现在两秒出结果，能报到文件与行号（故意写错一行验证过，能抓到）。
 2. 手部 56 passed / 1 skipped；全仓库 230 passed / 9 skipped；ruff 全过。
 3. 拇指几何有单测钉住：闭合的拇指必须横跨掌心（>0.35 掌长）且离掌面不超过 0.25 掌长。
+
+## 2026-11-11 上午 ｜ 手一直是半握拳，而且抖
+
+**症状**（用户原话）：常态就是握拳；手在变，皮套不跟；手掌张开时角色仍是握拳并抽搐；只伸一根或几根手指完全没变化。而「手部骨架（掌心平面）」小窗里的动作很明显。
+
+**先排除了 Python 侧**。把 11-11 那段 44 秒录屏按摄像头画面的位置回放一遍真管线：
+
+```
+ 8.0s Right   In z0=+0.00 平面=0.42 尖=(-0.51,+1.84,+0.00)
+             Mi z0=+0.00 平面=0.46 尖=(-0.04,+1.95,+0.00)
+             curls: {'Thumb': 0.0, 'Index': 0.0, 'Middle': 0.0, 'Ring': 0.0, 'Little': 0.0}
+```
+
+每个指尖 `z` 都是 0、`y` 在 1.8–1.95 掌长，五根手指的 curl 全 0，确实是一只摊开的手。所以发出去的 21 点是对的，问题在映射。
+
+**量到的两个原因**：
+
+1. **两个写入者，胜者每帧把另一个抹掉。** `DollFightDemo.LateUpdate`（执行顺序 12000）每帧调 `Actors[i].Apply(time)`，它把 19 根身体骨**连同 7、10 两根手腕**写回回放姿势，并对 15 根指骨写死 `(0.08 + handClose) * fingerAngles`——一个固定的半握拳。`AstraLivePlayer`（12500）随后才把手部叠上去，但那里是**一阶滤波**：`t = 1 - exp(-handSmoothing * dt)`，`handSmoothing = 18`。录屏里游戏视图跑 130 fps，`dt = 7.7 ms`，于是 `t = 0.129`。回放先把手腕/手指写死，手部再推 13%，下一帧回放又抹回去——屏幕上稳定停在「87% 回放 + 13% 追踪」。这解释了全部三个现象：一直半握拳、张开只动一点点、伸一根手指看不出来。它不是「顺序错了」，顺序本来就是对的（12000 < 12500）；错的是**每帧重置 + 一阶滤波**这个组合，26% 那个老问题换了一层又出现了一次。
+2. **手腕的朝向来自最不稳定的那个量。** 手腕的世界旋转是 `LookRotation(humanZ, humanY)`，`humanZ`/`humanY` 来自 MediaPipe 的 world landmarks。把这段录屏的基向量逐帧量一遍：中位 3.7°、p90 11.8°、**最差 167.4°**——掌面法线偶尔翻到手背那一侧，下一帧又翻回来。Unity 每帧朝它走 13%，于是手在 180° 之间来回甩，就是抽搐。
+
+**改动**：
+
+1. `HumanoidReplay`：新增 `handPoseOverridden` / `wristOverridden`。实时驱动期间 `Apply` 不再写 15 根指骨，也不再写 7/10 两根手腕（`liveRotations` 仍然更新，松手时不会跳）。AstraLivePlayer 只在**真的有实测 basis**时才接管手腕——没有 basis 时手臂仍归回放，手才不会从胳膊上掉下来。
+2. `AstraLivePlayer.ApplyBodyPose`：同上，`wristOverridden` 时不写 7/10。
+3. `hand3d._settle_basis`：给实测的手掌基向量加连续性门控。超过 `BASIS_MAX_STEP = 35°` 的帧判为分支翻转、沿用上一帧；`10°` 以内是噪声、做 0.5 的平滑；两者之间原样通过（真转头不给延迟）。同一段录屏复测：`z` 最大跳变 **167.4° → 33.9°**，p90 **11.8° → 9.7°**。因为 21 点是用被接受的那一帧投出来的，点和基向量始终属于同一个坐标系。
+4. `HumanoidReplay.ApplyHandSkeleton`：手腕加 `wristTurnRate = 720°/s` 上限，一帧坏基向量最多掰 12°，而不是整只手翻过去。
+5. `BindHandSkeletons`：`count == 1`（整根手指只有一节骨）时，方向原本取 `hand.position - bone.position`——指向手腕，正好反 180°。这一根手指会被每帧推离目标，折回掌心卡住。改成掌面正向 `along`。
+6. 诊断：状态文件新增 `aimL/aimR`（指骨离目标还差多少度）、`bendL/bendR`（中指指尖相对掌面的弯角）。面板手部行直接显示「中指屈 L/R」。这两个数能把「手指在跟」和「有别人按着这只手」分开。
+
+**验证**：手部 25 passed（新增 2 条：翻转的基向量不许甩手腕、25°/帧的真翻掌不许被滤波拖住）；全仓库 230 passed / 9 skipped；ruff 全过；离线 Unity 编译 0 错误。
