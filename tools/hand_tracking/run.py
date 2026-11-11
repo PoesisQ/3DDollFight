@@ -47,7 +47,15 @@ HAND_GRACE = 1.0
 # enough that a hand which really left the frame still goes away, long enough to
 # cover the handful of frames a fist or an edge-on palm produces. Not re-sending
 # anything is what makes the receiver ease the wrist to its bind pose and back.
-HAND_HOLD = 0.4
+#
+# Measured on the 2026-11-11 crossed-arms recording: the detector loses *both*
+# hands for up to 2.4 seconds while the palms overlap, so 0.4 s of cover ran out
+# in the middle of the gesture and the receiver relaxed both hands to the bind
+# pose before re-acquiring them - the "it glitches and does the opposite of my
+# hand" report. 0.8 s covers the short gaps; the receiver also holds a hand it
+# has seen within the last 0.5 s instead of relaxing it, so a longer gap freezes
+# the pose that was last tracked rather than snapping it.
+HAND_HOLD = 0.8
 
 # Image components (x right, y down, z into the scene) to the receiver's axes
 # (x right, y up, z into the scene). A 180 degree turn about x, so the three

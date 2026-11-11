@@ -83,6 +83,12 @@ namespace AstraUnity
         private float lastBodySeenAt = -100f;
         private bool handsDriving;
         private float lastHandApplyAt = -100f;
+        // Per hand, not per pair: one hand leaving the packet says nothing about
+        // the other, and the pair-wide timestamp this used to check made a single
+        // lost hand relax while its partner carried on being tracked.
+        private float lastLeftHandAt = -100f;
+        private float lastRightHandAt = -100f;
+        private const float HandGrace = 0.5f;
         private float nextGameLookupAt;
         private float nextStatusWriteAt;
         private string calibrationMessage;
@@ -325,8 +331,28 @@ namespace AstraUnity
 
         Vector3 MapSensorOffset(Vector3 offset)
         {
-            return modelRight * Vector3.Dot(offset, sourceRight) +
-                   Vector3.up * offset.y - modelDepth * Vector3.Dot(offset, sourceDepth);
+            // The same rotation the hands go through, not a second opinion on it.
+            //
+            // This used to be written out by hand as
+            //     modelRight * (offset . sourceRight) + up * offset.y
+            //     - modelDepth * (offset . sourceDepth)
+            // which maps the person's right onto the avatar's right, up onto up,
+            // and their *forward onto the avatar's backward*. That is a reflection,
+            // not a rotation: it preserves `right` and flips `depth`, which no
+            // orientation of two bodies can do. Every bone was then aimed along a
+            // mirrored direction while the palm basis was mapped by the rotation in
+            // `sensorToModel` - so the arm and the hand hanging off it lived in two
+            // frames a mirror apart, and the two only agree for motion that has no
+            // forward component. Reaching forward, and above all crossing the arms,
+            // is exactly where that shows: on the 2026-11-11 recording the user
+            // holds both forearms in front of the chest and the avatar answers by
+            // folding them up and back, which reads as "it moves the opposite way
+            // to me".
+            //
+            // One rotation, one frame: `sensorToModel` already maps sourceRight to
+            // modelRight, up to up and sourceDepth to modelDepth, and the receiver
+            // turns the whole pose by `facing` on top of it.
+            return sensorToModel * offset;
         }
 
         bool DirectionToOpponent(Vector3 position, out Vector3 direction)
@@ -602,9 +628,22 @@ namespace AstraUnity
                     hz = toModel * hz;
                     actor.ApplyHandSkeleton(hand.IsLeft, handPoints, hx, hy, hz);
                     if (hand.HasBasis) measured = true;
-                    if (hand.IsLeft) left = true; else right = true;
+                    if (hand.IsLeft) { left = true; lastLeftHandAt = Time.unscaledTime; }
+                    else { right = true; lastRightHandAt = Time.unscaledTime; }
                 }
             }
+            // A hand that drops out of the packet for a frame or two has not left
+            // the frame - it is behind the other arm, or the detector lost it
+            // while the palms overlap. Easing it to the bind pose on that frame
+            // and back onto the tracked pose on the next one is the flap that
+            // reads as "it does the opposite of my hand": the crossed-arms pose
+            // in the 2026-11-11 recording lost both hands for two and a half
+            // seconds, and every one of those frames the receiver was posing the
+            // hand from somewhere else. Hold it instead, and only give up after
+            // HandGrace - the sender already re-sends a solved pose for HAND_HOLD
+            // (0.8 s) before a hand stops appearing at all.
+            if (!left && Time.unscaledTime - lastLeftHandAt <= HandGrace) left = true;
+            if (!right && Time.unscaledTime - lastRightHandAt <= HandGrace) right = true;
             if (!left) actor.RelaxHand(true);
             if (!right) actor.RelaxHand(false);
             handsDriving = left || right;

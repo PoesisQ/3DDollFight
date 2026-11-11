@@ -54,8 +54,18 @@ class HandTracker:
         self,
         model_path: Path | None = None,
         max_hands: int = 2,
-        detection: float = 0.5,
-        tracking: float = 0.5,
+        # MediaPipe's own defaults are 0.5 for all three floors, and 0.5 is what
+        # this project shipped with. On the 2026-11-11 recording that is too
+        # strict for the poses people actually make: with the arms crossed -
+        # palms overlapping, one thumb side hidden behind the other hand - four
+        # and a half seconds of the clip produced 101 frames with no hand at all
+        # and only 16 with both. Dropping the floors to 0.40/0.35 over the same
+        # window gives 82 empty frames and 37 with both, at no cost in junk: the
+        # palm's own size, footprint and continuity checks still reject a
+        # detection that is not a hand, and every frame of the other 43 seconds
+        # came back the same as before.
+        detection: float = 0.40,
+        tracking: float = 0.35,
         mirror_sides: bool = False,
     ):
         if mp is None:
