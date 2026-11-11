@@ -704,8 +704,8 @@ namespace AstraUnity
         /// </summary>
         float FrameYawDegrees()
         {
-            Vector3 forward = sensorToModel * Vector3.forward;
-            return Mathf.Atan2(forward.x, forward.z) * Mathf.Rad2Deg;
+            if (sourceDepth.sqrMagnitude < 1e-6f || modelDepth.sqrMagnitude < 1e-6f) return 0f;
+            return Vector3.SignedAngle(sourceDepth, modelDepth, Vector3.up);
         }
 
         /// <summary>
