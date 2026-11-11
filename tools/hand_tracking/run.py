@@ -43,6 +43,12 @@ DEFAULT_BRIDGE = BRIDGE_DIR / "AstraUnityBridge.exe"
 # open and re-lock on every occlusion.
 HAND_GRACE = 1.0
 
+# How long the last solved pose is re-sent when a frame cannot be solved. Short
+# enough that a hand which really left the frame still goes away, long enough to
+# cover the handful of frames a fist or an edge-on palm produces. Not re-sending
+# anything is what makes the receiver ease the wrist to its bind pose and back.
+HAND_HOLD = 0.4
+
 # Image components (x right, y down, z into the scene) to the receiver's axes
 # (x right, y up, z into the scene). A 180 degree turn about x, so the three
 # axes stay a right-handed set and ``z == x cross y`` still holds.
@@ -231,6 +237,29 @@ def palm_facing(hand: dict) -> str:
     return "palm" if sign * hand3d.PALM_SIDE[hand["side"]] < 0.0 else "back"
 
 
+def split_shared_sides(detected: list[dict]) -> bool:
+    """Give two hands different sides when MediaPipe called both the same one.
+
+    One person has one left hand, but on the 2026-11-11 recording the model
+    returns two right hands on 228 of 2123 frames - a tenth of them - and
+    exactly around the poses this session was about. That frame then carries
+    two entries for the right wrist and none for the left: the receiver drives
+    the right hand twice and, finding no left hand at all, eases the left wrist
+    to its bind pose. It reads as one hand flapping while the other hangs.
+
+    ``assign_sides`` already corrects this from the body's wrists, but it needs
+    both wrists to be tracked; when the hands are up in front of the chest that
+    is exactly what the body pass tends to lose. This is the same rule it uses,
+    from the picture alone: the camera faces the user, so their left hand is the
+    one further right in the image.
+    """
+    if len(detected) != 2 or detected[0]["side"] != detected[1]["side"]:
+        return False
+    first, second = sorted(detected, key=_screen_x)
+    first["side"], second["side"] = "Right", "Left"
+    return True
+
+
 def assign_sides(detected: list[dict], body: BodyFeed | None) -> bool:
     """Pair two detected hands with the body's two wrists, in place.
 
@@ -281,6 +310,7 @@ def main() -> int:
         last_send = 0.0
         paired = False
         missing = {"Left": None, "Right": None}
+        held: dict[str, tuple[dict, float]] = {}
 
         if args.preview:
             import cv2
@@ -302,6 +332,8 @@ def main() -> int:
             if assign_sides(detected, body) and not paired:
                 paired = True
                 print("左右手已按身体骨架的手腕位置配对，不再依赖 MediaPipe 标签。")
+            # No-op whenever the line above gave the two hands different sides.
+            split_shared_sides(detected)
 
             entries = []
             seen = set()
@@ -320,11 +352,24 @@ def main() -> int:
                 smoother = left_smoother if side == "Left" else right_smoother
                 curls = smoother.apply(curl_module.compute_curls(hand["points"]), delta)
                 gesture = curl_module.classify(curls)
-                entries.append(
-                    protocol.hand_entry(
-                        side, hand["score"], points, palm_mm, curls, gesture, basis=wire_axes(axes)
-                    )
+                entry = protocol.hand_entry(
+                    side, hand["score"], points, palm_mm, curls, gesture, basis=wire_axes(axes)
                 )
+                entries.append(entry)
+                held[side] = (entry, now)
+            # A refused frame used to drop that hand out of the packet, and the
+            # receiver answers a missing hand by easing it back towards its bind
+            # pose. Curling four fingers into a thumbs-up is enough to produce
+            # those frames - MediaPipe's landmarks fold through each other and
+            # the palm measures wider than it is long - so at 24 fps the wrist
+            # spent whole seconds flapping between the tracked pose and the bind
+            # pose, which is the "arm will not stay under control" report.
+            # Re-send the last pose that did solve instead: a hand that holds
+            # still reads as a hand that is not moving, and half a second later
+            # it is given up on anyway.
+            for side, (entry, stamp) in held.items():
+                if side not in seen and now - stamp <= HAND_HOLD:
+                    entries.append(entry)
             for side in ("Left", "Right"):
                 if side in seen:
                     missing[side] = None

@@ -212,6 +212,25 @@ THUMB_CONTINUITY = 0.02
 # one pose where a palm and its mirror image are the same picture.
 PALM_EDGE_ON = 0.15
 
+# When four fingers curl into a fist MediaPipe folds their knuckles through each
+# other until the row lies closer to the palm's long axis than across it:
+# measured on the 2026-11-11 thumbs-up recording the angle between the two reads
+# 150 to 180 degrees while the row is still 1.0-5.2 palm lengths long. There the
+# determinant still has a sign, and the sign is whichever way the fit happened
+# to fold - it read +0.04, -0.00 and -0.55 on three consecutive frames of a hand
+# that was not moving, and every change of sign is a request to turn the wrist
+# half a turn at 720 deg/s, which is the spinning this threshold exists to stop.
+#
+# A rigid open hand reads anything from 21 to 148 degrees depending on how far
+# it is turned, because the two axes foreshorten by different amounts - so this
+# cannot be read as "the row is not square, therefore the fit is wrong". It is
+# not evidence about the hand; it is evidence that the picture has stopped being
+# able to say which side is on show. That is all it is used for.
+#
+# The value is the cosine of the widest angle still accepted, 53 degrees off
+# square.
+PALM_CROSS_MAX = 0.6
+
 # The palm frame that goes on the wire has to be a *continuous* function of
 # time, because the receiver turns it straight into the avatar's wrist rotation.
 #
@@ -293,17 +312,29 @@ def palm_depth_sign(across: np.ndarray, along: np.ndarray) -> float:
     ``PALM_SIDE * z`` is the palm normal on both hands, and why one number is
     enough to settle the half turn.
 
-    Returns the sign ``z``'s depth component has to have. ``0.0`` means the
-    palm is too close to edge-on for the picture to say - there the knuckle rows
-    have merged into one line and the palm is its own mirror image, so a caller
-    should keep what it had rather than invent a half turn.
+    Returns the sign ``z``'s depth component has to have, or ``0.0`` when the
+    picture cannot say: either the palm is too close to edge-on (the knuckle
+    rows have merged into one line and the palm is its own mirror image), or the
+    knuckle row is lying along the palm instead of across it, which is what
+    MediaPipe's landmarks do once four fingers curl into a fist. The caller
+    holds the side it last read in both cases. That costs a frame or two of lag
+    while a palm crosses edge-on, and it is paid on purpose - see
+    ``_settle_basis`` for why guessing there is worse than waiting.
     """
     a = np.asarray(across, dtype=np.float64)[:2]
     b = np.asarray(along, dtype=np.float64)[:2]
     length = float(np.linalg.norm(b))
-    if length < 1e-9 or float(np.linalg.norm(a)) / length < PALM_EDGE_ON:
+    width = float(np.linalg.norm(a))
+    if length < 1e-9 or width / length < PALM_EDGE_ON:
         # Width against length, so the answer does not depend on how big the hand
         # is on screen or on which units the caller measured it in.
+        return 0.0
+    if abs(float(a @ b)) > PALM_CROSS_MAX * width * length:
+        # The knuckle row has folded towards the palm's long axis. A rigid hand
+        # projects anything from 21 to 148 degrees there, so this is not proof
+        # of a bad fit - it is the pose where the fit stops being trustworthy,
+        # and the sign of a determinant taken across two near-parallel vectors
+        # is not evidence either way.
         return 0.0
     return 1.0 if float(a[0] * b[1] - a[1] * b[0]) > 0.0 else -1.0
 
@@ -478,11 +509,16 @@ class HandLift:
         The half turn is settled by the picture, not by time: ``palm_depth_sign``
         reads which side of the hand is on show off the 2D landmarks and the
         measured normal is flipped to agree with it. What is left over is the
-        roll, which is small and is blended when it looks like noise. A genuine
-        flip and a noise flip are no longer the same event, so nothing has to be
-        rejected - and a filter that rejects is a filter that can latch, which
-        is what held both hands of a real session 180 degrees out from the first
-        time their owner turned them over.
+        roll, which is small and is blended when it looks like noise.
+
+        When the picture cannot read the side at all - a fist, or a palm
+        crossing edge-on - the last readable side is held instead. That is the
+        one case where time gets a vote, and it is a narrow one: it lasts only
+        while the landmarks say nothing, and releases on the first frame they
+        do. Nothing is ever *rejected*, which is what matters - a filter that
+        rejects and keeps its own stale reference latches, and that is what held
+        both hands of a real session 180 degrees out from the first time their
+        owner turned them over.
 
         The ``y`` axis (wrist -> knuckles) is kept as measured because it *is*
         reliable - it comes from two well separated landmarks and it is what the
@@ -499,14 +535,32 @@ class HandLift:
         z = _unit(z - y * float(z @ y))
         if z is None:
             return None
+        previous = self._axes.get(side)
         if across is not None and along is not None:
             want = palm_depth_sign(across, along)
-            if want and float(z[2]) * want < 0.0:
+            if want == 0.0 and previous is not None:
+                # The picture has stopped describing a palm - a fist folds the
+                # knuckle row along the palm, and a palm crossing edge-on is a
+                # sliver. Both its sign and the measured normal are a coin toss
+                # here: the normal flipped 180 degrees between two frames of a
+                # hand that was not moving at 19.07 s of the 2026-11-11
+                # thumbs-up recording. Keep the side that was last readable.
+                #
+                # This cannot latch the way the old reject-past-35-degrees
+                # filter did: it is a property of this frame's landmarks, not a
+                # comparison against a stored reference, so it releases on the
+                # first frame the picture can read again.
+                held = _unit(
+                    np.asarray(previous[2], dtype=np.float64)
+                    - y * float(np.asarray(previous[2], dtype=np.float64) @ y)
+                )
+                if held is not None:
+                    z = held
+            elif want and float(z[2]) * want < 0.0:
                 # Flipping z alone would mirror the hand; the orthonormalisation
                 # below rebuilds x = y cross z, which flips x with it, so the
                 # result is the half turn about y that the palm actually made.
                 z = -z
-        previous = self._axes.get(side)
         if previous is not None:
             step = math.degrees(math.acos(max(-1.0, min(1.0, float(z @ previous[2])))))
             if step <= BASIS_SNAP:

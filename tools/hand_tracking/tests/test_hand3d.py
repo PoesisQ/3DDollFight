@@ -148,6 +148,29 @@ class PalmSideTests(unittest.TestCase):
         normal = hand3d.PALM_SIDE["Left"] * np.asarray(axes[2])
         self.assertGreater(float(normal @ truth_normal(0.0)), 0.9)
 
+    def test_a_fist_does_not_get_to_say_which_side_is_showing(self):
+        """The thumbs-up pose: four curled fingers fold the knuckle row.
+
+        These are the numbers from 19.07 s of the 2026-11-11 thumbs-up
+        recording, in palm lengths with the wrist at the origin: index knuckle
+        at (+0.42, -1.43), pinky knuckle at (-0.06, -0.25), middle knuckle at
+        (+0.35, -0.94). The row runs *along* the palm instead of across it and
+        is 1.28 palm lengths long, which no rigid hand can do - the wrist is one
+        end of the palm and the row is a chord across the other.
+
+        Here the determinant is +0.04; three frames later the same stationary
+        hand read -0.00 and then -0.55, and each sign change was a request to
+        turn the wrist half a turn at 720 degrees a second. So the picture has
+        to say nothing, and the caller has to hold what it had.
+        """
+        across = np.array([-0.474, 1.186])
+        along = np.array([0.345, -0.939])
+        self.assertEqual(0.0, hand3d.palm_depth_sign(across, along))
+        # And the edge-on case still reads the same way it always did.
+        self.assertEqual(0.0, hand3d.palm_depth_sign(np.array([0.05, 0.0]), np.array([0.0, 1.0])))
+        # While a plain open palm still gets a sign.
+        self.assertNotEqual(0.0, hand3d.palm_depth_sign(np.array([0.6, 0.0]), np.array([0.0, 1.0])))
+
 
 class HandLiftTests(unittest.TestCase):
     def setUp(self):
@@ -494,6 +517,40 @@ class MeasuredFrameTests(unittest.TestCase):
         self.assertLess(step, 0.5, "a basis that contradicts the picture still turned the hand")
         self.assertLess(float(np.mean(np.linalg.norm(second[0] - truth, axis=1))), 0.05)
 
+    def test_a_fist_holds_the_side_it_was_last_sure_of(self):
+        """The one place time gets a vote, and how narrowly it is bounded.
+
+        At 19.07 s of the thumbs-up recording the measured normal flipped 180
+        degrees between two frames of a hand that was not moving, while the 2D
+        landmarks described a fist rather than a palm (see
+        ``test_a_fist_does_not_get_to_say_which_side_is_showing``). Neither
+        signal can settle the half turn, so the frame holds the side that was
+        last readable.
+
+        This drives ``_settle_basis`` directly because the inputs are the two
+        measured vectors off that frame - a synthetic fist cannot produce them,
+        since its knuckles stay where the anatomy puts them. The release is
+        covered by ``test_a_real_turn_still_gets_through``, which requires the
+        frame to be back on the measurement the moment the picture can read it.
+        """
+        hand = build_hand()
+        basis, _ = self.reference(hand, 0.3)
+        lift = hand3d.HandLift(aspect=1.0)
+        first = lift.solve(project_tilted(hand, pitch=0.3), "Right", basis=basis)
+        self.assertIsNotNone(first)
+        settled = lift._settle_basis(
+            "Right",
+            (np.array([-1.0, 0.0, 0.0]), np.array([0.0, 1.0, 0.0]), np.array([0.0, 0.0, -1.0])),
+            np.array([-0.474, 1.186]),
+            np.array([0.345, -0.939]),
+        )
+        self.assertIsNotNone(settled)
+        self.assertGreater(
+            float(np.asarray(settled[2]) @ np.asarray(first[2][2])),
+            0.9,
+            "a fist turned the wrist over on the strength of a fold",
+        )
+
     def test_a_palm_turned_over_stays_turned_over(self):
         """The half turn the filter used to swallow, and never gave back.
 
@@ -563,25 +620,50 @@ class MeasuredFrameTests(unittest.TestCase):
         self.assertEqual(0.0, hand3d.palm_depth_sign(across, along))
 
     def test_a_real_turn_still_gets_through(self):
-        """The gate must not cost a hand that is genuinely rolling.
+        """A rolling hand arrives, and never falls behind by more than a step.
 
         Turning the palm about the finger axis moves the frame further per
         frame than anything else a wrist does. At 25 degrees a frame - 750
         degrees a second at 30 fps, faster than a hand actually rolls - the
-        frame has to arrive unfiltered, or the avatar's wrist would trail the
-        real one by a visible margin.
+        frame has to arrive unfiltered wherever the picture can still read the
+        palm, or the avatar's wrist would trail the real one by a visible
+        margin.
+
+        Around edge-on it cannot read it: at 86 degrees of yaw the knuckle row
+        projects 0.14 palm lengths and the palm is its own mirror image, so the
+        side that was last readable is held for that step instead of guessed.
+        What must not happen is the error compounding - the old
+        reject-past-35-degrees filter measured every frame against a reference
+        it never updated, so once it fell behind it stayed behind. This is
+        measured against the truth on every frame, so the hold has to stay one
+        step.
         """
         hand = build_hand()
         lift = hand3d.HandLift(aspect=1.0)
-        for step_index in range(1, 7):
+        for step_index in range(1, 9):
             yaw = math.radians(25.0) * step_index
             basis, _ = self.reference(hand, 0.3, yaw)
-            solved = lift.solve(project_tilted(hand, yaw=yaw, pitch=0.3), "Right", basis=basis)
+            screen = project_tilted(hand, yaw=yaw, pitch=0.3)
+            solved = lift.solve(screen, "Right", basis=basis)
             self.assertIsNotNone(solved)
             got = np.asarray(solved[2][2], dtype=float)
             want = np.asarray(basis[2], dtype=float)
             angle = float(np.degrees(np.arccos(np.clip(got @ want, -1, 1))))
-            self.assertLess(angle, 2.0, f"z axis {angle:.1f} deg behind at yaw {yaw:.2f}")
+            q = np.asarray(screen, dtype=float)
+            q = q - q[0]
+            u = q / float(np.linalg.norm(q[hand3d.MIDDLE_MCP]))
+            readable = hand3d.palm_depth_sign(
+                u[hand3d.PINKY_MCP] - u[hand3d.INDEX_MCP], u[hand3d.MIDDLE_MCP]
+            )
+            tolerance = 2.0 if readable else 27.0
+            self.assertLess(
+                angle,
+                tolerance,
+                f"z axis {angle:.1f} deg behind at yaw {yaw:.2f} (readable={bool(readable)})",
+            )
+        # Ending past 180 degrees, the palm has turned over and the picture can
+        # read it again: the hold must have released, not become a lag.
+        self.assertLess(angle, 2.0)
 
     def test_the_guess_can_be_a_hundred_degrees_out(self):
         """How far the inferred palm axis goes, and what fixes it.
@@ -774,6 +856,52 @@ class PointSmoothingTests(unittest.TestCase):
             open_height * 0.75,
             f"two frames after the fist started it was still at {heights[1]:.2f}",
         )
+
+
+class SideAssignmentTests(unittest.TestCase):
+    """Which physical hand a detection is, when MediaPipe gets it wrong.
+
+    The hands are driven by bones named Left and Right, so a wrong label is not
+    a cosmetic problem: the receiver writes one wrist twice and leaves the other
+    one to fall back to its bind pose.
+    """
+
+    def test_two_hands_with_one_label_are_split_by_where_they_are(self):
+        """Both hands labelled Right is a tenth of the thumbs-up recording.
+
+        228 of 2123 frames, clustered around the hands-up poses this session
+        was about, which is exactly when the body pass loses the wrists and
+        ``assign_sides`` has nothing to check against. The camera faces the
+        user, so their right hand is the one further left in the picture.
+        """
+        import run  # noqa: PLC0415 - the module pulls in the tracker stack
+
+        hands = [
+            {"side": "Right", "screen": np.tile([0.8, 0.5], (skeleton.LANDMARK_COUNT, 1))},
+            {"side": "Right", "screen": np.tile([0.2, 0.5], (skeleton.LANDMARK_COUNT, 1))},
+        ]
+        self.assertTrue(run.split_shared_sides(hands))
+        at_left = min(hands, key=lambda h: float(np.mean(h["screen"][:, 0])))
+        at_right = max(hands, key=lambda h: float(np.mean(h["screen"][:, 0])))
+        self.assertEqual("Right", at_left["side"])
+        self.assertEqual("Left", at_right["side"])
+
+    def test_two_different_labels_are_left_alone(self):
+        import run  # noqa: PLC0415
+
+        hands = [
+            {"side": "Left", "screen": np.zeros((skeleton.LANDMARK_COUNT, 2))},
+            {"side": "Right", "screen": np.ones((skeleton.LANDMARK_COUNT, 2))},
+        ]
+        self.assertFalse(run.split_shared_sides(hands))
+        self.assertEqual(["Left", "Right"], [h["side"] for h in hands])
+
+    def test_one_hand_keeps_its_label(self):
+        import run  # noqa: PLC0415
+
+        hands = [{"side": "Right", "screen": np.zeros((skeleton.LANDMARK_COUNT, 2))}]
+        self.assertFalse(run.split_shared_sides(hands))
+        self.assertEqual("Right", hands[0]["side"])
 
 
 if __name__ == "__main__":
