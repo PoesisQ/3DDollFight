@@ -23,6 +23,14 @@ namespace AstraUnity
         public float smoothing = 12f;
         [Tooltip("Flip if the tracked palm comes out mirrored (back of hand where the palm should be).")]
         public bool flipPalmNormal;
+        /// <summary>
+        /// Angle between the palm normal the sender measured and the direction
+        /// the avatar is facing, in degrees. 0 means the palm points at the
+        /// opponent, 90 means it is edge-on to them, 180 means the back of the
+        /// hand does. Shown in the panel because "the hand is 90 degrees out"
+        /// is not something a screenshot can settle: this number can.
+        /// </summary>
+        float palmOffsetDegrees = -1f;
         [Tooltip("Flip if a forward reach puts the avatar's arms behind its back.")]
         public bool flipArmDepth;
         public string status = "Waiting for game and camera";
@@ -633,6 +641,8 @@ namespace AstraUnity
             }
             if (handPoints == null) handPoints = new Vector3[HandEntry.JointCount];
             bool left = false, right = false, measured = false;
+            float palmSum = 0f;
+            int palmCount = 0;
             foreach (var hand in frame.hands)
             {
                 if (hand.HasSkeleton)
@@ -644,20 +654,42 @@ namespace AstraUnity
                     // Bring the palm into the frame the body is posed in. The
                     // sensor sees the person from the front; the avatar is
                     // turned to the opponent, and in this match that is a right
-                    // angle. Skipping it leaves the hand flat to the screen
-                    // while the arm points elsewhere - the wrist is bent 90
-                    // degrees and the palm looks like it is facing the camera
-                    // on purpose.
+                    // angle. All three axes have to take that turn together.
+                    //
+                    // This used to be done to x and y only, with z taken from
+                    // the camera frame and projected onto the plane the yawed
+                    // fingers define. That mixes two frames: the plane is in
+                    // the model's, the vector projected into it is in the
+                    // camera's. In a side-on match the leftover is exactly the
+                    // quarter turn between them, so the wrist came out twisted
+                    // by 90 degrees - the palm faced the camera while the arm
+                    // and the fingers pointed at the opponent ("when my palm
+                    // faces the screen the puppet's palm should face the
+                    // opponent, not stand perpendicular to its own body").
+                    //
+                    // The measured normal is the right answer once the whole
+                    // frame turns with the body: palm to the camera means palm
+                    // along the person's forward, and the person's forward is
+                    // mapped onto the avatar's, which is the opponent. Nothing
+                    // here needs to know what the yaw happens to be.
                     Quaternion toModel = liveFacing * sensorToModel;
                     hx = toModel * hx;
                     hy = toModel * hy;
                     hz = toModel * hz;
+                    // Keep the frame orthonormal against float drift, and keep
+                    // it right-handed the way the avatar builds its own: x is
+                    // y cross z.
+                    if (hy.sqrMagnitude > 1e-8f && hz.sqrMagnitude > 1e-8f)
+                        hx = Vector3.Cross(hy, hz).normalized;
+                    float offset = PalmOffset(hz);
+                    if (offset >= 0f) { palmSum += offset; palmCount++; }
                     actor.ApplyHandSkeleton(hand.IsLeft, handPoints, hx, hy, hz);
                     if (hand.HasBasis) measured = true;
                     if (hand.IsLeft) { left = true; lastLeftHandAt = Time.unscaledTime; }
                     else { right = true; lastRightHandAt = Time.unscaledTime; }
                 }
             }
+            if (palmCount > 0) palmOffsetDegrees = palmSum / palmCount;
             // A hand that drops out of the packet for a frame or two has not left
             // the frame - it is behind the other arm, or the detector lost it
             // while the palms overlap. Easing it to the bind pose on that frame
@@ -721,6 +753,19 @@ namespace AstraUnity
                 // right-handed: flipping z alone would mirror the hand.
                 x = -x; z = -z;
             }
+        }
+
+        /// <summary>
+        /// Degrees between the measured palm normal and the avatar's own facing.
+        /// A hand that follows the body reads 0 (palm at the opponent) or 180
+        /// (back of the hand at the opponent); 90 is the twisted wrist.
+        /// </summary>
+        float PalmOffset(Vector3 palmNormal)
+        {
+            if (modelDepth.sqrMagnitude < 0.5f || palmNormal.sqrMagnitude < 0.04f) return -1f;
+            Vector3 forward = liveFacing * modelDepth;
+            if (forward.sqrMagnitude < 0.5f) return -1f;
+            return Vector3.Angle(palmNormal.normalized, forward.normalized);
         }
 
         static void PointShinDown(Transform knee, Transform ankle)
@@ -831,6 +876,7 @@ namespace AstraUnity
                     " aimL=" + HandNumber(actor, true, true) + " aimR=" + HandNumber(actor, false, true) +
                     " bendL=" + HandNumber(actor, true, false) + " bendR=" + HandNumber(actor, false, false) +
                     " handFrames=" + (handReceiver != null ? handReceiver.AcceptedFrames : 0) +
+                    " palmOffset=" + (palmOffsetDegrees < 0f ? "-" : palmOffsetDegrees.ToString("F1")) +
                     " frameYaw=" + FrameYawDegrees().ToString("F1") +
                     " armDepth=" + (flipArmDepth ? "rotation" : "mirror") +
                     " armOrder=" + ArmOrder() +
@@ -889,9 +935,15 @@ namespace AstraUnity
                 actor == null || !actor.HandsReady ? "收到 " + handReceiver.LatestFrame.hands.Length + " 只手，但角色没有可用指骨" :
                 (handsDriving ? "正在驱动 " : "已接入 ") + handReceiver.LatestFrame.hands.Length + " 只手（21 点骨架 + 腕部旋转，" +
                 actor.HandBoneCount + " 根指骨）" +
-                (handsDriving ? "　中指屈 " + HandNumber(actor, true, false) + "/" + HandNumber(actor, false, false) + "°" : "");
+                (handsDriving ? "　中指屈 " + HandNumber(actor, true, false) + "/" + HandNumber(actor, false, false) + "°" : "") +
+                (handsDriving ? "　角色朝向差 " + FrameYawDegrees().ToString("F0") + "°" : "");
             GUI.Label(new Rect(25, 138, width - 140, 22), "手部：" + handState);
-            if (GUI.Button(new Rect(width - 105, 136, 98, 24), flipPalmNormal ? "手掌：已反向" : "手掌：正常"))
+            // The answer to "is the wrist twisted". 0 = palm at the opponent,
+            // 90 = edge-on (a quarter turn out), 180 = back of the hand at them
+            // (press 翻转 below). A number instead of a screenshot to argue with.
+            GUI.Label(new Rect(width - 105, 138, 98, 22), "掌心 " +
+                (palmOffsetDegrees < 0f ? "--" : palmOffsetDegrees.ToString("F0") + "°"));
+            if (GUI.Button(new Rect(width - 105, 186, 98, 18), flipPalmNormal ? "翻转：已反向" : "翻转：正常"))
             {
                 flipPalmNormal = !flipPalmNormal;
                 if (actor != null) actor.ResetHandRoll();
