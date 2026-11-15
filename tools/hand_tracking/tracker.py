@@ -85,19 +85,37 @@ class HandTracker:
         self._landmarker = mp_vision.HandLandmarker.create_from_options(options)
         self._last_timestamp = -1
 
-    def process(self, rgb: np.ndarray, timestamp_ms: int):
-        """Return ``[{"side", "score", "points", "screen"}]`` for every hand."""
+    def process(self, rgb: np.ndarray, timestamp_ms: int, roi=None):
+        """Return ``[{"side", "score", "points", "screen"}]`` for every hand.
+
+        ``roi`` is an optional ``(x0, y0, size)`` square in pixels.  Cropping a
+        hand-sized box before inference puts the hand at a much larger fraction
+        of the model's fixed input, which is what makes a 320-pixel crop see
+        fingers more clearly than the full 1280x720 frame did.  Screen landmarks
+        are mapped back to the full image so callers never see the crop.
+        """
         if rgb.dtype != np.uint8:
             rgb = rgb.astype(np.uint8)
         # Tasks API demands strictly increasing timestamps.
         stamp = max(int(timestamp_ms), self._last_timestamp + 1)
         self._last_timestamp = stamp
-        image = mp.Image(image_format=mp.ImageFormat.SRGB, data=np.ascontiguousarray(rgb))
+        frame = rgb
+        offset = (0, 0)
+        if roi is not None:
+            x0, y0, size = (int(v) for v in roi)
+            height, width = rgb.shape[:2]
+            x0 = max(0, min(x0, width - 1))
+            y0 = max(0, min(y0, height - 1))
+            size = max(32, min(size, width - x0, height - y0))
+            frame = np.ascontiguousarray(rgb[y0 : y0 + size, x0 : x0 + size])
+            offset = (x0, y0)
+        image = mp.Image(image_format=mp.ImageFormat.SRGB, data=frame)
         result = self._landmarker.detect_for_video(image, stamp)
         hands = []
         worlds = result.hand_world_landmarks or []
         screens = result.hand_landmarks or []
         handedness = result.handedness or []
+        height, width = rgb.shape[:2]
         for position, world in enumerate(worlds):
             if position >= len(handedness) or not handedness[position]:
                 continue
@@ -109,6 +127,11 @@ class HandTracker:
             screen = None
             if position < len(screens):
                 screen = np.array([[p.x, p.y] for p in screens[position]], dtype=np.float64)
+                if roi is not None:
+                    # Crop coordinates -> full-image normalised coordinates.
+                    x0, y0 = offset
+                    size = frame.shape[0]
+                    screen = (screen * size + np.array([x0, y0])) / np.array([width, height])
             points = image_frame(points, screen)
             hands.append(
                 {

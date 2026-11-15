@@ -96,3 +96,11 @@ unity/Assets/Resources/DollFight/Selection/Stages/cloud.png.meta
 # Screenshots left over from hand-tracking probes; diagnostics, not fixtures.
 tools/hand_tracking/probe_crop.png
 tools/hand_tracking/hudmirror.png
+
+# Gemini pose model is fetched locally, same rule as the hand model.
+tools/gemini_tracking/models/*.task
+tools/gemini_tracking/__pycache__/
+
+# Orbbec SDK log and local capture scratch.
+/Log/
+/tmp/
