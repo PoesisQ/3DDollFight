@@ -75,7 +75,7 @@ class HandTracker:
             raise RuntimeError(f"找不到手部模型 {model}，请先运行 fetch_model.cmd")
         self.mirror_sides = mirror_sides
         options = mp_vision.HandLandmarkerOptions(
-            base_options=mp_tasks.BaseOptions(model_asset_path=str(model)),
+            base_options=mp_tasks.BaseOptions(model_asset_buffer=model.read_bytes()),
             running_mode=mp_vision.RunningMode.VIDEO,
             num_hands=max(1, min(2, max_hands)),
             min_hand_detection_confidence=float(detection),

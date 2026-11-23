@@ -232,7 +232,7 @@ class PoseDetector:
         from mediapipe.tasks.python import vision as mp_vision
 
         options = mp_vision.PoseLandmarkerOptions(
-            base_options=mp_tasks.BaseOptions(model_asset_path=str(model)),
+            base_options=mp_tasks.BaseOptions(model_asset_buffer=model.read_bytes()),
             running_mode=mp_vision.RunningMode.VIDEO,
             num_poses=max_poses,
             min_pose_detection_confidence=min_confidence,

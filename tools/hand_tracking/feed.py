@@ -34,6 +34,8 @@ class ColorFeed:
         self.address = (host, port)
         self.timeout = timeout
         self.connection: socket.socket | None = None
+        self.depth = None
+        self.intrinsics = None
 
     def connect(self) -> None:
         connection = socket.create_connection(self.address, timeout=self.timeout)
@@ -53,11 +55,13 @@ class ColorFeed:
             raise ColorFeedError("colour feed is not connected")
         header = _recv_exact(self.connection, HEADER.size)
         magic, width, height, index, low, high = HEADER.unpack(header)
-        if magic != MAGIC:
+        if magic not in (MAGIC, b"DFRD"):
             raise ColorFeedError(f"bad colour header magic {magic!r}")
         if not (0 < width <= 4096 and 0 < height <= 4096):
             raise ColorFeedError(f"bad colour frame size {width}x{height}")
+        self.intrinsics = struct.unpack("<4f", _recv_exact(self.connection, 16)) if magic == b"DFRD" else None
         payload = _recv_exact(self.connection, width * height * 3)
+        self.depth = np.frombuffer(_recv_exact(self.connection, width * height * 2), dtype="<i2").reshape(height, width) if magic == b"DFRD" else None
         image = np.frombuffer(payload, dtype=np.uint8).reshape(height, width, 3)
         return width, height, index, (high << 32) | low, image
 

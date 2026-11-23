@@ -22,13 +22,32 @@ namespace AstraUnity
     }
 
     [Serializable]
+    public sealed class PoseLandmark
+    {
+        public int type;
+        public int status;
+        public Vector3 position;
+    }
+
+    [Serializable]
     public sealed class SkeletonBody
     {
         public int id;
         public int status;
         public SkeletonJoint[] joints;
+        // Optional independent Pose points. Older senders simply omit them.
+        public PoseLandmark[] poseLandmarks;
         public bool IsTracked { get { return status == 2 || status == 3; } }
 
+        // A derived point, not a new independent SDK measurement (millimetres).
+        public bool TryInterpolate(JointType first, JointType second, out Vector3 position)
+        {
+            position = Vector3.zero;
+            var a = Joint(first); var b = Joint(second);
+            if (a == null || b == null || a.status == 0 || b.status == 0) return false;
+            position = Vector3.Lerp(a.position, b.position, 0.5f);
+            return true;
+        }
         public SkeletonJoint Joint(JointType type)
         {
             if (joints == null) return null;
@@ -62,6 +81,18 @@ namespace AstraUnity
                     body.status < 0 || body.status > 3 || body.joints == null || body.joints.Length != 19)
                     return false;
                 bodyIds[body.id] = true;
+                if (body.poseLandmarks != null)
+                {
+                    if (body.poseLandmarks.Length > 33) return false;
+                    var landmarkIds = new bool[33];
+                    foreach (var point in body.poseLandmarks)
+                    {
+                        if (point == null || point.type < 0 || point.type >= 33 || landmarkIds[point.type] ||
+                            point.status < 0 || point.status > 2 || !Finite(point.position.x) ||
+                            !Finite(point.position.y) || !Finite(point.position.z)) return false;
+                        landmarkIds[point.type] = true;
+                    }
+                }
                 int seen = 0;
                 foreach (var joint in body.joints)
                 {

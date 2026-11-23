@@ -24,6 +24,7 @@ import sys
 import time
 from pathlib import Path
 
+import depth_sampling
 import curls as curl_module
 import hand3d
 import numpy as np
@@ -62,9 +63,43 @@ HAND_HOLD = 1.5
 # axes stay a right-handed set and ``z == x cross y`` still holds.
 WIRE_TO_UNITY = np.array([1.0, -1.0, -1.0])
 
+# Indices match the 19-point body sent to Unity. Missing depth/landmarks are
+# deliberately omitted, so the camera image exposes what the model can use.
+BODY_PREVIEW_BONES = (
+    (0, 18), (18, 1), (1, 8), (8, 9), (1, 2), (2, 3), (3, 16), (16, 4),
+    (1, 5), (5, 6), (6, 17), (17, 7), (9, 10), (10, 11), (11, 12),
+    (9, 13), (13, 14), (14, 15),
+)
+
+
+def draw_body_preview(cv2, frame, bodies):
+    """Overlay valid body points on the actual colour frame."""
+    if not bodies:
+        cv2.putText(frame, "BODY: NOT DETECTED", (8, 52), cv2.FONT_HERSHEY_SIMPLEX,
+                    0.65, (0, 100, 255), 2)
+        return
+    body = bodies[0]
+    height, width = frame.shape[:2]
+    points = {}
+    for i, point in enumerate(body.screen):
+        x, y = point
+        if body.status[i] and np.isfinite(x) and np.isfinite(y) and 0 <= x < width and 0 <= y < height:
+            points[i] = (int(x), int(y))
+    for a, b in BODY_PREVIEW_BONES:
+        if a in points and b in points:
+            cv2.line(frame, points[a], points[b], (255, 210, 0), 2)
+    for point in points.values():
+        cv2.circle(frame, point, 4, (0, 255, 255), -1)
+    missing = [label for i, label in ((11, "L knee"), (12, "L foot"),
+                                       (14, "R knee"), (15, "R foot")) if i not in points]
+    label = "BODY: DETECTED" if not missing else "BODY: missing " + ", ".join(missing)
+    cv2.putText(frame, label, (8, 52), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Astra colour -> hand skeleton -> Unity UDP")
+    parser.add_argument("--depth", action="store_true", help="experimental synchronized RGB-D hand tracking")
+    parser.add_argument("--pose-heavy", action="store_true", help="use MediaPipe Pose Heavy with Astra RGB-D for the body")
     parser.add_argument("--color-port", type=int, default=7005, help="bridge colour TCP port")
     parser.add_argument("--hand-port", type=int, default=7011, help="Unity hand UDP port")
     parser.add_argument(
@@ -126,6 +161,10 @@ def start_bridge(args: argparse.Namespace) -> subprocess.Popen:
 
     def launch(mirror: bool) -> subprocess.Popen:
         command = [str(args.bridge), "--color-port", str(args.color_port)]
+        if getattr(args, "pose_heavy", False):
+            command += ["--port", "7013"]
+        if getattr(args, "depth", False):
+            command += ["--rgbd"]
         if mirror and args.body_port > 0:
             command += ["--mirror-port", str(args.body_port)]
         if license_path:
@@ -289,12 +328,21 @@ def assign_sides(detected: list[dict], body: BodyFeed | None) -> bool:
 
 def main() -> int:
     args = parse_args()
+    if args.pose_heavy:
+        if not args.start_bridge:
+            raise SystemExit("--pose-heavy 必须与 --start-bridge 一起使用。")
+        args.depth = True
     bridge = start_bridge(args) if args.start_bridge else None
     feed = None
     body = None
     tracker = None
+    pose_tracker = None
     preview = None
     try:
+        if args.pose_heavy:
+            from astra_pose import AstraPoseTracker
+            pose_tracker = AstraPoseTracker(host=args.host)
+            print("人体：MediaPipe Pose Heavy + Astra 深度（实验模式）", flush=True)
         feed = connect_feed(args.color_port)
         tracker = HandTracker(mirror_sides=args.mirror)
         lift = hand3d.HandLift()
@@ -314,11 +362,13 @@ def main() -> int:
         previous = time.perf_counter()
         sequence = 0
         counted = 0
+        depth_used = 0
         started = previous
         last_send = 0.0
         paired = False
         missing = {"Left": None, "Right": None}
         held: dict[str, tuple[dict, float]] = {}
+        pose_bodies = []
 
         if args.preview:
             import cv2
@@ -336,6 +386,8 @@ def main() -> int:
 
             if body is not None:
                 body.poll()
+            if pose_tracker is not None and counted % 2 == 0:
+                pose_bodies = pose_tracker.process(image, feed.depth, feed.intrinsics, _index, int((now - started) * 1000))
             detected = tracker.process(image, int((now - started) * 1000))
             if assign_sides(detected, body) and not paired:
                 paired = True
@@ -349,7 +401,14 @@ def main() -> int:
                 if hand["score"] < args.min_confidence:
                     continue
                 side = hand["side"]
-                solved = lift.solve(hand["screen"], side, basis=palm_frame(hand))
+                basis = palm_frame(hand)
+                if args.depth and feed.depth is not None:
+                    measured = depth_sampling.depth_palm_basis(feed.depth, hand["screen"], feed.intrinsics)
+                    combined = depth_sampling.blend_palm_basis(basis, measured)
+                    if combined is not basis:
+                        depth_used += 1
+                    basis = combined
+                solved = lift.solve(hand["screen"], side, basis=basis)
                 if solved is None:
                     continue
                 points, _palm_pixels, axes = solved
@@ -399,6 +458,8 @@ def main() -> int:
 
             if preview is not None:
                 frame = image[:, :, ::-1].copy()
+                if pose_tracker is not None:
+                    draw_body_preview(preview, frame, pose_bodies)
                 for hand in detected:
                     if hand["screen"] is not None:
                         for x, y in hand["screen"]:
@@ -433,12 +494,15 @@ def main() -> int:
                     2,
                 )
                 preview.imshow("DollFight hand tracking", frame)
-                if preview.waitKey(1) & 0xFF == 27:
-                    break
+                key = preview.waitKey(1) & 0xFF
+                if key == 27 or preview.getWindowProperty("DollFight hand tracking", preview.WND_PROP_VISIBLE) < 1:
+                    preview.destroyAllWindows()
+                    preview = None
+                    print("摄像头画面已关闭，识别继续运行。", flush=True)
 
             if counted % 60 == 0:
                 rate = counted / max(1e-3, now - started)
-                print(f"{counted} 帧  {rate:.1f} fps  手: {[e['side'] for e in entries]}")
+                print(f"{counted} 帧  {rate:.1f} fps  手: {[e['side'] for e in entries]}  深度融合: {depth_used if args.depth else '关闭'}", flush=True)
     except KeyboardInterrupt:
         pass
     except ColorFeedError as error:
@@ -446,6 +510,8 @@ def main() -> int:
     finally:
         if preview is not None:
             preview.destroyAllWindows()
+        if pose_tracker is not None:
+            pose_tracker.close()
         if tracker is not None:
             tracker.close()
         if body is not None:

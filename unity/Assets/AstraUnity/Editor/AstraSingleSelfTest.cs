@@ -25,6 +25,20 @@ namespace AstraUnity.Editor
             System.Diagnostics.Process sender = null;
             try
             {
+                var sample = new SkeletonBody { joints = new[] {
+                    new SkeletonJoint { type = (int)JointType.MidSpine, status = 2, position = new Vector3(0, 200, 1400) },
+                    new SkeletonJoint { type = (int)JointType.BaseSpine, status = 2, position = new Vector3(200, 0, 1800) }
+                }};
+                Vector3 midpoint;
+                if (!sample.TryInterpolate(JointType.MidSpine, JointType.BaseSpine, out midpoint) ||
+                    Vector3.Distance(midpoint, new Vector3(100, 100, 1600)) > 0.001f)
+                    throw new Exception("Derived body point must retain all 3 dimensions");
+                sample.joints[0].status = 0;
+                if (sample.TryInterpolate(JointType.MidSpine, JointType.BaseSpine, out midpoint))
+                    throw new Exception("Cannot infer a point from an untracked joint");
+                var live = UnityEngine.Object.FindFirstObjectByType<AstraLivePlayer>();
+                if (live == null || live.receiver == null) throw new Exception("Single-camera receiver missing");
+                live.autoStartRecognition = false;
                 DollFightDemo game = null;
                 for (int i = 0; i < 150; i++)
                 {
@@ -34,8 +48,6 @@ namespace AstraUnity.Editor
                 }
                 if (game == null || !game.Ready) throw new Exception("Game did not finish loading its actual avatars: " + (game != null ? game.status : "missing"));
                 game.SelectionScreen.Hide();
-                var live = UnityEngine.Object.FindFirstObjectByType<AstraLivePlayer>();
-                if (live == null || live.receiver == null) throw new Exception("Single-camera receiver missing");
                 string root = Path.GetFullPath(Path.Combine(Application.dataPath, "../.."));
                 string exe = Path.Combine(root, "integrations/astra-unity-bridge/build/bin/Release/AstraUnityBridge.exe");
                 sender = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(exe, "--simulate --frames 180") {

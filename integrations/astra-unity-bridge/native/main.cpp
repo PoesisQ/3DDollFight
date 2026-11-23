@@ -35,15 +35,17 @@ struct Sensor {
     astra_reader_t reader = nullptr;
     astra_bodystream_t body = nullptr;
     astra_colorstream_t color = nullptr;
+    astra_depthstream_t depth = nullptr;
     ~Sensor() {
         if (color) astra_stream_stop(color);
+        if (depth) astra_stream_stop(depth);
         if (body) astra_stream_stop(body);
         if (reader) astra_reader_destroy(&reader);
         if (sensor) astra_streamset_close(&sensor);
         if (initialized) astra_terminate();
     }
     void open(const std::string& licensePath, const std::string& uri = "device/default",
-              bool initialize = true, bool withColor = false) {
+              bool initialize = true, bool withColor = false, bool withDepth = false) {
         if (initialize) { check(astra_initialize(), "astra_initialize"); initialized = true; }
         if (initialize && !licensePath.empty()) {
             std::ifstream f(licensePath, std::ios::binary);
@@ -63,10 +65,20 @@ struct Sensor {
         check(astra_reader_create(sensor, &reader), "reader_create");
         check(astra_reader_get_bodystream(reader, &body), "get_bodystream");
         if (withColor) check(astra_reader_get_colorstream(reader, &color), "get_colorstream");
+        if (withDepth) {
+            check(astra_reader_get_depthstream(reader, &depth), "get_depthstream");
+            check(astra_depthstream_set_registration(depth, true), "depth_registration");
+        }
         check(astra_bodystream_set_default_body_features(body, ASTRA_BODY_TRACKING_JOINTS), "set_joint_features");
         check(astra_bodystream_set_skeleton_profile(body, ASTRA_SKELETON_PROFILE_FULL), "set_full_skeleton");
+        if (withDepth) {
+            const auto accuracy = astra_bodystream_set_skeleton_optimization(body, ASTRA_SKELETON_OPTIMIZATION_BEST_ACCURACY);
+            if (accuracy == ASTRA_STATUS_SUCCESS) std::cout << "Body accuracy: high (SDK level 9).\n";
+            else std::cerr << "Body high-accuracy setting unavailable (status " << accuracy << "); using SDK default.\n";
+        }
         check(astra_stream_start(body), "stream_start");
         if (withColor) check(astra_stream_start(color), "start_color");
+        if (withDepth) check(astra_stream_start(depth), "start_depth");
     }
 };
 struct Socket {
@@ -94,6 +106,8 @@ struct Socket {
 struct ColorFeed {
     struct Frame {
         std::vector<uint8_t> rgb;
+        std::vector<uint8_t> depth;
+        float intrinsics[4]{};
         uint32_t width = 0, height = 0, index = 0;
         uint64_t timestamp = 0;
         bool fresh = false;
@@ -132,10 +146,16 @@ struct ColorFeed {
     }
 
     // Called from the capture loop. Copies only while a tracker is attached.
-    void publish(const uint8_t* data, uint32_t width, uint32_t height, uint32_t index, uint64_t timestamp) {
+    void publish(const uint8_t* data, uint32_t width, uint32_t height, uint32_t index, uint64_t timestamp, const int16_t* depth = nullptr, const float* intrinsics = nullptr) {
         if (!connected.load()) return;
         std::lock_guard<std::mutex> lock(gate);
         latest.rgb.assign(data, data + static_cast<size_t>(width) * height * 3);
+        latest.depth.clear();
+        if (depth && intrinsics) {
+            const auto* bytes = reinterpret_cast<const uint8_t*>(depth);
+            latest.depth.assign(bytes, bytes + static_cast<size_t>(width) * height * 2);
+            std::copy(intrinsics, intrinsics + 4, latest.intrinsics);
+        }
         latest.width = width; latest.height = height;
         latest.index = index; latest.timestamp = timestamp; latest.fresh = true;
         changed.notify_one();
@@ -149,7 +169,7 @@ struct ColorFeed {
                 std::this_thread::sleep_for(std::chrono::milliseconds(50));
                 continue;
             }
-            DWORD timeout = 2000;
+            DWORD timeout = 10000;
             setsockopt(peer, SOL_SOCKET, SO_SNDTIMEO, reinterpret_cast<const char*>(&timeout), sizeof(timeout));
             connected = true;
             serve(peer);
@@ -170,14 +190,16 @@ struct ColorFeed {
                 latest.fresh = false;
             }
             uint8_t header[24];
-            std::memcpy(header, "DFCF", 4);
+            std::memcpy(header, outgoing.depth.empty() ? "DFCF" : "DFRD", 4);
             store(header + 4, outgoing.width);
             store(header + 8, outgoing.height);
             store(header + 12, outgoing.index);
             store(header + 16, static_cast<uint32_t>(outgoing.timestamp & 0xffffffffull));
             store(header + 20, static_cast<uint32_t>(outgoing.timestamp >> 32));
             if (!sendAll(peer, header, sizeof(header))) return;
+            if (!outgoing.depth.empty() && !sendAll(peer, reinterpret_cast<const uint8_t*>(outgoing.intrinsics), sizeof(outgoing.intrinsics))) return;
             if (!outgoing.rgb.empty() && !sendAll(peer, outgoing.rgb.data(), outgoing.rgb.size())) return;
+            if (!outgoing.depth.empty() && !sendAll(peer, outgoing.depth.data(), outgoing.depth.size())) return;
         }
     }
 
@@ -265,7 +287,7 @@ int number(const std::string& text) {
 }
 int main(int argc, char** argv) {
     try {
-        bool simulated = false, dual = false; int port = 7001, frames = 0, warmup = 2, colorPort = 0, mirrorPort = 0;
+        bool simulated = false, dual = false, rgbd = false; int port = 7001, frames = 0, warmup = 2, colorPort = 0, mirrorPort = 0;
         std::string host = "127.0.0.1", license;
         for (int i = 1; i < argc; ++i) {
             std::string option = argv[i];
@@ -275,6 +297,7 @@ int main(int argc, char** argv) {
             }
             if (option == "--simulate") { simulated = true; continue; }
             if (option == "--dual") { dual = true; continue; }
+            if (option == "--rgbd") { rgbd = true; continue; }
             if (i + 1 >= argc) throw std::runtime_error("Missing value for " + option);
             std::string value = argv[++i];
             if (option == "--host") host = value;
@@ -287,6 +310,7 @@ int main(int argc, char** argv) {
             else throw std::runtime_error("Unknown option " + option);
         }
         if (port < 1 || port > (dual ? 65534 : 65535) || frames < 0 || warmup < 0 || warmup > 60) throw std::runtime_error("Invalid port, frame count or warmup");
+        if (rgbd && (!colorPort || dual || simulated)) throw std::runtime_error("--rgbd requires single live camera and --color-port");
         if (colorPort && (dual || simulated)) throw std::runtime_error("--color-port works with a single live camera only");
         if (mirrorPort && (dual || simulated)) throw std::runtime_error("--mirror-port works with a single live camera only");
         if (mirrorPort && mirrorPort == port) throw std::runtime_error("--mirror-port must differ from --port");
@@ -296,7 +320,7 @@ int main(int argc, char** argv) {
         Socket mirror; if (mirrorPort) { mirror.open(host, mirrorPort); std::cout << "Body mirror -> " << host << ':' << mirrorPort << '\n'; }
         Sensor sensor, sensor2;
         if (!simulated) {
-            sensor.open(license, dual ? "device/sensor0" : "device/default", true, colorPort != 0);
+            sensor.open(license, dual ? "device/sensor0" : "device/default", true, colorPort != 0, rgbd);
             if (dual) sensor2.open("", "device/sensor1", false);
         }
         ColorFeed color;
@@ -375,8 +399,30 @@ int main(int argc, char** argv) {
                             pixels != nullptr &&
                             byteLength >= static_cast<uint32_t>(metadata.width) * metadata.height * 3) {
                             astra_colorframe_get_frameindex(colorFrame, &colorIndex);
-                            color.publish(reinterpret_cast<const uint8_t*>(pixels), metadata.width, metadata.height,
-                                          static_cast<uint32_t>(colorIndex), static_cast<uint64_t>(elapsed));
+                            if (!rgbd) {
+                                color.publish(reinterpret_cast<const uint8_t*>(pixels), metadata.width, metadata.height,
+                                              static_cast<uint32_t>(colorIndex), static_cast<uint64_t>(elapsed));
+                            } else {
+                                astra_depthframe_t df = nullptr; astra_image_metadata_t dm{};
+                                int16_t* dp = nullptr; uint32_t dl = 0; astra_frame_index_t di = 0;
+                                float x0=0,y0=0,z0=0,x1=0,y1=0,z1=0,x2=0,y2=0,z2=0;
+                                float cx0=metadata.width*0.5f, cy0=metadata.height*0.5f;
+                                if (astra_frame_get_depthframe(frame,&df)==ASTRA_STATUS_SUCCESS &&
+                                    astra_depthframe_get_metadata(df,&dm)==ASTRA_STATUS_SUCCESS &&
+                                    astra_depthframe_get_data_ptr(df,&dp,&dl)==ASTRA_STATUS_SUCCESS &&
+                                    astra_depthframe_get_frameindex(df,&di)==ASTRA_STATUS_SUCCESS &&
+                                    dp && di==colorIndex && dm.width==metadata.width && dm.height==metadata.height &&
+                                    dl>=static_cast<uint32_t>(dm.width)*dm.height*2 &&
+                                    astra_convert_depth_to_world(sensor.depth,cx0,cy0,1000,&x0,&y0,&z0)==ASTRA_STATUS_SUCCESS &&
+                                    astra_convert_depth_to_world(sensor.depth,cx0+100,cy0,1000,&x1,&y1,&z1)==ASTRA_STATUS_SUCCESS &&
+                                    astra_convert_depth_to_world(sensor.depth,cx0,cy0+100,1000,&x2,&y2,&z2)==ASTRA_STATUS_SUCCESS &&
+                                    std::abs(x1-x0)>0.001f && std::abs(y2-y0)>0.001f) {
+                                    float fx=100000.f/(x1-x0), fy=-100000.f/(y2-y0);
+                                    float intrinsics[4]={fx,fy,cx0-x0*fx/1000.f,cy0+y0*fy/1000.f};
+                                    if (fx>0 && fy>0) color.publish(reinterpret_cast<const uint8_t*>(pixels), metadata.width, metadata.height,
+                                                static_cast<uint32_t>(colorIndex), static_cast<uint64_t>(elapsed), dp, intrinsics);
+                                }
+                            }
                         }
                     }
                 }

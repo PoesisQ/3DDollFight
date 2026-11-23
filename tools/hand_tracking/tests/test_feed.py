@@ -54,6 +54,31 @@ class ColorFeedTests(unittest.TestCase):
         self.assertEqual(image.dtype, np.uint8)
         self.assertEqual(int(image[0, 0, 0]), 7)
 
+    def test_reads_paired_rgb_depth_and_intrinsics(self):
+        server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        server.bind(("127.0.0.1", 0))
+        server.listen(1)
+        def send_pair():
+            connection, _ = server.accept()
+            with connection:
+                connection.sendall(struct.pack("<4sIIIII", b"DFRD", 2, 1, 42, 123, 0))
+                connection.sendall(struct.pack("<4f", 500.0, 501.0, 1.0, 0.5))
+                connection.sendall(bytes([7, 8, 9, 10, 11, 12]))
+                connection.sendall(struct.pack("<2h", 900, 1000))
+        thread = threading.Thread(target=send_pair)
+        thread.start()
+        try:
+            client = feed_module.ColorFeed(port=server.getsockname()[1])
+            client.connect()
+            width, height, index, stamp, rgb = client.read()
+            self.assertEqual((width, height, index, stamp), (2, 1, 42, 123))
+            np.testing.assert_array_equal(rgb[0, 1], [10, 11, 12])
+            np.testing.assert_array_equal(client.depth, [[900, 1000]])
+            self.assertEqual(client.intrinsics, (500.0, 501.0, 1.0, 0.5))
+            client.close()
+        finally:
+            thread.join(2)
+            server.close()
     def test_rejects_bad_magic(self):
         server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
