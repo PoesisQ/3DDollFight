@@ -58,6 +58,7 @@ class ColorFeedTests(unittest.TestCase):
         server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         server.bind(("127.0.0.1", 0))
         server.listen(1)
+
         def send_pair():
             connection, _ = server.accept()
             with connection:
@@ -65,6 +66,7 @@ class ColorFeedTests(unittest.TestCase):
                 connection.sendall(struct.pack("<4f", 500.0, 501.0, 1.0, 0.5))
                 connection.sendall(bytes([7, 8, 9, 10, 11, 12]))
                 connection.sendall(struct.pack("<2h", 900, 1000))
+
         thread = threading.Thread(target=send_pair)
         thread.start()
         try:
@@ -79,6 +81,7 @@ class ColorFeedTests(unittest.TestCase):
         finally:
             thread.join(2)
             server.close()
+
     def test_rejects_bad_magic(self):
         server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)

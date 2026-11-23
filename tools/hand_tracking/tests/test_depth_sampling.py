@@ -1,10 +1,16 @@
 import sys
-from pathlib import Path
 import unittest
+from pathlib import Path
+
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from depth_sampling import sample_hand_depth, depth_to_camera_points, depth_palm_basis, blend_palm_basis
+from depth_sampling import (
+    blend_palm_basis,
+    depth_palm_basis,
+    depth_to_camera_points,
+    sample_hand_depth,
+)
 
 
 class DepthSamplingTests(unittest.TestCase):
@@ -39,6 +45,7 @@ class DepthSamplingTests(unittest.TestCase):
     def test_backprojection_requires_measured_intrinsics(self):
         with self.assertRaises(ValueError):
             depth_to_camera_points(np.zeros((21, 2)), np.ones(21), 640, 480, 0, 480, 320, 240)
+
     def test_palm_basis_requires_valid_depth(self):
         points = np.full((21, 2), [0.5, 0.5])
         points[0], points[9] = [0.5, 0.58], [0.5, 0.5]
@@ -52,10 +59,11 @@ class DepthSamplingTests(unittest.TestCase):
         self.assertIsNone(depth_palm_basis(image, points, (100.0, 100.0, 50.0, 50.0)))
         self.assertIsNone(depth_palm_basis(image, None, (100.0, 100.0, 50.0, 50.0)))
         self.assertIs(blend_palm_basis(basis, None), basis)
+
     def test_invalid_shapes_rejected(self):
         with self.assertRaises(ValueError):
             sample_hand_depth(np.zeros((10, 10)), np.zeros((20, 2)))
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()
