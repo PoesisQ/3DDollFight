@@ -3,7 +3,6 @@
 This helper does not acquire or synchronize frames. Only pass a depth frame
 registered to the same colour image used to compute the landmarks.
 """
-
 import numpy as np
 
 PALM = (0, 5, 9, 13, 17)
@@ -23,10 +22,7 @@ def sample_hand_depth(depth_mm, landmarks, radius=2, max_offset_mm=100):
         if not np.isfinite(x) or not np.isfinite(y) or not (0 <= x < 1 and 0 <= y < 1):
             continue
         px, py = int(x * w), int(y * h)
-        patch = depth[
-            max(0, py - radius) : min(h, py + radius + 1),
-            max(0, px - radius) : min(w, px + radius + 1),
-        ]
+        patch = depth[max(0, py-radius):min(h, py+radius+1), max(0, px-radius):min(w, px+radius+1)]
         valid = patch[np.isfinite(patch) & (patch > 0)]
         if valid.size >= max(1, patch.size // 4):
             result[i] = float(np.median(valid))
@@ -34,7 +30,7 @@ def sample_hand_depth(depth_mm, landmarks, radius=2, max_offset_mm=100):
     if np.isfinite(palm).sum() < 3:
         return np.full(21, np.nan, dtype=float)
     anchor = np.nanmedian(palm)
-    result[np.abs(result - anchor) > max_offset_mm] = np.nan
+    result[np.abs(result-anchor) > max_offset_mm] = np.nan
     return result
 
 
@@ -50,21 +46,14 @@ def depth_to_camera_points(landmarks, depths_mm, width, height, fx, fy, cx, cy):
         raise ValueError("expected 21 image points and depths")
     if width <= 0 or height <= 0 or not np.isfinite([fx, fy, cx, cy]).all() or fx <= 0 or fy <= 0:
         raise ValueError("valid measured camera intrinsics are required")
-    valid = (
-        np.isfinite(points).all(axis=1)
-        & np.isfinite(depths)
-        & (depths > 0)
-        & (points[:, 0] >= 0)
-        & (points[:, 0] < 1)
-        & (points[:, 1] >= 0)
-        & (points[:, 1] < 1)
-    )
+    valid = (np.isfinite(points).all(axis=1) & np.isfinite(depths) & (depths > 0)
+             & (points[:, 0] >= 0) & (points[:, 0] < 1)
+             & (points[:, 1] >= 0) & (points[:, 1] < 1))
     result = np.full((21, 3), np.nan, dtype=float)
     result[valid, 0] = (points[valid, 0] * width - cx) * depths[valid] / fx
     result[valid, 1] = (points[valid, 1] * height - cy) * depths[valid] / fy
     result[valid, 2] = depths[valid]
     return result
-
 
 def depth_palm_basis(depth_mm, landmarks, intrinsics):
     """Return a metric palm frame only when depth samples are trustworthy."""
@@ -104,9 +93,9 @@ def blend_palm_basis(colour_basis, depth_basis, weight=0.35):
         return colour_basis
     if float(cx @ dx) < 0.7 or float(cy @ dy) < 0.7 or float(cz @ dz) < 0.7:
         return colour_basis
-    y = (1 - weight) * cy + weight * dy
+    y = (1-weight)*cy + weight*dy
     y /= np.linalg.norm(y)
-    x = (1 - weight) * cx + weight * dx
+    x = (1-weight)*cx + weight*dx
     x -= y * float(x @ y)
     if np.linalg.norm(x) < 1e-6:
         return colour_basis

@@ -59,17 +59,9 @@ class ColorFeed:
             raise ColorFeedError(f"bad colour header magic {magic!r}")
         if not (0 < width <= 4096 and 0 < height <= 4096):
             raise ColorFeedError(f"bad colour frame size {width}x{height}")
-        self.intrinsics = (
-            struct.unpack("<4f", _recv_exact(self.connection, 16)) if magic == b"DFRD" else None
-        )
+        self.intrinsics = struct.unpack("<4f", _recv_exact(self.connection, 16)) if magic == b"DFRD" else None
         payload = _recv_exact(self.connection, width * height * 3)
-        self.depth = (
-            np.frombuffer(_recv_exact(self.connection, width * height * 2), dtype="<i2").reshape(
-                height, width
-            )
-            if magic == b"DFRD"
-            else None
-        )
+        self.depth = np.frombuffer(_recv_exact(self.connection, width * height * 2), dtype="<i2").reshape(height, width) if magic == b"DFRD" else None
         image = np.frombuffer(payload, dtype=np.uint8).reshape(height, width, 3)
         return width, height, index, (high << 32) | low, image
 
