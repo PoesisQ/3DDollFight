@@ -21,6 +21,10 @@ namespace AstraUnity
 
         public SkeletonFrame LatestFrame { get; private set; }
         public long AcceptedFrames { get; private set; }
+        /// <summary>Accepted frames whose body list actually carried a tracked person.</summary>
+        public long FramesWithBody { get; private set; }
+        /// <summary>Distinct senders seen on this port. Two means two bridges are running.</summary>
+        public int SessionsSeen { get; private set; }
         public string LastError { get; private set; }
         // Zero means that no person is currently selected.
         public int SelectedBodyId { get; private set; }
@@ -42,6 +46,11 @@ namespace AstraUnity
         private UdpClient client;
         private Thread worker;
         private volatile bool running;
+        // Whether the last accepted frame carried a tracked body. Session
+        // arbitration below is built on it, so it has to be the body list after
+        // IsValid, not the raw json.
+        private bool lastAcceptedHadBody;
+        private string sessionSeen;
         // A duplicate instance would bind the same UDP port and take the frames
         // away from the live one, so only the first enabled receiver listens.
         private static AstraSkeletonReceiver bound;
@@ -73,6 +82,7 @@ namespace AstraUnity
             }
             bound = this;
             LatestFrame = null; AcceptedFrames = 0; LastError = null; lastAcceptedTicks = 0; SelectedBodyId = 0;
+            FramesWithBody = 0; SessionsSeen = 0; sessionSeen = null; lastAcceptedHadBody = false;
             lock (gate) { pending = null; workerError = null; }
             TryBind(true);
         }
@@ -168,15 +178,52 @@ namespace AstraUnity
                 // Keep parsing, event callbacks and all Unity objects on the main thread.
                 var frame = JsonUtility.FromJson<SkeletonFrame>(message.json);
                 if (frame == null || !frame.IsValid()) return;
-                // Ignore duplicate/out-of-order frames; allow restart after the old sender times out.
-                if (LatestFrame != null && IsReceiving &&
-                    (frame.session != LatestFrame.session || frame.sequence <= LatestFrame.sequence)) return;
+                if (frame.session != sessionSeen) { sessionSeen = frame.session; ++SessionsSeen; }
+                bool hasBody = HasTrackedBody(frame);
+                if (!Accept(frame, hasBody)) return;
                 if (LatestFrame == null || frame.session != LatestFrame.session) SelectedBodyId = 0;
                 SelectOneBody(frame);
                 LatestFrame = frame; lastAcceptedTicks = message.ticks; ++AcceptedFrames; LastError = null;
+                lastAcceptedHadBody = hasBody;
+                if (hasBody) ++FramesWithBody;
             }
             catch (ArgumentException) { return; }
             if (FrameReceived != null) FrameReceived(LatestFrame);
+        }
+
+        /// <summary>True when the frame carries at least one person the SDK stands behind.</summary>
+        private static bool HasTrackedBody(SkeletonFrame frame)
+        {
+            foreach (var body in frame.bodies) if (body != null && body.IsTracked) return true;
+            return false;
+        }
+
+        /// <summary>
+        /// Decides whether this frame replaces the one on screen.
+        ///
+        /// Same session: only newer sequence numbers, so a duplicated or
+        /// reordered datagram cannot rewind the pose.
+        ///
+        /// Different session: two senders on one port, which is what a bridge
+        /// from an earlier session looks like. It still holds the camera open
+        /// but publishes an empty body list, because the SDK hands the body
+        /// stream to one reader only, while the session's own bridge sees the
+        /// person. The old rule - whoever spoke first wins until it times out -
+        /// followed the blind one for a whole session, and the panel read
+        /// "waiting for tracked person" while the preview window beside it drew
+        /// nineteen confident joints. So a stream that carries a body always
+        /// wins over one that does not, a working stream is only given up for
+        /// another that also has one, and when neither has one the current
+        /// frame is kept until it goes stale.
+        /// </summary>
+        private bool Accept(SkeletonFrame frame, bool hasBody)
+        {
+            if (LatestFrame == null) return true;
+            if (frame.session == LatestFrame.session) return frame.sequence > LatestFrame.sequence;
+            bool currentHasBody = lastAcceptedHadBody && AgeSeconds <= timeoutSeconds;
+            if (currentHasBody) return hasBody;
+            if (hasBody) return true;
+            return AgeSeconds > timeoutSeconds;
         }
 
         private void SelectOneBody(SkeletonFrame frame)
