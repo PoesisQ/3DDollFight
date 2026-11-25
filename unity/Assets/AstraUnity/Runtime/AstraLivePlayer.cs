@@ -41,11 +41,25 @@ namespace AstraUnity
         private HumanoidReplay actor;
         private readonly Quaternion[] bindRotations = new Quaternion[19];
         private readonly Quaternion[] liveRotations = new Quaternion[19];
+        // Toe bone relative to its foot, as the model was built. The shoe is one
+        // rigid piece there - a quarter of its contact patch is weighted to the
+        // toe - so keeping this exact offset is what keeps the sole a sole once
+        // the foot is aimed at the floor instead of at the replay clip's pose.
+        private readonly Quaternion[] toeBindings = { Quaternion.identity, Quaternion.identity };
+        // Ankle relative to its shin, as the model was built. The sensor reports
+        // the ankle as a position and never as a rotation, so this is the only
+        // ankle angle there is: without it a bound foot keeps whatever the
+        // previous frame left behind while the leg swings away from it.
+        private readonly Quaternion[] ankleBindings = { Quaternion.identity, Quaternion.identity };
         private readonly Vector3[] baseline = new Vector3[19];
         private Vector3 baseHip;
         private Vector3 sensorHip;
         private Vector3 liveHip;
         private Vector3 initialHip;
+        // Ankle height of the pose the game spawned the character in. That pose
+        // was placed with its shoes on the floor, so keeping the ankles there is
+        // a usable ground reference when the shoe surface cannot be measured.
+        private float initialAnkleY;
         private Vector3 sourceRight, sourceDepth, modelRight, modelDepth;
         private Quaternion previousFacing = Quaternion.identity;
         /// <summary>
@@ -65,9 +79,15 @@ namespace AstraUnity
         private static readonly int[,] segments = {
             {0,9,8},{1,8,1},{2,1,18},{3,18,0},
             {5,2,3},{6,3,16},{8,5,6},{9,6,17},
-            {11,10,11},{15,13,14}
+            {11,10,11},{15,13,14},
+            // The shins have a tracked joint at both ends - the knee above and
+            // the ankle below - so their direction is measured, not invented.
+            // Aiming each one at its own ankle is what lets a crouch keep its
+            // knee angle: pinning it vertical instead swings the ankle under the
+            // knee and drives the foot into the floor.
+            {12,11,12},{16,14,15}
         };
-        // Torso and arms must be solvable before calibrating. The two leg rows
+        // Torso and arms must be solvable before calibrating. The four leg rows
         // above are optional: a desk, a chair or a tight frame usually hides the
         // knees, and a missing knee used to fail calibration outright, which
         // also stopped the hands and the wrist roll from ever being applied.
@@ -81,16 +101,119 @@ namespace AstraUnity
         private float[] handCurls;
         private Vector3[] handPoints;
         private System.Diagnostics.Process sender;
+        /// <summary>
+        /// The match starts the camera by itself, because the panel that used to
+        /// hold the button is now hidden. This process is <c>run.py</c>, which in
+        /// turn owns the bridge; killing only the interpreter would leave the
+        /// bridge holding the camera, so <see cref="StopPipeline"/> kills the
+        /// whole tree.
+        /// </summary>
+        [Tooltip("Launch the hand pipeline (bridge + preview window) when the match starts.")]
+        public bool autoStartPipeline = true;
+        [Tooltip("Draw the status panel. F1 toggles it; off by default so it cannot cover the fight.")]
+        public bool showDebugPanel;
+        private System.Diagnostics.Process pipeline;
+        private bool pipelineStarted;
+        private string pipelineMessage = "未启动";
+        // The bridge binds this itself - it is the exe's default, and
+        // StartPipeline does not pass --color-port. Used only to tell whether a
+        // leftover process is sitting on the port this session needs.
+        private const int ColourPort = 7005;
         private readonly object messageLock = new object();
         private string senderMessage = "未启动";
         private string senderError;
         private const float CalibrationInterval = 5f;
         private float nextCalibrationAt = -1f;
+        // A session that never holds the T-pose used to sit on the replay clip
+        // forever while the hands worked, which reads as "the body is bound and
+        // the character stands wrong" - the clip's own stance, including a pair
+        // of shoes rolled a long way onto their edges. After this long in front
+        // of the sensor, bind from the stance the person is already in instead.
+        private const float StanceBindDelay = 6f;
+        private float bodySeenSince = -1f;
+        /// <summary>True when the current bind came from a stance, not a T-pose.</summary>
+        private bool stanceBound;
+        private float calibratedAt = -100f;
+        // Upper bound on the hip lift that keeps the shoes out of the floor. A
+        // real crouch shortens the legs as it lowers the hip, so this only ever
+        // pays out the residual; the cap is there so a bad sole measurement
+        // cannot float the whole character.
+        private const float maxSoleLift = 0.08f;
+        // The same residual in the other direction: a shoe hovering just above
+        // the floor is the model's leg length, not a jump. Anything larger is
+        // left alone so a raised foot is not pulled back down.
+        private const float maxSoleDrop = 0.04f;
+        // How close to the floor a shoe has to be before its angle is taken to
+        // mean something. Above this the foot is mid-step and its angle is the
+        // animation, not an error.
+        private const float GroundedBand = 0.03f;
+        // How far a planted shoe may be from flat and still be levelled. Past
+        // this the sole is not resting on the floor at all - it is a kick, a
+        // stretch, or a bad fit - and aiming it down from there rotates the
+        // shoe right past its side, which is what turned feet over.
+        private const float MaxSoleTilt = 65f;
+        /// <summary>Hip correction applied this frame to plant the shoes, in metres.</summary>
+        private float soleLift;
+        /// <summary>Largest bend the toe bones had to give back this frame, in degrees.</summary>
+        private float toeFix;
+        /// <summary>
+        /// How far the shoe was from flat before it was levelled, in degrees:
+        /// the angle between the modelled sole carried into the pose and the
+        /// floor. This is the clip's own roll, and it is what levelling removes.
+        /// </summary>
+        private float soleTilt;
+        /// <summary>
+        /// What an independent measurement of the shoe says is left over after
+        /// levelling, in degrees. Nothing acts on it. Near zero means the
+        /// modelled sole agreed with the mesh; a number as large as
+        /// <see cref="soleTilt"/> means the modelled sole is wrong, not the
+        /// levelling - the one failure this code cannot see by itself.
+        /// </summary>
+        private float soleResidual;
+        /// <summary>
+        /// Turn about the floor that levelling the shoe would have introduced,
+        /// in degrees, before it was undone. This is the pigeon-toed angle: it
+        /// is what the shortest rotation between "sole is at an angle" and "sole
+        /// is flat" does to the direction the foot points.
+        /// </summary>
+        private float soleYaw;
+        /// <summary>Feet that were in the air this frame and left to the pose.</summary>
+        private bool soleAirLeft, soleAirRight;
+        // The loader only builds a sole sampler for prefab bodies. A .vrm posed
+        // live needs one just as much: straightening the legs moves the shoes,
+        // and without a measurement there is nothing to keep them off the floor.
+        private AvatarSoleContact liveSoles;
+        private HumanoidReplay liveSolesOwner;
+        // How far an elbow may lead its own hand towards the avatar's front.
+        // As a direction cosine: 0.30 is about 17 degrees, and a hand that is
+        // itself in front of the shoulder spends more of the budget. The arm
+        // segment is a straight line from a tracked shoulder to a tracked elbow,
+        // and the SDK's elbow is the weakest joint it reports - inferred, not
+        // measured, and biased forward whenever the arm is anywhere near the
+        // torso. See BesideHand.
+        private const float ArmForwardSlack = 0.30f;
+        /// <summary>Largest amount of forward elbow this frame that BesideHand had to remove.</summary>
+        private float armPush;
         // A body that vanishes for a frame or two is a detection gap, not a
         // person leaving. Throwing the calibration away for it meant every such
         // gap needed another T-pose to recover from.
         private const float BodyGrace = 2f;
         private float lastBodySeenAt = -100f;
+        /// <summary>
+        /// The last frame that actually carried a body, and when it arrived.
+        ///
+        /// The sensor reports one body in about one frame in six: it drops the
+        /// skeleton whenever a limb crosses the torso or the person shifts
+        /// weight, and picks it up again a frame or two later. The uncalibrated
+        /// path used to reset its stopwatch on every empty frame, so
+        /// <see cref="StanceBindDelay"/> seconds of continuous detection could
+        /// never accumulate and a whole recording went by on the replay clip
+        /// with the person standing in front of the camera. Holding the last
+        /// body across a gap - the same grace the calibrated path already had -
+        /// is what lets that stopwatch reach six.
+        /// </summary>
+        private SkeletonFrame lastBodyFrame;
+        private float lastBodyFrameAt = -100f;
         private bool handsDriving;
         private float lastHandApplyAt = -100f;
         // Per hand, not per pair: one hand leaving the packet says nothing about
@@ -110,8 +233,19 @@ namespace AstraUnity
         private float nextStatusWriteAt;
         private string calibrationMessage;
         private float calibrationMessageUntil;
+        /// <summary>
+        /// The first check <see cref="Calibrate"/> refused on, or null once a
+        /// bind has succeeded. Several of those checks return false without
+        /// touching <see cref="status"/> - the hip is the one that did - and a
+        /// session that never binds then looks identical whether the person was
+        /// out of frame or one joint was not tracked. This is what tells them
+        /// apart in the status file.
+        /// </summary>
+        private string calibrateNote;
         private string legNote;
         private Font uiFont;
+        private Font badgeFont;
+        private GUIStyle badgeStyle;
         private Camera playerWorldCamera, playerBodyCamera;
 
         void SetSenderMessage(string message)
@@ -131,8 +265,7 @@ namespace AstraUnity
             if (sender != null && !sender.HasExited) { SetSenderMessage("发送程序已运行，请先停止后切换模式。"); return; }
             if (sender != null) { sender.Dispose(); sender = null; }
             lock (messageLock) senderError = null;
-            var root = Path.GetFullPath(Path.Combine(Application.dataPath, "../.."));
-            var exe = Path.Combine(root, "integrations/astra-unity-bridge/build/bin/Release/AstraUnityBridge.exe");
+            var exe = BridgePath();
             if (!File.Exists(exe)) { SetSenderMessage("找不到发送程序，请先运行 Build-Bridge.cmd。"); return; }
             string args = simulated ? "--simulate --warmup 6" : "";
             var license = Environment.GetEnvironmentVariable("ASTRA_BODY_LICENSE");
@@ -170,6 +303,213 @@ namespace AstraUnity
             finally { sender.Dispose(); sender = null; lock (messageLock) senderError = null; SetSenderMessage("已停止本程序启动的数据源"); }
         }
 
+        /// <summary>Path of the interpreter that runs <c>run.py</c>.</summary>
+        string PipelinePython()
+        {
+            var root = Path.GetFullPath(Path.Combine(Application.dataPath, "../.."));
+            return Path.Combine(root, "tools", "hand_tracking", ".venv", "Scripts", "python.exe");
+        }
+
+        /// <summary>
+        /// Starts <c>run.py --start-bridge --preview</c> once per session.
+        /// run.py owns both the bridge and the preview window, so this replaces
+        /// the old pair of steps ("press 启动摄像头", then double-click run.cmd)
+        /// with a single process that the match launches by itself.
+        /// </summary>
+        public void StartPipeline()
+        {
+            if (pipeline != null && !pipeline.HasExited) return;
+            var root = Path.GetFullPath(Path.Combine(Application.dataPath, "../.."));
+            var folder = Path.Combine(root, "tools", "hand_tracking");
+            var python = PipelinePython();
+            var script = Path.Combine(folder, "run.py");
+            if (!File.Exists(python))
+            {
+                pipelineMessage = "缺少 Python 环境，请先运行 tools\\hand_tracking\\install.cmd";
+                UnityEngine.Debug.LogWarning("Astra 摄像头未启动：" + pipelineMessage);
+                return;
+            }
+            if (!File.Exists(script))
+            {
+                pipelineMessage = "找不到 tools\\hand_tracking\\run.py";
+                UnityEngine.Debug.LogWarning("Astra 摄像头未启动：" + pipelineMessage);
+                return;
+            }
+            // Whatever an earlier session left behind still owns the camera and
+            // port 7005. A bridge started on top of it dies with "Cannot bind
+            // color port 7005", and the leftover keeps publishing frames with no
+            // body in them - which looks exactly like "the body skeleton
+            // disappeared". Clear the ground before starting, not after failing.
+            StopOrphanedPipeline(python);
+            try
+            {
+                pipeline = new System.Diagnostics.Process();
+                pipeline.StartInfo = new ProcessStartInfo(python, "-u \"" + script + "\" --start-bridge --preview")
+                {
+                    WorkingDirectory = folder,
+                    UseShellExecute = false,
+                    // A console window is wanted: it carries the fps line and the
+                    // pairing warnings that make a bad run diagnosable.
+                    CreateNoWindow = false
+                };
+                pipeline.Start();
+                pipelineMessage = "已启动摄像头与预览";
+            }
+            catch (Exception e)
+            {
+                pipelineMessage = "启动失败：" + e.Message;
+                if (pipeline != null) { pipeline.Dispose(); pipeline = null; }
+            }
+        }
+
+        public void StopPipeline()
+        {
+            if (pipeline != null)
+            {
+                int id = -1;
+                try { if (!pipeline.HasExited) id = pipeline.Id; }
+                catch (InvalidOperationException) { }
+                if (id > 0)
+                {
+                    // /T reaches the bridge that python spawned; without it the
+                    // camera stays claimed until the editor is closed.
+                    try
+                    {
+                        var kill = System.Diagnostics.Process.Start(new ProcessStartInfo("taskkill", "/PID " + id + " /T /F")
+                        {
+                            UseShellExecute = false,
+                            CreateNoWindow = true
+                        });
+                        if (kill != null) kill.WaitForExit(3000);
+                    }
+                    catch (Exception) { }
+                    // taskkill is the only handle on the grandchild. If it is not
+                    // available, at least take the interpreter down.
+                    try { if (!pipeline.HasExited) pipeline.Kill(); }
+                    catch (Exception) { }
+                }
+                try { pipeline.Dispose(); }
+                catch (Exception) { }
+            }
+            pipeline = null;
+            pipelineStarted = false;
+            pipelineMessage = "已停止";
+            // run.py can already be gone while the bridge it spawned lives on,
+            // and then there is no tree left to walk. Sweep by identity too.
+            StopOrphanedPipeline(PipelinePython());
+        }
+
+        void WatchPipeline()
+        {
+            if (pipeline == null) return;
+            try
+            {
+                if (!pipeline.HasExited) return;
+                pipelineMessage = "摄像头进程已退出（代码 " + pipeline.ExitCode + "）";
+                // The panel is hidden by default, so a silent exit would look
+                // like "the preview never opened". Say it in the console too.
+                UnityEngine.Debug.LogError("Astra " + pipelineMessage + "。按 F1 查看状态，或点「重启摄像头」。");
+                pipeline.Dispose();
+                pipeline = null;
+                // Exiting early leaves its bridge holding the camera for every
+                // later session, so take it down with the interpreter.
+                StopOrphanedPipeline(PipelinePython());
+            }
+            catch (InvalidOperationException) { }
+        }
+
+        /// <summary>
+        /// Ends a pipeline that outlived the process that started it.
+        ///
+        /// run.py can die - camera lost, bridge failed to bind - while the
+        /// bridge it spawned keeps running and holding both the camera and port
+        /// 7005. The next session's bridge then fails to bind, and the leftover
+        /// goes on publishing frames with an empty body list, which reads as
+        /// "the body skeleton disappeared and only the fingers are left". The
+        /// tracked child is no help: once it has exited there is no id to walk
+        /// from, so this sweeps by identity - this project's own interpreter,
+        /// and every bridge built from this project.
+        /// </summary>
+        static void StopOrphanedPipeline(string python)
+        {
+            try
+            {
+                foreach (var process in Process.GetProcessesByName("python"))
+                {
+                    try
+                    {
+                        if (string.Equals(process.MainModule.FileName, python, StringComparison.OrdinalIgnoreCase))
+                            KillProcess(process);
+                    }
+                    catch (Exception) { }
+                    finally { process.Dispose(); }
+                }
+            }
+            catch (Exception) { }
+            // Every bridge of this build goes, not only one sitting on the
+            // colour port. A leftover started without --color-port holds no
+            // port that can be probed, but it still opens the camera, and the
+            // SDK serves the body stream to one reader only: the session's own
+            // bridge then publishes an empty body list for its whole life while
+            // the orphan publishes the person. That is the split this project
+            // kept hitting - Unity reporting zero bodies at the same moment the
+            // preview window drew nineteen confident joints.
+            string exe = BridgePath();
+            try
+            {
+                foreach (var process in Process.GetProcessesByName("AstraUnityBridge"))
+                {
+                    try
+                    {
+                        bool ours;
+                        try { ours = string.Equals(process.MainModule.FileName, exe, StringComparison.OrdinalIgnoreCase); }
+                        // A path that cannot be read is most likely one of ours
+                        // anyway, so fall back to the port it would be blocking.
+                        catch (Exception) { ours = ColourPortTaken(); }
+                        if (ours) KillProcess(process);
+                    }
+                    catch (Exception) { }
+                    finally { process.Dispose(); }
+                }
+            }
+            catch (Exception) { }
+            // The kernel drops the listener when the last handle closes. Waiting
+            // for it beats starting the new bridge into the same bind failure.
+            for (int i = 0; i < 10 && ColourPortTaken(); i++) System.Threading.Thread.Sleep(100);
+        }
+
+        /// <summary>Path of the sender this project builds.</summary>
+        static string BridgePath()
+        {
+            var root = Path.GetFullPath(Path.Combine(Application.dataPath, "../.."));
+            return Path.Combine(root, "integrations/astra-unity-bridge/build/bin/Release/AstraUnityBridge.exe");
+        }
+
+        /// <summary>True when something is listening on the bridge's colour port.</summary>
+        static bool ColourPortTaken()
+        {
+            try
+            {
+                using (var client = new System.Net.Sockets.TcpClient())
+                {
+                    if (!client.ConnectAsync("127.0.0.1", ColourPort).Wait(200)) return false;
+                    return client.Connected;
+                }
+            }
+            catch (Exception) { return false; }
+        }
+
+        static void KillProcess(Process process)
+        {
+            try
+            {
+                if (process.HasExited) return;
+                process.Kill();
+                process.WaitForExit(2000);
+            }
+            catch (Exception) { }
+        }
+
         void Awake()
         {
             // A duplicate only makes sense to drop when the survivor is still
@@ -190,6 +530,8 @@ namespace AstraUnity
         void Update()
         {
             WriteStatus();
+            if (Input.GetKeyDown(KeyCode.F1)) showDebugPanel = !showDebugPanel;
+            WatchPipeline();
             if (game == null)
             {
                 // Selecting a character loads another scene, so the demo we were
@@ -209,11 +551,37 @@ namespace AstraUnity
             {
                 actor = game.Actors[0]; Calibrated = false;
                 initialHip = actor.Bones[0].position;
+                initialAnkleY = Mathf.Min(actor.Bones[13].position.y, actor.Bones[17].position.y);
                 playerWorldCamera = playerBodyCamera = null;
             }
             game.playing = false; // Do not present prerecorded fighting events as live results.
             if (game.SelectionOpen) { status = "Choose characters and arena, then press C in T-pose"; return; }
-            if (!receiver.IsReceiving || receiver.LatestFrame.bodies.Length == 0)
+            // The match is on: bring the camera up without being asked. Starting
+            // it here rather than in Start() means the sensor is not held open
+            // while someone is still browsing characters.
+            if (autoStartPipeline && !pipelineStarted)
+            {
+                pipelineStarted = true;
+                StartPipeline();
+            }
+            var frame = receiver.LatestFrame;
+            bool frameHasBody = frame != null && frame.bodies.Length > 0;
+            if (frameHasBody)
+            {
+                lastBodyFrame = frame;
+                lastBodyFrameAt = Time.unscaledTime;
+            }
+            // While uncalibrated, a gap in the body stream is bridged with the
+            // last frame that had one. Skipping it here instead restarts the
+            // stance stopwatch on every gap, and a body that arrives one frame
+            // in six never gets six seconds of it.
+            if (!frameHasBody && !Calibrated && lastBodyFrame != null &&
+                Time.unscaledTime - lastBodyFrameAt < BodyGrace)
+            {
+                frame = lastBodyFrame;
+                frameHasBody = true;
+            }
+            if (!receiver.IsReceiving || frame == null || !frameHasBody)
             {
                 // One frame without a body used to erase the calibration, and
                 // getting it back needed a fresh T-pose. The sensor drops the
@@ -226,34 +594,39 @@ namespace AstraUnity
                     status = "人体暂时丢失，保持校准";
                     return;
                 }
-                Calibrated = false; nextCalibrationAt = -1f; status = "Waiting for tracked person"; return;
+                Calibrated = false; nextCalibrationAt = -1f; bodySeenSince = -1f;
+                status = "Waiting for tracked person"; return;
             }
             lastBodySeenAt = Time.unscaledTime;
-            var body = receiver.LatestFrame.bodies[0];
-            if (Calibrated && (body.id != CalibratedBodyId || calibratedSession != receiver.LatestFrame.session))
+            var body = frame.bodies[0];
+            if (Calibrated && (body.id != CalibratedBodyId || calibratedSession != frame.session))
             { Calibrated = false; nextCalibrationAt = -1f; }
+            if (bodySeenSince < 0f) bodySeenSince = Time.unscaledTime;
             if (nextCalibrationAt < 0) nextCalibrationAt = Time.unscaledTime + CalibrationInterval;
             if (Time.unscaledTime >= nextCalibrationAt)
             {
                 nextCalibrationAt = Time.unscaledTime + CalibrationInterval;
+                bool tpose = IsCalibrationPose(body);
+                bool stance = !Calibrated && Time.unscaledTime - bodySeenSince >= StanceBindDelay;
                 // Only re-run the check when it can change the answer: while
                 // uncalibrated, or when the person is actually standing in the
                 // calibration pose again. Re-checking a live session every five
                 // seconds only replaced a working "已校准" line with a failure
                 // message that had already been solved, which made the panel
                 // read as broken while the avatar was moving.
-                if (!Calibrated || IsCalibrationPose(body))
+                if (!Calibrated || tpose)
                 {
                     string reason = CalibrationIssue(body);
-                    if (reason != null || !IsCalibrationPose(body) || !Calibrate(body))
+                    if (reason == null && (tpose || stance) && Calibrate(body, tpose))
+                    { calibrationMessage = null; calibrationMessageUntil = 0; }
+                    else if (!Calibrated)
                     {
-                        if (!Calibrated)
-                        {
-                            calibrationMessage = "自动校准失败：" + (reason ?? "请面向摄像头双臂平举");
-                            calibrationMessageUntil = nextCalibrationAt;
-                        }
+                        float wait = Mathf.Max(0f, StanceBindDelay - (Time.unscaledTime - bodySeenSince));
+                        calibrationMessage = reason != null ? "自动校准失败：" + reason
+                            : stance ? "站姿绑定失败，请全身入镜"
+                            : "双臂平举可校准，" + Mathf.CeilToInt(wait) + " 秒后按当前站姿绑定";
+                        calibrationMessageUntil = nextCalibrationAt;
                     }
-                    else { calibrationMessage = null; calibrationMessageUntil = 0; }
                 }
             }
             if (!Calibrated) status = "Waiting for automatic T-pose calibration";
@@ -276,20 +649,68 @@ namespace AstraUnity
 
         public bool Calibrate(SkeletonBody body)
         {
-            if (actor == null || body == null || !body.IsTracked) return false;
+            return Calibrate(body, true);
+        }
+
+        /// <summary>
+        /// Binds the avatar to the person.
+        ///
+        /// With <paramref name="useRestPose"/>, the avatar is first restored to
+        /// its imported T-pose, which is the pose the person is asked to hold:
+        /// their arms and the model's arms then mean the same thing, so every
+        /// later direction is read against the model's own rest.
+        ///
+        /// Without it, the avatar keeps the pose it is already in - the replay
+        /// clip's - and that becomes the reference instead. It is a worse
+        /// mapping (the model's guard is not the person's stance), but it is
+        /// the difference between following with a small offset and not
+        /// following at all, and a session that never holds the T-pose used to
+        /// fail exactly that way.
+        /// </summary>
+        bool Calibrate(SkeletonBody body, bool useRestPose)
+        {
+            if (actor == null || body == null || !body.IsTracked) { calibrateNote = "no tracked body"; return false; }
             for (int i = 0; i < RequiredSegmentCount; i++)
             {
                 Vector3 direction;
                 if (!Direction(body, segments[i,1], segments[i,2], out direction))
-                { status = "Calibration needs all main joints tracked"; return false; }
+                {
+                    calibrateNote = "segment " + i + " (" + jointNames[segments[i,1]] + "->" + jointNames[segments[i,2]] + ")";
+                    status = "Calibration needs all main joints tracked"; return false;
+                }
             }
             var hip = body.Joint(JointType.BaseSpine);
-            if (hip == null || hip.status < 1) return false;
-            // Preserve the game position when restoring the imported T-pose.
-            Vector3 anchor = Calibrated ? liveHip : initialHip;
-            actor.RestoreBindPose();
+            if (hip == null || hip.status < 1)
+            {
+                calibrateNote = "hip " + (hip == null ? "missing" : "status " + hip.status);
+                return false;
+            }
             var bones = actor.Bones;
-            bones[0].position = anchor;
+            // Preserve the game position when restoring the imported T-pose. A
+            // stance bind has no pose to restore: the pose on screen is the
+            // reference, and moving it would be the jump this mode exists to
+            // avoid.
+            Vector3 anchor = useRestPose ? (Calibrated ? liveHip : initialHip) : bones[0].position;
+            if (useRestPose)
+            {
+                actor.RestoreBindPose();
+                bones[0].position = anchor;
+            }
+            // The bind pose has straighter legs than whatever clip the model was
+            // spawned in, so the hip height the game left behind is too low for
+            // it: the shoes end up under the floor. Measure the shoe surface in
+            // the restored pose and plant it on the actor's own floor plane
+            // instead of trusting that hip height.
+            var soles = Soles();
+            if (soles != null)
+            {
+                float lowest = soles.LowestSole();
+                if (lowest > -0.5f && lowest < 0.5f)
+                {
+                    anchor.y += FloorHeight() - lowest;
+                    bones[0].position = anchor;
+                }
+            }
             Vector3 shoulders = bones[8].position - bones[5].position;
             shoulders.y = 0;
             Vector3 opponentDirection;
@@ -299,6 +720,10 @@ namespace AstraUnity
                 bones[0].rotation = FaceDirection(forward, opponentDirection) * bones[0].rotation;
             }
             for (int i = 0; i < 19; i++) { bindRotations[i] = bones[i].rotation; liveRotations[i] = bones[i].rotation; valid[i] = false; }
+            toeBindings[0] = Quaternion.Inverse(bones[13].rotation) * bones[14].rotation;
+            toeBindings[1] = Quaternion.Inverse(bones[17].rotation) * bones[18].rotation;
+            ankleBindings[0] = Quaternion.Inverse(bones[12].rotation) * bones[13].rotation;
+            ankleBindings[1] = Quaternion.Inverse(bones[16].rotation) * bones[17].rotation;
             previousFacing = Quaternion.identity;
             baseHip = anchor;
             liveHip = baseHip;
@@ -310,7 +735,10 @@ namespace AstraUnity
             modelRight = bones[8].position - bones[5].position;
             sourceRight.y = 0; modelRight.y = 0;
             if (sourceRight.sqrMagnitude < 0.0001f || modelRight.sqrMagnitude < 0.0001f)
-            { status = "Calibration needs separated shoulders"; return false; }
+            {
+                calibrateNote = "shoulders " + sourceRight.sqrMagnitude.ToString("F4") + "/" + modelRight.sqrMagnitude.ToString("F4");
+                status = "Calibration needs separated shoulders"; return false;
+            }
             sourceRight.Normalize(); modelRight.Normalize();
             sourceDepth = Vector3.Cross(sourceRight, Vector3.up);
             modelDepth = Vector3.Cross(modelRight, Vector3.up);
@@ -331,7 +759,10 @@ namespace AstraUnity
                 baseline[bone] = v;
             }
             CalibratedBodyId = body.id; calibratedSession = receiver.LatestFrame.session;
-            Calibrated = true; status = "Live P1; replay combat paused";
+            Calibrated = true; bodySeenSince = -1f;
+            calibrateNote = null;
+            stanceBound = !useRestPose; calibratedAt = Time.unscaledTime;
+            status = useRestPose ? "Live P1; replay combat paused" : "Live P1 (站姿绑定); replay combat paused";
             return true;
         }
 
@@ -380,6 +811,49 @@ namespace AstraUnity
             if (flipArmDepth) return sensorToModel * offset;
             return modelRight * Vector3.Dot(offset, sourceRight) +
                    Vector3.up * offset.y - modelDepth * Vector3.Dot(offset, sourceDepth);
+        }
+
+        /// <summary>
+        /// Stops an upper arm from swinging across the chest while its own hand
+        /// is still beside the hip.
+        ///
+        /// The arm segment is nothing but a line from a tracked shoulder to a
+        /// tracked elbow, and of the two the elbow is the one the sensor guesses:
+        /// it sits on or against the torso most of the time, so its depth comes
+        /// from the tracker's own body model instead of from a measured surface,
+        /// and the guess leans forward. When the person opens both arms the
+        /// avatar answers by folding them in front of itself - which reads in the
+        /// eye-height player view as "my own arm is in my face", while from
+        /// behind the fight the same pose still looks like arms held out.
+        ///
+        /// The hand is not in that guess: it is the joint the hand tracker also
+        /// sees, and it is what the arm has to serve. So the elbow may only lead
+        /// the hand towards the avatar's front. A hand that really is out in
+        /// front buys the elbow the room to follow it, and a punch - hand and
+        /// elbow both forward - is left alone entirely.
+        /// </summary>
+        Vector3 BesideHand(SkeletonBody body, int bone, Vector3 direction)
+        {
+            bool left = bone == 5;
+            var shoulder = body.Joint(left ? JointType.LeftShoulder : JointType.RightShoulder);
+            var wrist = body.Joint(left ? JointType.LeftWrist : JointType.RightWrist);
+            if (shoulder == null || wrist == null || shoulder.status < 1 || wrist.status < 1) return direction;
+            Vector3 toHand = receiver.ToWorldPosition(wrist.position) - receiver.ToWorldPosition(shoulder.position);
+            if (toHand.sqrMagnitude < 0.0001f) return direction;
+            // Same frame the segment directions live in, so the two can be
+            // compared against one axis without a second set of books.
+            toHand = MapSensorOffset(toHand).normalized;
+            float handForward = Vector3.Dot(toHand, modelDepth);
+            float allowed = ArmForwardSlack + Mathf.Max(0f, handForward);
+            float forward = Vector3.Dot(direction, modelDepth);
+            if (forward <= allowed) return direction;
+            float excess = forward - allowed;
+            if (excess > armPush) armPush = excess;
+            Vector3 trimmed = direction - modelDepth * excess;
+            // A guess that was almost entirely forward has nothing left once the
+            // excess is gone. The hand is the one part of the arm two trackers
+            // agree on, so point the arm at it instead of inventing a lean.
+            return trimmed.sqrMagnitude < 0.09f ? toHand : trimmed.normalized;
         }
 
         bool DirectionToOpponent(Vector3 position, out Vector3 direction)
@@ -465,8 +939,18 @@ namespace AstraUnity
             }
             if (tracked + low == 0) { GUI.Label(new Rect(area.x + 12, area.y + 35, area.width - 24, 40), "人体已识别，但没有有效关节点"); return; }
             float drawWidth = area.width - 36, drawHeight = area.height - 68;
-            float scale = Mathf.Min(drawWidth / Mathf.Max(maxX-minX, 0.25f), drawHeight / Mathf.Max(maxY-minY, 0.25f));
-            var center = new Vector2((minX+maxX)*0.5f,(minY+maxY)*0.5f);
+            // A fixed number of pixels per metre, not a fit to this frame's
+            // bounding box. Fitting the box made the whole skeleton shrink
+            // whenever an arm went out to the side, and a shrunken skeleton
+            // draws the two shins only a few pixels apart - which reads as the
+            // legs having moved together when nothing about the legs changed.
+            // This is a front view of a person measured in metres; the pose
+            // should not be what sets the zoom.
+            float scale = Mathf.Min(drawWidth / 1.9f, drawHeight / 2.2f);
+            // Centred on the hips, so the body stays put while a hand moves.
+            var center = visible[0]
+                ? new Vector2(points[0].x, points[0].y)
+                : new Vector2((minX + maxX) * 0.5f, (minY + maxY) * 0.5f);
             var origin = new Vector2(area.center.x, area.y + 30 + drawHeight * 0.5f);
             for (int i = 0; i < 19; i++) if (visible[i]) points[i] = origin + new Vector2((points[i].x-center.x)*scale, -(points[i].y-center.y)*scale);
             var oldColor = GUI.color;
@@ -567,12 +1051,36 @@ namespace AstraUnity
                     body = candidate;
             }
             if (body != null) ApplyBodyPose(body);
+            else PlantClipFeet();
             ApplyHands();
+        }
+
+        /// <summary>
+        /// Puts the shoes the replay clip is wearing back on the floor.
+        ///
+        /// While no body is bound, the whole pose - feet included - comes from
+        /// the clip, and this clip rolls its feet a long way onto their edges:
+        /// measured at 17 to 29 degrees on the sparring take. That is the shoe
+        /// standing on its heel with the toe in the air, and no amount of work
+        /// on the bind helps, because every line of the bind is behind
+        /// <see cref="Calibrated"/> and none of it runs.
+        ///
+        /// Levelling a shoe only needs the shoe: the sole plane is fitted once
+        /// in the imported pose, and the toe offset is the one the model was
+        /// built with. Neither depends on the person being bound, so the same
+        /// pass can run here. Feet the clip has lifted are left to the clip -
+        /// flattening a swinging shoe is what makes a walk look like a slide.
+        /// </summary>
+        void PlantClipFeet()
+        {
+            if (Soles() == null) return;
+            PlantFeet(actor.Bones);
         }
 
         void ApplyBodyPose(SkeletonBody body)
         {
             var bones = actor.Bones;
+            armPush = 0f;
             float t = 1f - Mathf.Exp(-Mathf.Max(0.01f, smoothing) * Time.deltaTime);
             var hip = body.Joint(JointType.BaseSpine);
             if (hip != null && hip.status > 0)
@@ -595,6 +1103,7 @@ namespace AstraUnity
             {
                 int bone = segments[i,0]; Vector3 current;
                 if (!valid[bone] || !Direction(body, segments[i,1], segments[i,2], out current)) continue;
+                if (bone == 5 || bone == 8) current = BesideHand(body, bone, current);
                 Quaternion desired = facing * Quaternion.FromToRotation(baseline[bone], current) * bindRotations[bone];
                 liveRotations[bone] = Quaternion.Slerp(liveRotations[bone], desired, t);
                 // 7 and 10 are the wrists. Keep their accumulated rotation
@@ -605,11 +1114,231 @@ namespace AstraUnity
                 if (!(actor.wristOverridden && (bone == 7 || bone == 10)))
                     bones[bone].rotation = liveRotations[bone];
             }
-            // The sensor foot joints are intentionally unused. Override the
-            // replay pose so each model shin points straight down from its knee.
-            PointShinDown(bones[12], bones[13]);
-            PointShinDown(bones[16], bones[17]);
+            // The sensor foot joints are used through the shin rows above: knee
+            // to ankle is a measured direction, so the knee angle is the
+            // person's own. Only a leg that was never tracked at calibration
+            // falls back to straight down - leaving it to the replay clip would
+            // put a bent knee under a tracked thigh.
+            if (!valid[12]) PointShinDown(bones[12], bones[13]);
+            if (!valid[16]) PointShinDown(bones[16], bones[17]);
+            PlantFeet(bones);
             UpdatePlayerView(body);
+        }
+
+        /// <summary>
+        /// Keeps the shoes on their feet, and the ones on the floor flat.
+        ///
+        /// The sensor reports the ankle as a position and never as a rotation,
+        /// so a bound foot has to be carried by its shin: <see cref="FollowAnkle"/>
+        /// puts it back at the ankle angle the model was built with, every
+        /// frame. That is what a kick needs - the leg swings, the shoe goes with
+        /// it. Left out, the foot was only ever levelled, so the shoe stayed
+        /// flat in world space while the leg went horizontal: the ankle read as
+        /// broken, and the levelling pass that followed rotated an already
+        /// detached shoe right past its side.
+        ///
+        /// A foot that is off the floor is not levelled at all. Its angle is
+        /// the pose, not an error, and pinning it to a floor it is not touching
+        /// is what flattens a step into a slide.
+        ///
+        /// A planted foot is levelled against the *modelled* sole - a constant
+        /// vector in the foot bone's own frame, fitted once in the imported
+        /// pose - and never against a plane re-fitted from the shoe's current
+        /// position. That re-fit is what made standing worse than kicking on
+        /// the 2026-11-25 12:01 recording: the shoe is measured in the very
+        /// pose the error is in, so the fit reports the error back as if it
+        /// were the target, the foot aims at it, and the roll grows. One
+        /// rotation from a fixed reference is exact by construction; there is
+        /// nothing left to converge on, and nothing to overshoot.
+        ///
+        /// Then the hips are moved by however far the lowest sole missed the
+        /// actor's floor. Downwards only inside a small band: a shoe a couple of
+        /// centimetres up is the model's leg being a different length from the
+        /// person's, while a larger gap is a foot that is genuinely in the air.
+        ///
+        /// The toe bone is paired back to the levelled foot, because the shoe's
+        /// contact patch is one rigid piece across both bones and only the foot
+        /// is ours to aim.
+        /// </summary>
+        void PlantFeet(Transform[] bones)
+        {
+            var soles = Soles();
+            toeFix = 0f;
+            soleTilt = 0f;
+            soleResidual = 0f;
+            soleYaw = 0f;
+            soleAirLeft = soleAirRight = false;
+            float floor = FloorHeight();
+            for (int side = 0; side < 2; side++)
+            {
+                int foot = side == 0 ? 13 : 17;
+                // Hang the foot off its shin before anything is measured, so
+                // the shoe starts from a real ankle instead of from whatever
+                // angle the previous frame happened to leave behind.
+                if (Calibrated) FollowAnkle(bones, side);
+                // A foot this far off the floor is being lifted, not standing.
+                bool planted = soles == null || soles.SoleHeight(side) - floor <= GroundedBand;
+                if (!planted)
+                {
+                    if (side == 0) soleAirLeft = true; else soleAirRight = true;
+                    // The ankle moved, so the toe has to move with it. The rest
+                    // of the shoe's angle belongs to whoever posed the leg.
+                    if (Calibrated) PairToe(bones, side);
+                    continue;
+                }
+                Vector3 up;
+                if (soles == null || !soles.TrySoleUp(side, out up)) continue;
+                Vector3 sole = bones[foot].rotation * up;
+                soleTilt = Mathf.Max(soleTilt, Vector3.Angle(sole, Vector3.up));
+                // A sole that already lies along the floor needs nothing. A
+                // sole pointing at the floor is a foot something turned over,
+                // and no rotation gets it back that does not take the shoe past
+                // its own side - <see cref="AimSole"/> refuses both.
+                if (sole.y > 0.2f)
+                    soleYaw = Mathf.Max(soleYaw, AimSole(bones[foot], bones[foot + 1], sole));
+                PairToe(bones, side);
+                // What is left, measured and reported - never acted on. If this
+                // stays large while the lines above did nothing, the modelled
+                // sole is the thing that is wrong, not the levelling.
+                if (soles.TrySoleNormal(side, bones[foot].rotation * up, out Vector3 measured))
+                    soleResidual = Mathf.Max(soleResidual, Vector3.Angle(measured, Vector3.up));
+            }
+            // With the shoe measured, plant its lowest point on the floor.
+            // Without it, fall back to the ankle height the game spawned the
+            // character with, which carried the same soles.
+            soles?.Refresh();
+            float gap = soles != null
+                ? FloorHeight() - soles.LowestSole()
+                : initialAnkleY - Mathf.Min(bones[13].position.y, bones[17].position.y);
+            // Positive is under the floor. Lifting is unconditional up to the
+            // cap; lowering only pays out a model/person leg-length mismatch and
+            // never chases a foot that has left the ground.
+            if (gap > 0.003f) soleLift = Mathf.Min(gap, maxSoleLift);
+            else if (soles != null && gap < -0.005f) soleLift = Mathf.Max(gap, -maxSoleDrop);
+            else soleLift = 0f;
+            if (soleLift != 0f) bones[0].position += Vector3.up * soleLift;
+        }
+
+        /// <summary>
+        /// Hangs the foot off its shin at the angle the model was built with.
+        ///
+        /// The sensor's ankle is a point, not a joint: no rotation is reported
+        /// for it, so an ankle angle has to be assumed. The modelled one is the
+        /// assumption that costs nothing when the person is standing and is the
+        /// difference between a kick and a shoe left standing in the air while
+        /// the leg goes up.
+        /// </summary>
+        void FollowAnkle(Transform[] bones, int side)
+        {
+            int shin = side == 0 ? 12 : 16;
+            bones[shin + 1].rotation = bones[shin].rotation * ankleBindings[side];
+        }
+
+        /// <summary>
+        /// Keeps the toe at the angle the foot was modelled with.
+        ///
+        /// The shoe's contact patch is one rigid piece across the foot and the
+        /// toe - a quarter of mizore's touching vertices are weighted to the
+        /// toe - so a toe still carrying the replay clip's orientation bends
+        /// the sole at the ball and lifts the front off the floor.
+        /// </summary>
+        void PairToe(Transform[] bones, int side)
+        {
+            int foot = side == 0 ? 13 : 17;
+            Quaternion toe = bones[foot].rotation * toeBindings[side];
+            toeFix = Mathf.Max(toeFix, Quaternion.Angle(bones[foot + 1].rotation, toe));
+            bones[foot + 1].rotation = toe;
+        }
+
+        /// <summary>
+        /// Aims a shoe's sole at the floor without turning the foot.
+        ///
+        /// A sole plane says which way is *up* for the shoe and nothing about
+        /// which way the toes point: every rotation that carries that plane onto
+        /// the floor is equally flat, and <see cref="Quaternion.FromToRotation"/>
+        /// picks the shortest one - which takes the toes with it. Measured on the
+        /// 2026-11-25 10:37 recording: the sole went from 22 degrees out to
+        /// flat, and the feet came out pigeon-toed, because the 22 degrees were
+        /// mostly *across* the foot, not along it.
+        ///
+        /// So the direction the toes had along the floor is put back afterwards,
+        /// as a yaw about the world up. Yaw cannot tilt the sole again - it
+        /// leaves every vector's height alone - so the sole stays flat and the
+        /// foot keeps pointing where its owner pointed it.
+        /// </summary>
+        static float AimSole(Transform foot, Transform toe, Vector3 worldUp)
+        {
+            if (worldUp.sqrMagnitude < 1e-6f) return 0f;
+            worldUp.Normalize();
+            // A shoe this far from the floor is not standing on it. Swinging it
+            // down from here turns the foot past its own side - which is how a
+            // kick ends up with the shoe on its head - so the frame is left
+            // alone instead.
+            if (Vector3.Angle(worldUp, Vector3.up) > MaxSoleTilt) return 0f;
+            Vector3 before;
+            bool hadToe = ToeDirection(foot, toe, out before);
+            foot.rotation = Quaternion.FromToRotation(worldUp, Vector3.up) * foot.rotation;
+            // The toe moved with the foot, so its new direction is the old one
+            // turned by the same rotation. Anything left over is the turn the
+            // levelling introduced, and it is undone here.
+            Vector3 after;
+            if (!hadToe || !ToeDirection(foot, toe, out after)) return 0f;
+            float undone = Vector3.Angle(after, before);
+            foot.rotation = Quaternion.FromToRotation(after, before) * foot.rotation;
+            return undone;
+        }
+
+        /// <summary>
+        /// Where the foot points along the floor, taken from the bone that
+        /// continues it rather than from a local axis: the toe bone sits at the
+        /// front of the shoe, so its offset is the direction a shoe points,
+        /// whichever way this particular rig was modelled.
+        ///
+        /// False when the toe is mostly vertical. A toe pointing at the floor
+        /// has no direction along it, and the little that is left after
+        /// flattening is noise - normalising it and turning the shoe to match is
+        /// how a kick ends up with a shoe pointing backwards.
+        /// </summary>
+        static bool ToeDirection(Transform foot, Transform toe, out Vector3 flat)
+        {
+            flat = Vector3.zero;
+            if (foot == null || toe == null) return false;
+            Vector3 direction = toe.position - foot.position;
+            float length = direction.magnitude;
+            direction.y = 0f;
+            if (length < 1e-6f || direction.magnitude < 0.5f * length) return false;
+            flat = direction.normalized;
+            return true;
+        }
+
+        /// <summary>The plane the actors stand on, taken from the model root.</summary>
+        float FloorHeight()
+        {
+            return actor == null ? 0f : actor.transform.TransformPoint(Vector3.zero).y;
+        }
+
+        /// <summary>
+        /// The shoe surface of the actor being driven, measured once.
+        ///
+        /// The loader builds one for prefab bodies; a .vrm arrives without it,
+        /// and a live pose needs it more than a replay does - the legs are
+        /// straightened here, which moves the shoes relative to a hip height the
+        /// game picked for a different pose. Sampled in the restored bind pose,
+        /// so what it keeps is the modelled shoe.
+        /// </summary>
+        AvatarSoleContact Soles()
+        {
+            if (actor == null) return null;
+            if (liveSolesOwner == actor) return liveSoles;
+            if (!actor.Ready) return actor.SoleContact;
+            liveSolesOwner = actor;
+            liveSoles = actor.SoleContact;
+            if (liveSoles == null)
+            {
+                try { liveSoles = new AvatarSoleContact(actor.ModelRoot, actor.Bones); }
+                catch (System.ArgumentException) { liveSoles = null; }
+            }
+            return liveSoles;
         }
 
         void ApplyHands()
@@ -768,6 +1497,12 @@ namespace AstraUnity
             return Vector3.Angle(palmNormal.normalized, forward.normalized);
         }
 
+        /// <summary>
+        /// Aims a shin straight down from its knee. Only for a leg whose ankle
+        /// was never tracked at calibration - a tracked one is aimed at the
+        /// measured ankle by the segment table, which keeps the knee angle the
+        /// person actually made.
+        /// </summary>
         static void PointShinDown(Transform knee, Transform ankle)
         {
             if (knee == null || ankle == null || !ankle.IsChildOf(knee)) return;
@@ -861,6 +1596,10 @@ namespace AstraUnity
                     "scene=" + UnityEngine.SceneManagement.SceneManager.GetActiveScene().name + "\n" +
                     "body.listening=" + receiver.IsListening + " receiving=" + receiver.IsReceiving +
                     " frames=" + receiver.AcceptedFrames + " error=" + (receiver.LastError ?? "-") + "\n" +
+                    // sessions=2 means a second sender is on the port; withBody
+                    // staying at 0 while the preview draws joints means the
+                    // frames that arrive carry an empty body list.
+                    "body.sessions=" + receiver.SessionsSeen + " withBody=" + receiver.FramesWithBody + "\n" +
                     "hand.listening=" + (handReceiver != null && handReceiver.IsListening) +
                     " receiving=" + (handReceiver != null && handReceiver.IsReceiving) +
                     " frames=" + (handReceiver != null ? handReceiver.AcceptedFrames : 0) + "\n" +
@@ -874,21 +1613,93 @@ namespace AstraUnity
                     " rollL=" + (actor != null ? actor.HandRollDegrees(true).ToString("F0") : "-") +
                     " rollR=" + (actor != null ? actor.HandRollDegrees(false).ToString("F0") : "-") +
                     " aimL=" + HandNumber(actor, true, true) + " aimR=" + HandNumber(actor, false, true) +
+                    " holdL=" + (actor != null ? actor.WristHeldFrames(true) : 0) +
+                    " holdR=" + (actor != null ? actor.WristHeldFrames(false) : 0) +
                     " bendL=" + HandNumber(actor, true, false) + " bendR=" + HandNumber(actor, false, false) +
                     " handFrames=" + (handReceiver != null ? handReceiver.AcceptedFrames : 0) +
                     " palmOffset=" + (palmOffsetDegrees < 0f ? "-" : palmOffsetDegrees.ToString("F1")) +
                     " frameYaw=" + FrameYawDegrees().ToString("F1") +
                     " armDepth=" + (flipArmDepth ? "rotation" : "mirror") +
                     " armOrder=" + ArmOrder() +
+                    " armPush=" + armPush.ToString("F2") +
+                    " toeFix=" + toeFix.ToString("F1") +
+                    " soleTilt=" + soleTilt.ToString("F1") +
+                    " soleLeft=" + soleResidual.ToString("F1") +
+                    " soleYaw=" + soleYaw.ToString("F1") +
+                    " soleAir=" + (soleAirLeft || soleAirRight
+                        ? (soleAirLeft ? "L" : "") + (soleAirRight ? "R" : "") : "-") +
+                    " soleLift=" + (soleLift * 100f).ToString("F1") +
                     " legNote=" + (legNote ?? "-") + "\n" +
+                    "calibNote=" + (calibrateNote ?? "-") + "\n" +
                     "status=" + status + "\n";
                 File.WriteAllText(Path.GetFullPath(Path.Combine(Application.dataPath, "..", "Library", "AstraLiveStatus.txt")), text);
             }
             catch (Exception) { }
         }
 
+        bool ShowBareStatus
+        {
+            get
+            {
+                if (game == null || !game.Ready || game.SelectionOpen || actor == null || receiver == null)
+                    return false;
+                if (!Calibrated) return receiver.IsReceiving;
+                // A stance bind follows, but it keeps the clip's guard as the
+                // neutral, so it is worth one line saying a T-pose would do
+                // better.
+                return stanceBound && Time.unscaledTime - calibratedAt < 10f;
+            }
+        }
+
+        /// <summary>One line, top centre, only while the body is not driven.</summary>
+        void DrawBindingBadge()
+        {
+            string text;
+            float wait = bodySeenSince < 0f
+                ? StanceBindDelay
+                : Mathf.Max(0f, StanceBindDelay - (Time.unscaledTime - bodySeenSince));
+            bool hint = Calibrated && stanceBound;
+            if (hint)
+                text = "Astra：已按当前站姿绑定 · 面向摄像头双臂平举 1 秒可精确校准";
+            else if (receiver.LatestFrame.bodies.Length == 0)
+                text = "Astra：没识别到人 · 退到 1.5–3 米，全身入镜";
+            else if (wait > 0.5f)
+                text = "Astra：未绑定（现在是回放动画）· 面向摄像头双臂平举 1 秒，"
+                    + Mathf.CeilToInt(wait) + " 秒后按当前站姿自动绑定";
+            else text = "Astra：未绑定（现在是回放动画）· 正在按当前站姿绑定…";
+            if (badgeStyle == null)
+            {
+                badgeFont = Font.CreateDynamicFontFromOSFont("Microsoft YaHei", 14);
+                badgeStyle = new GUIStyle(GUI.skin.label)
+                {
+                    fontSize = 14,
+                    alignment = TextAnchor.MiddleCenter
+                };
+                if (badgeFont != null) badgeStyle.font = badgeFont;
+            }
+            // Bottom centre: the top of the screen is the health bars and the
+            // middle is the fight. The floor band there is empty until the
+            // arena logo comes up.
+            var area = new Rect(0f, Screen.height - 96f, Screen.width, 22f);
+            Color old = GUI.color;
+            GUI.color = new Color(0f, 0f, 0f, 0.6f);
+            GUI.Label(new Rect(area.x, area.y + 1f, area.width, area.height), text, badgeStyle);
+            GUI.color = hint ? new Color(0.55f, 1f, 0.6f, 0.95f) : new Color(1f, 0.86f, 0.35f, 0.95f);
+            GUI.Label(area, text, badgeStyle);
+            GUI.color = old;
+        }
+
         void OnGUI()
         {
+            // Only ever shown while the body is not being driven. The hands work
+            // without a calibration, so a session that never bound still looked
+            // alive - the fingers moved - while the avatar was standing in the
+            // replay clip and its shoes were the clip's. Saying it out loud is
+            // the difference between "Astra is broken" and "hold your arms out".
+            if (ShowBareStatus) DrawBindingBadge();
+            // Off by default: this panel is 590 px wide and sits on top of the
+            // fight. F1 brings it back when something needs diagnosing.
+            if (!showDebugPanel) return;
             if (receiver == null)
             {
                 GUI.Label(new Rect(20, 20, 420, 40), "Astra Live P1 缺少 AstraSkeletonReceiver 组件");
@@ -923,8 +1734,12 @@ namespace AstraUnity
             GUI.Label(new Rect(25, 90, width - 24, 25), "人体：" + bodyState);
             string pose = game == null || !game.Ready ? "等待游戏人物加载" : game.SelectionOpen ?
                 "请先完成选角和场地选择" :
-                Calibrated ? (legNote == null ? "已校准，控制 P1（战斗回放暂停）"
-                    : "已校准（" + legNote + "未追踪，腿部保持站立）")
+                Calibrated ? (legNote == null ? "已校准，控制 P1"
+                    : "已校准（" + legNote + "未追踪，腿部保持站立）") +
+                    (Mathf.Abs(soleLift) > 0.003f
+                        ? "，鞋底修正 " + (soleLift >= 0f ? "+" : "-") +
+                          (Mathf.Abs(soleLift) * 100f).ToString("F1") + " cm"
+                        : "（战斗回放暂停）")
                 : Time.unscaledTime < calibrationMessageUntil ? calibrationMessage
                 : "双臂平举等待校准；手指不需要校准，已在工作";
             GUI.Label(new Rect(25, 115, width - 24, 25), "控制：" + pose);
@@ -950,12 +1765,18 @@ namespace AstraUnity
             }
             if (GUI.Button(new Rect(width - 105, 162, 98, 22), flipArmDepth ? "手臂：旋转" : "手臂：镜像"))
                 flipArmDepth = !flipArmDepth;
-            if (GUI.Button(new Rect(25, 166, 120, 35), "启动摄像头")) StartSender(false);
-            if (GUI.Button(new Rect(155, 166, 120, 35), "启动模拟")) StartSender(true);
-            if (GUI.Button(new Rect(285, 166, 120, 35), "停止数据源")) StopSender();
+            // These three buttons are gone on purpose: the match starts the
+            // pipeline itself, and a second bridge would fight run.py's bridge
+            // over the camera. This line reports what the automatic start did.
+            GUI.Label(new Rect(25, 166, width - 248, 35), "摄像头：" + pipelineMessage);
+            if (GUI.Button(new Rect(width - 215, 166, 110, 30), "重启摄像头"))
+            {
+                StopPipeline();
+                StartPipeline();
+            }
             string countdown = nextCalibrationAt < 0 ? "等待人体" : "下次校准 " + Mathf.CeilToInt(Mathf.Max(0, nextCalibrationAt - Time.unscaledTime)) + " 秒";
             GUI.Label(new Rect(415, 186, 158, 18), countdown);
-            GUI.Label(new Rect(25, 208, width - 24, 46), "操作：选角色和场地 → 启动摄像头 → 双臂平举并等待自动校准。\n手指不需要校准：只要收到 7011 报文就在驱动。身体每 5 秒尝试一次，姿势不满足时保留上次校准。");
+            GUI.Label(new Rect(25, 208, width - 24, 46), "操作：选角色和场地 → 摄像头自动启动并弹出预览 → 双臂平举等待自动校准。\n手指不需要校准：只要收到 7011 报文就在驱动。身体每 5 秒尝试一次，姿势不满足时保留上次校准。");
             var body = receiver.IsReceiving && receiver.LatestFrame.bodies.Length > 0 ? receiver.LatestFrame.bodies[0] : null;
             float previewHeight = Mathf.Clamp(Screen.height - 296, 150, 340);
             DrawPreview(new Rect(12, 286, Mathf.Min(width, 330), previewHeight), body);
@@ -975,14 +1796,15 @@ namespace AstraUnity
         {
             if (live == this) live = null;
             StopSender();
+            StopPipeline();
             if (uiFont != null) Destroy(uiFont);
         }
 
         // Exiting Play mode must not leave the bridge this panel started running:
         // an orphan bridge used to keep the UDP ports pinned after the editor was
         // gone, which made every later Play fail to bind.
-        void OnDisable() { if (live == this) StopSender(); }
+        void OnDisable() { if (live == this) { StopSender(); StopPipeline(); } }
 
-        void OnApplicationQuit() { StopSender(); }
+        void OnApplicationQuit() { StopSender(); StopPipeline(); }
     }
 }

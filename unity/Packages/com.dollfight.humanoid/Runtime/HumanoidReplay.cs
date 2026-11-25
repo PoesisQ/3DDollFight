@@ -53,6 +53,12 @@ namespace DollFight
         public Vrm10Instance Instance => instance;
         public Transform ModelRoot => modelRoot;
         public Transform[] Bones => bones;
+        /// <summary>
+        /// The measured shoe surface, or null when the loader did not build one
+        /// (.vrm bodies). Whoever poses the skeleton outside this component needs
+        /// it to keep the shoes on the floor.
+        /// </summary>
+        public AvatarSoleContact SoleContact => soles;
         public float Duration => clip?.frames[clip.frames.Length - 1].time ?? 0;
 
         public static readonly HumanBodyBones[] BoneOrder = {
@@ -306,6 +312,20 @@ namespace DollFight
             {
                 restNodes[i].localPosition = restPositions[i];
                 restNodes[i].localRotation = restRotations[i];
+            }
+            // Measure the shoes here, not at first use. The loader builds this
+            // for a prefab body while the model is still in its imported pose;
+            // a .vrm arrives without one, and the call that would have built it
+            // ran on whichever frame of the replay clip happened to be first.
+            // A clip frame is not a pose the shoe was modelled in - this clip
+            // rolls its feet 17 to 29 degrees - so the sole direction it kept
+            // was the clip's roll, and every later levelling pass aimed for it.
+            // Restoring the bind pose is the one moment the model is guaranteed
+            // to be standing the way it was authored.
+            if (soles == null && modelRoot != null && bones != null)
+            {
+                try { soles = new AvatarSoleContact(modelRoot, bones); }
+                catch (System.ArgumentException) { soles = null; }
             }
         }
 
