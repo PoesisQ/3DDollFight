@@ -115,6 +115,12 @@ struct ColorFeed {
         address.sin_family = AF_INET;
         address.sin_port = htons(static_cast<u_short>(port));
         inet_pton(AF_INET, "127.0.0.1", &address.sin_addr);
+        // A closed listener leaves its served connection in TIME_WAIT, and on
+        // Windows that keeps the port unusable for a minute or two. Unity starts
+        // a bridge per Play session, so without this a quick restart fails with
+        // "Cannot bind color port" and the session runs on hand data only.
+        BOOL reuse = TRUE;
+        setsockopt(listener, SOL_SOCKET, SO_REUSEADDR, reinterpret_cast<const char*>(&reuse), sizeof(reuse));
         if (bind(listener, reinterpret_cast<const sockaddr*>(&address), sizeof(address)) == SOCKET_ERROR)
             throw std::runtime_error("Cannot bind color port " + std::to_string(port));
         if (listen(listener, 1) == SOCKET_ERROR)
@@ -208,7 +214,11 @@ std::string packet(const astra_body_list_t& list, long long sequence, int source
     std::ostringstream o; o.imbue(std::locale::classic()); o << std::fixed << std::setprecision(3);
     o << "{\"version\":1,\"session\":\"" << session << "\",\"sequence\":" << sequence
       << ",\"sourceFrame\":" << sourceFrame << ",\"timestampMs\":" << timestamp
-      << ",\"simulated\":" << (simulated ? "true" : "false") << ",\"units\":\"mm\",\"bodies\":[";
+      << ",\"simulated\":" << (simulated ? "true" : "false") << ",\"units\":\"mm\""
+      // Pixel grid the per-joint "screen" positions below are expressed in. The
+      // sensor is the only thing that knows this, so it has to travel with them.
+      << ",\"screen\":{\"width\":" << ASTRA_TEMP_IMAGE_WIDTH << ",\"height\":" << ASTRA_TEMP_IMAGE_HEIGHT << "}"
+      << ",\"bodies\":[";
     for (int i = 0; i < std::clamp(list.count, 0, ASTRA_MAX_BODIES); ++i) {
         if (i) o << ',';
         const auto& b = list.bodies[i];
@@ -220,8 +230,18 @@ std::string packet(const astra_body_list_t& list, long long sequence, int source
             const auto& joint = b.joints[j];
             const auto p = joint.worldPosition;
             const bool valid = hasJoints && std::isfinite(p.x) && std::isfinite(p.y) && std::isfinite(p.z);
+            // The SDK already projected this joint into the depth image. Sending
+            // it saves every consumer from re-deriving a projection from the
+            // world position, which is where a mirrored or mis-scaled skeleton
+            // comes from: the intrinsics are not exposed, so that projection can
+            // only be guessed. "ok" is false for an untracked joint or one the
+            // SDK left at the origin, so a real (0,0) cannot be mistaken for it.
+            const auto s = joint.depthPosition;
+            const bool onScreen = valid && std::isfinite(s.x) && std::isfinite(s.y) && (s.x > 0.f || s.y > 0.f);
             o << "{\"type\":" << j << ",\"status\":" << (valid ? int(joint.status) : 0) << ",\"position\":";
             vec(o, valid ? p : astra_vector3f_t{});
+            o << ",\"screen\":{\"ok\":" << (onScreen ? "true" : "false")
+              << ",\"x\":" << finite(onScreen ? s.x : 0.f) << ",\"y\":" << finite(onScreen ? s.y : 0.f) << '}';
             const auto& r = joint.orientation;
             o << ",\"orientation\":[" << finite(r.m00) << ',' << finite(r.m01) << ',' << finite(r.m02)
               << ',' << finite(r.m10) << ',' << finite(r.m11) << ',' << finite(r.m12)
@@ -253,6 +273,12 @@ astra_body_list_t simulate(double seconds, double warmup = 2.0) {
     for (int j = 0; j < ASTRA_MAX_JOINTS; ++j) {
         auto& joint = b.joints[j]; joint.type = static_cast<uint8_t>(j);
         joint.status = ASTRA_JOINT_STATUS_TRACKED; joint.worldPosition = p[j];
+        // A real camera fills this in itself. Here it is a placeholder so the
+        // preview path gets exercised without hardware: a pinhole projection
+        // picked only to keep the whole figure inside 640x480.
+        const float focal = 500.f;
+        joint.depthPosition = {ASTRA_TEMP_IMAGE_WIDTH * 0.5f + p[j].x * focal / p[j].z,
+                               ASTRA_TEMP_IMAGE_HEIGHT * 0.5f - p[j].y * focal / p[j].z};
         joint.orientation.m00 = joint.orientation.m11 = joint.orientation.m22 = 1;
     }
     return list;

@@ -27,10 +27,12 @@ from pathlib import Path
 import curls as curl_module
 import hand3d
 import numpy as np
+import overlay
 import protocol
 import skeleton
 from bodyfeed import BodyFeed
 from feed import ColorFeed, ColorFeedError
+from preview import PreviewWindow
 from tracker import HandTracker
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -118,6 +120,13 @@ def resolve_license(explicit: Path | None) -> Path | None:
     return None
 
 
+def _colour_port_taken(port: int) -> bool:
+    """True when something is still listening on the bridge's colour port."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+        probe.settimeout(0.3)
+        return probe.connect_ex(("127.0.0.1", port)) == 0
+
+
 def start_bridge(args: argparse.Namespace) -> subprocess.Popen:
     if not args.bridge.exists():
         raise SystemExit(f"找不到发送程序：{args.bridge}\n先运行 Build-Bridge.cmd")
@@ -140,6 +149,16 @@ def start_bridge(args: argparse.Namespace) -> subprocess.Popen:
     process = launch(mirror=True)
     time.sleep(1.5)
     if process.poll() is not None and args.body_port > 0:
+        # Two different faults produce the same "exited immediately": an older
+        # build that does not know --mirror-port, and a port already held by a
+        # previous bridge. Relaunching hides the second one - the retry fails
+        # the same way, and the message ends up blaming the flag while the real
+        # cause is a leftover process still holding the camera.
+        if _colour_port_taken(args.color_port):
+            raise SystemExit(
+                f"彩色端口 {args.color_port} 已被占用：上一次的发送程序还在运行，"
+                "摄像头仍被它占着。先在任务管理器结束 AstraUnityBridge.exe，再重试。"
+            )
         # Older builds do not know --mirror-port. Keep running without wrist
         # pairing instead of failing the whole hand pipeline.
         print(
@@ -315,19 +334,26 @@ def main() -> int:
         sequence = 0
         counted = 0
         started = previous
+        first_index = None
         last_send = 0.0
         paired = False
         missing = {"Left": None, "Right": None}
         held: dict[str, tuple[dict, float]] = {}
+        # Only the confident joints are drawn; the rest are held where they
+        # were last seen so a limb the sensor loses does not fly out to the
+        # side and back.
+        joints_kept = overlay.JointTrack()
 
         if args.preview:
             import cv2
 
-            preview = cv2
+            preview = PreviewWindow(cv2)
 
         print(f"手部追踪已启动 -> {args.host}:{args.hand_port}，Ctrl+C 退出。")
         while True:
-            _width, _height, _index, _stamp, image = feed.read()
+            _width, _height, _index, _stamp, image = feed.read_latest()
+            if first_index is None:
+                first_index = _index
             if _height:
                 lift.aspect = float(_width) / float(_height)
             now = time.perf_counter()
@@ -336,6 +362,15 @@ def main() -> int:
 
             if body is not None:
                 body.poll()
+            # What the sensor reported this frame, and what it stands behind.
+            # Both are cheap, and both the preview and the console line want
+            # them: the gap between the two numbers is the sensor losing limbs.
+            body_screens = body.screens() if body is not None else {}
+            sure_screens = body.screens(min_status=2) if body is not None else {}
+            # A sensor that is unsure about every joint at once is not seeing an
+            # occluded arm, it is seeing nobody properly; drawing an empty frame
+            # then reads as a crash, so that one case keeps everything.
+            live_screens = sure_screens or body_screens
             detected = tracker.process(image, int((now - started) * 1000))
             if assign_sides(detected, body) and not paired:
                 paired = True
@@ -399,6 +434,12 @@ def main() -> int:
 
             if preview is not None:
                 frame = image[:, :, ::-1].copy()
+                # Body first: the hand dots have to stay legible on top of it.
+                # Only the joints the sensor stands behind are drawn live; the
+                # rest keep their last confident pixel - see overlay.JointTrack.
+                drawn_points = joints_kept.update(live_screens)
+                if drawn_points:
+                    overlay.draw(preview, frame, drawn_points, joints_kept.stale)
                 for hand in detected:
                     if hand["screen"] is not None:
                         for x, y in hand["screen"]:
@@ -425,27 +466,62 @@ def main() -> int:
                 rate = counted / max(1e-3, now - started)
                 preview.putText(
                     frame,
-                    f"{rate:.1f} fps  hands={len(entries)}",
+                    f"{rate:.1f} fps  hands={len(entries)}  body={len(body_screens)}"
+                    f" sure={len(sure_screens)}"
+                    f"  id={body.body_id if body is not None else 0}"
+                    f"  people={body.tracked_count if body is not None else 0}",
                     (8, 24),
                     preview.FONT_HERSHEY_SIMPLEX,
                     0.7,
                     (0, 255, 255),
                     2,
                 )
-                preview.imshow("DollFight hand tracking", frame)
-                if preview.waitKey(1) & 0xFF == 27:
+                # An empty body list is not a rendering fault: either the body
+                # channel never started, or the sensor cannot see a person.
+                # Saying which one on the image stops "the skeleton vanished"
+                # from being read as a bug in the retargeter.
+                hint = None
+                if body is None:
+                    hint = "身体通道未启动：端口 7012 被占用"
+                elif not body_screens:
+                    hint = "未检测到人体：请退后，让全身入镜"
+                if hint is not None:
+                    preview.putText(
+                        frame,
+                        hint,
+                        (8, frame.shape[0] - 16),
+                        preview.FONT_HERSHEY_SIMPLEX,
+                        0.8,
+                        (0, 0, 255),
+                        2,
+                    )
+                preview.show(frame)
+                if preview.closed:
+                    if preview.error is not None:
+                        print(f"预览窗口已关闭：{preview.error}")
                     break
 
             if counted % 60 == 0:
                 rate = counted / max(1e-3, now - started)
-                print(f"{counted} 帧  {rate:.1f} fps  手: {[e['side'] for e in entries]}")
+                # Two different numbers: how fast this loop is going, and how
+                # fast the camera is actually producing frames. Reading the gap
+                # tells a slow tracker apart from a slow camera, which the
+                # processing rate alone cannot.
+                elapsed = max(1e-3, now - started)
+                camera = (_index - first_index) / elapsed if first_index is not None else 0.0
+                print(
+                    f"{counted} 帧  {rate:.1f} fps  相机 {camera:.1f} fps  "
+                    f"手: {[e['side'] for e in entries]}  "
+                    f"人体: {body.tracked_count if body is not None else '-'}  "
+                    f"关节: {len(body_screens)} (确信 {len(sure_screens)})"
+                )
     except KeyboardInterrupt:
         pass
     except ColorFeedError as error:
         print(f"彩色流中断：{error}")
     finally:
         if preview is not None:
-            preview.destroyAllWindows()
+            preview.close()
         if tracker is not None:
             tracker.close()
         if body is not None:

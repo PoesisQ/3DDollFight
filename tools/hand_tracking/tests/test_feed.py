@@ -54,6 +54,40 @@ class ColorFeedTests(unittest.TestCase):
         self.assertEqual(image.dtype, np.uint8)
         self.assertEqual(int(image[0, 0, 0]), 7)
 
+    def test_read_latest_returns_the_newest_queued_frame(self):
+        # Three frames land in the socket at once, as they do when processing
+        # fell behind the camera. The reader must return the last one, not the
+        # first: reading in order is what makes the picture drift behind.
+        width = height = 2
+        blob = b""
+        for index in range(3):
+            blob += struct.pack("<4sIIIII", b"DFCF", width, height, index, 0, 0) + bytes(
+                [index] * width * height * 3
+            )
+        server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        server.bind(("127.0.0.1", 0))
+        server.listen(1)
+        port = server.getsockname()[1]
+
+        def serve():
+            connection, _ = server.accept()
+            connection.sendall(blob)
+            connection.close()
+
+        thread = threading.Thread(target=serve)
+        thread.start()
+        try:
+            client = feed_module.ColorFeed(port=port)
+            client.connect()
+            _width, _height, index, _stamp, image = client.read_latest()
+            client.close()
+        finally:
+            thread.join(2)
+            server.close()
+        self.assertEqual(index, 2)
+        self.assertEqual(int(image[0, 0, 0]), 2)
+
     def test_rejects_bad_magic(self):
         server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
