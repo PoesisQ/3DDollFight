@@ -115,7 +115,7 @@ curl -L -o tools\gemini_tracking\models\pose_landmarker_lite.task ^
 1. **这是重建，不是原厂骨架。** Astra SDK 的 19 关节是专用模型；这里是 MediaPipe Pose + 深度反投影，快速动作、遮挡、侧身时抖动更大，`--smoothing` 压得太平又会迟到。
 2. **深度精度**：Gemini 2 标称 ≤2% @2m（约 4cm），比 Astra 结构光在 1m 的 ±3mm 粗。关节的 Z 会看到这个噪声，XY 由像素决定，反而更稳。
 3. **实测 30 fps 上下**：`--max-poses 1`、身体每 2 帧、手部 ROI 的离线循环是 31 ms/帧；接上相机后还要加采集与对齐，实际看控制台的耗时行。两人对战把 `--max-poses` 改回 2，帧率大约减半。
-4. **一个进程独占相机**：先关掉 Orbbec Viewer、Unity 里的「启动摄像头」和 `AstraUnityBridge.exe`。
+4. **一个进程独占相机**：先关掉 Orbbec Viewer、Unity 自动拉起的 `run.py` 与 `AstraUnityBridge.exe`（停 Play 会把整条进程链一起收掉）。
 5. **两人同时**：`--max-poses 2` 可以，但两人重叠时 MediaPipe 会短暂并成一个人；Astra SDK 在这方面更稳。
 6. **手的 21 点直接沿用现有链路**，输入从 Astra 彩色换成 Gemini 彩色，协议与阈值没有改。
 7. **ROI 依赖身体手腕**：拿不到身体时靠每 0.25 秒一次的整帧检测补框；如果长时间只有手、没有身体，手部会慢一点、偶尔丢。

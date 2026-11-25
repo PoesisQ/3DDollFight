@@ -94,7 +94,7 @@ HumanoidReplay.ApplyHandSkeleton
 | 翻掌有约 0.25 s 上限 | `HumanoidReplay.wristTurnRate = 720°/s` 的腕子限速；180° 在 60 fps 下最短要 15 帧 | 抖动已在数据侧解决，连续快速翻手觉得跟不上就放宽这条 |
 | 结构光深度未接入 | 桥目前只推彩色；深度对 12–18 mm 的手指本身也不可靠 | 掌面靠 world landmarks，不靠深度 |
 | 双人同时入镜 | 只取置信度最高的两只手 | 单人使用 |
-| **双臂交叉超过约 3 秒** | 两只掌面重叠时 MediaPipe 会同时丢掉双手，而接收端的保持窗口只有 `HandGrace = 2.5 s`；超时后 `RelaxHand` 把两只手缓回绑定姿势，再想追回来要重走一遍限速的腕部对齐 | 交叉久了手会松掉、且**重启 `run.cmd` 才能恢复**；见文末「交叉不要超过三秒」 |
+| **双臂交叉超过约 3 秒** | 两只掌面重叠时 MediaPipe 会同时丢掉双手，而接收端的保持窗口只有 `HandGrace = 2.5 s`；超时后 `RelaxHand` 把两只手缓回绑定姿势，再想追回来要重走一遍限速的腕部对齐 | 交叉久了手会松掉、且需要 F1 →「重启摄像头」（手动启动时是重开 `run.cmd`）才能恢复；见文末「交叉不要超过三秒」 |
 | Unity 侧编译 | 编辑器占着工程时无法 batchmode | 改动需在编辑器里自动重编译后确认 |
 
 ---
@@ -124,14 +124,12 @@ fetch_model.cmd    :: 下载 hand_landmarker.task（约 7.8 MB）
 
 ## 2.3 每次运行
 
-**顺序不能颠倒**——一台 Astra 同时只能被一个进程占用。
+摄像头和桥接程序都由 Unity 自动拉起；一台 Astra 同时只能被一个进程占用。
 
-1. Unity 打开 `Assets/AstraUnity/SingleCameraGame.unity`，Play，完成选角。
-2. 在 Unity 面板上**停止「启动摄像头」**（它和 `run.cmd` 抢同一台相机）。
-3. 双击 `tools\hand_tracking\run.cmd`。
-   等价于 `python run.py --start-bridge --preview`，会自己拉起桥接程序。
-4. 站到 1.5 m 左右，让**双手完整入画**，正对镜头停 1 秒。
-5. 关掉命令行窗口即停止。
+1. Unity 打开 `Assets/AstraUnity/SingleCameraGame.unity`，Play，完成选角和场地。
+2. 进入对战后**不用点任何按钮**：Unity 自己启动 `run.py --start-bridge --preview`，由它拉起桥接程序、彩色流和预览窗。
+3. 站到 1.5–3 m，让**双手完整入画**，正对镜头。身体绑定与校准的提示见[操作指南第 3 节](../integrations/astra-unity-bridge/操作指南.md#3-单摄控制-p1)。
+4. 停止 Play 即结束整条进程链（Unity 用 `taskkill /T` 收掉 `run.py` 和它拉起的桥接程序）；按 Esc 关预览窗也会停止追踪。
 
 端口分配：
 
@@ -709,7 +707,7 @@ armOrder = sign( (右腕 − 左腕) · modelRight ) 传感器 vs 角色
 ### 现在怎么办
 
 - **交叉 1–2 秒就放开**，或者交叉一下再把手放低，让追踪器重新咬住掌面。真正打起来不会有人把手臂叠着放三秒，正常用不会踩到。
-- 已经卡住了：关掉 `run.cmd` 窗口重开（Unity 不用重启）；若面板「手部」一直显示 0 只手，再点一次「停止数据源」→「启动摄像头」。
+- 已经卡住了：关掉 `run.cmd` 窗口重开（Unity 不用重启）；如果是从 Unity 自动拉起的，按 **F1 →「重启摄像头」**，效果一样。面板「手部」一直显示 0 只手时也先走这一步。
 - 面板和 `Library/AstraLiveStatus.txt` 里 `hands.driving` 是最直接的判据：卡住时它会是 `False`，而 `handFrames` 仍在涨——说明报文活着、是接收端放弃了这个姿势。
 
 ### 真正修它要做的事（这一支没做）

@@ -9,16 +9,16 @@
 - **模拟数据**：支持单路和双路模拟，用于不连接摄像头时检查发送与接收链路。模拟程序同样需要先构建。
 - **手部骨架**：`--color-port` 把彩色帧经本地 TCP 交给 `tools/hand_tracking`，MediaPipe 估计 21 个手部关节，经 UDP 7011 发给 Unity，挂在角色手腕骨上逐个指节驱动；`--mirror-port` 把身体报文镜像一份，用于左右手配对。见[手部识别说明](../../tools/hand_tracking/README.md)。
 
-单摄控制目前不使用左右脚末端关节，模型小腿保持垂直；实时脚部贴地、真实小腿弯曲、头部左右转向、双人实时对战及伤害判定尚未完成。状态小窗展示骨架投影，不是摄像头画面。
+单摄控制不使用左右脚末端关节；小腿朝向取实测的「膝→踝」方向，脚掌由建模鞋底方向贴地，踝关节没有旋转。头部左右转向、脚尖朝向、双人实时对战及伤害判定尚未完成。状态小窗展示骨架投影，不是摄像头画面。
 
 ## 快速入口
 
 1. 用 Git LFS 取回项目资源，按 [Unity 工程说明](../../unity/README.md)准备游戏依赖和动作数据。
 2. 安装 Unity **6000.3.27f1**，将仓库 `unity/` 文件夹添加到 Hub。准备 Astra SDK 2.1.3、CMake、VS2019 C++ x64 和所需授权；本仓库不包含这些本机依赖。
 3. 设置 `ASTRA_LAB_ENV` 并运行本目录 `Build-Bridge.cmd`。具体目录结构、授权及命令见[操作指南](操作指南.md#2-构建骨架发送程序)。
-4. 打开单摄场景、按 Play、选角和场地，在面板启动摄像头；面向摄像头双臂平举，等待自动校准。
+4. 打开单摄场景、按 Play、选角和场地。进入对战后 Unity 自己启动 `run.py`（发送程序 + 彩色流 + 预览窗），面向摄像头站立即可；双臂平举一次是精确校准，站满 6 秒则按当前站姿绑定。完整步骤见[使用说明](../../使用说明.md)。
 
-游戏面板中的启动按钮与 `Run-Single-Live.cmd` / `Run-Simulation.cmd` 是两种启动方式；同一时间只使用一种。双摄演示使用 `Run-Dual-Live.cmd` 或 `Run-Dual-Simulation.cmd`。`Open-Single-Game.cmd` 可指定本机 `DOLLFIGHT_UNITY_EDITOR`，或直接使用 Hub 打开工程。
+摄像头由游戏自动拉起，不需要点任何启动按钮，也不要同时再开 `Run-Single-Live.cmd`——一台 Astra 同一时间只能被一个进程占用。想手动接管：取消勾选 `AstraLivePlayer.autoStartPipeline` 再运行 `Run-Single-Live.cmd`；只验证接收链路时用 `Run-Simulation.cmd`（同样要先关掉自动启动）。双摄演示使用 `Run-Dual-Live.cmd` 或 `Run-Dual-Simulation.cmd`。`Open-Single-Game.cmd` 可指定本机 `DOLLFIGHT_UNITY_EDITOR`，或直接使用 Hub 打开工程。
 
 ## 数据与验证
 

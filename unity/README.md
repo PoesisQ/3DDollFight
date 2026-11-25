@@ -20,6 +20,7 @@ HUD 根据主镜头投影确定左右角色：普通场地 P1 在左，教堂反
 2. 仓库根目录双击 `Start-Unity.cmd`。脚本拉取 LFS、同步 uv 依赖并生成两个人物与同一时钟的单局 KO 回放，然后打开工程。
 3. 首次打开等待 Package Manager 和 C# 编译完成。若没有自动生成场景，选择 **DollFight → Create Duel Demo Scene**，打开 `Assets/Scenes/DollFight.unity` 后按 Play。
 4. 先选双方角色，再确认场地。P1 用 WASD / F，P2 用方向键；Tab 切当前玩家，Enter 确认，也可用鼠标。Esc 返回上页或取消确认。对战中 Space 暂停，R 从头播放，V 开关玩家窗，H 开关自身手脚，**T 返回双方选角**，Esc 打开设置；设置中的排练工具支持慢放和跳转。
+5. 接 Astra 做实时 P1 时不用走 `Assets/Scenes/`，改开 `Assets/AstraUnity/SingleCameraGame.unity`：Play、选角、选场地之后，摄像头、发送程序和手部识别由游戏自己拉起，站到镜头前即可。**四步版本见[使用说明](../使用说明.md)**。
 
 已有本地构建时，双击 `Play-DollFight-Unity.cmd` 打开原生选角入口。更新代码或资产后，在编辑器菜单 **DollFight → Build Windows Demo** 重新构建；三个对战场景须均已准备，构建保留已有场景，不重建覆盖组员的场景编辑。两种启动器共用 `outputs/arcade-select/DollFight.exe`，使用 Direct3D 12；教堂启动器只改变选场页默认值，仍从角色选择开始。构建属于本地生成产物，不随 Git 克隆分发。
 

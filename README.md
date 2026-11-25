@@ -14,7 +14,7 @@ Unity 当前默认展示采用 1.2 倍源速率、55 秒常规时限的 showcase
 
 ## Astra 摄像头接入
 
-本分支提供单台 Astra 控制游戏 P1 的实验场景，以及双摄骨架并排展示。首次使用请先阅读 [Astra 接入说明](integrations/astra-unity-bridge/README.md)和[中文操作指南](integrations/astra-unity-bridge/操作指南.md)，其中包含环境准备、校准和故障排查。手部 21 点骨架由独立的彩色通道估计，挂到身体骨架的手腕上驱动手指，见[手部识别说明](tools/hand_tracking/README.md)；**使用时注意双臂交叉不要超过三秒**，超过后双手会松掉、需要重开 `run.cmd` 才能恢复（原因与修法见[交付说明](docs/hand-tracking-report.md#2026-11-11-傍晚交叉不要超过三秒先把它写成规矩)）。双人实时对战尚未完成。
+本分支提供单台 Astra 控制游戏 P1 的实验场景，以及双摄骨架并排展示。**只想尽快开打，看[使用说明](使用说明.md)**：打开 `unity` 工程里的 `Assets/AstraUnity/SingleCameraGame.unity`，按 Play、选角、选场地，摄像头和手部识别由游戏自己拉起。环境准备、校准和故障排查见 [Astra 接入说明](integrations/astra-unity-bridge/README.md)与[中文操作指南](integrations/astra-unity-bridge/操作指南.md)。手部 21 点骨架由独立的彩色通道估计，挂到身体骨架的手腕上驱动手指，见[手部识别说明](tools/hand_tracking/README.md)；**使用时注意双臂交叉不要超过三秒**，超过后双手会松掉、需要按 F1 →「重启摄像头」才能恢复（原因与修法见[交付说明](docs/hand-tracking-report.md#2026-11-11-傍晚交叉不要超过三秒先把它写成规矩)）。双人实时对战尚未完成。
 
 ## Unity 入口
 
@@ -97,6 +97,7 @@ node apps/motion-lab/tests/run-tests.js
 
 Python 3.10.19、uv ≥0.9.17、依赖由 `uv.lock` 固定。Node 22+ 用于投影测试（可选 Tripo CLI 与演示解耦）；启动界面不需要 npm。浏览器依赖、许可证和 SHA-256 在 `apps/motion-lab/vendor/`，公开动捕的原始哈希在每个样本内；VRM 用 [下载清单](data/avatars/sample.json) 固定，10.8 MB 文件保存在忽略目录。
 
+- [使用说明：打开 Unity 到开打的四步](使用说明.md)
 - [当前实现、失败边界与验收方法](docs/motion-lab.md)
 - [手部追踪交付说明：现状、使用说明、开发日志](docs/hand-tracking-report.md)
 - [手部识别技术大纲](docs/hand-tracking.md)
