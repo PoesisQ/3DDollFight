@@ -41,6 +41,10 @@ namespace DollFight
         public float handSmoothing = 18f;
         [Tooltip("Limit on how fast the wrist may be turned, in degrees per second.")]
         public float wristTurnRate = 720f;
+        [Tooltip("A wrist target this far from the current pose has to hold before it is followed, in degrees.")]
+        public float wristJumpDegrees = 100f;
+        [Tooltip("How long a jumped wrist target has to stay put before it is followed, in seconds.")]
+        public float wristJumpConfirm = 0.12f;
         [Tooltip("Set while live tracking owns the fingers, so the replay stops writing them.")]
         public bool handPoseOverridden;
         [Tooltip("Set while live tracking owns the wrists, so the replay stops writing them.")]
@@ -93,6 +97,12 @@ namespace DollFight
         readonly float[] handLengths = new float[2];
         readonly Quaternion[] handLocalBinds = new Quaternion[2];
         readonly float[] handRolls = new float[2];
+        // A wrist target that arrived as a jump rather than as a movement: held
+        // here until it has asked for the same thing long enough to be a pose.
+        readonly Quaternion[] wristPending = new Quaternion[2];
+        readonly float[] wristPendingFor = new float[2];
+        readonly bool[] wristPendingValid = new bool[2];
+        readonly int[] wristHeld = new int[2];
         Transform[][] handBones;
         Vector3[][] handBindDirections;
         Quaternion[][] handBindRotations;
@@ -535,6 +545,15 @@ namespace DollFight
         public float HandRollDegrees(bool isLeft) { return handRolls[isLeft ? 0 : 1]; }
 
         /// <summary>
+        /// Frames this wrist asked for a target that was a jump rather than a
+        /// movement, and was held instead of chased. A number that keeps climbing
+        /// while the hand is held still is the sender's palm side flipping; a
+        /// number at zero means the pose arrived smoothly and the guard never
+        /// fired. Exposed so the status file can tell those two apart.
+        /// </summary>
+        public int WristHeldFrames(bool isLeft) { return wristHeld[isLeft ? 0 : 1]; }
+
+        /// <summary>
         /// Rebuilds 21 tracked hand joints on the wrist bone and aims every
         /// finger bone at its target. Points are in the hand's own frame,
         /// normalised by palm length, so the same data drives any avatar size.
@@ -585,9 +604,44 @@ namespace DollFight
                     // a frame like that a 12 degree step instead - still wrong,
                     // but no longer a different pose.
                     float step = Quaternion.Angle(hand.rotation, target);
-                    float allowed = step > 1e-4f
-                        ? Mathf.Max(wristTurnRate * Time.deltaTime, 0.01f) / step : 1f;
-                    hand.rotation = Quaternion.Slerp(hand.rotation, target, Mathf.Min(t, allowed));
+                    // A target that jumped most of a half turn did not come from a
+                    // wrist that moved. The sender reads which side of the hand is
+                    // on show off the 2D landmarks, and on a palm held edge-on that
+                    // reading is a coin toss: a frame can land the normal on the far
+                    // side of the hand. Following it at wristTurnRate is a hand that
+                    // spins - and a straightened arm holds the palm edge-on, which is
+                    // why it is the straight-arm pose that draws a circle.
+                    //
+                    // So a jumped target is held until it has asked for the same
+                    // thing for wristJumpConfirm: a real turn-over asks for the new
+                    // side on every frame and clears the wait in a tenth of a
+                    // second; a noisy one alternates, never settles, and the hand
+                    // stays where it is instead of spinning.
+                    bool follow = true;
+                    if (step > wristJumpDegrees)
+                    {
+                        follow = false;
+                        wristHeld[side]++;
+                        if (wristPendingValid[side] && Quaternion.Angle(wristPending[side], target) <= 45f)
+                            wristPendingFor[side] += Time.deltaTime;
+                        else
+                        {
+                            wristPending[side] = target;
+                            wristPendingFor[side] = 0f;
+                            wristPendingValid[side] = true;
+                        }
+                        if (wristPendingFor[side] >= wristJumpConfirm)
+                        {
+                            follow = true;
+                            wristPendingFor[side] = 0f;
+                        }
+                    }
+                    if (follow)
+                    {
+                        float allowed = step > 1e-4f
+                            ? Mathf.Max(wristTurnRate * Time.deltaTime, 0.01f) / step : 1f;
+                        hand.rotation = Quaternion.Slerp(hand.rotation, target, Mathf.Min(t, allowed));
+                    }
                     handRolls[side] = Quaternion.Angle(hand.localRotation, handLocalBinds[side]);
                 }
             }
@@ -673,6 +727,8 @@ namespace DollFight
         public void ResetHandRoll()
         {
             for (int i = 0; i < handRolls.Length; i++) handRolls[i] = 0f;
+            for (int i = 0; i < wristPendingValid.Length; i++)
+            { wristPendingValid[i] = false; wristPendingFor[i] = 0f; }
         }
 
         /// <summary>Eases one hand back to its bind pose when tracking is lost.</summary>
