@@ -80,6 +80,10 @@ unity/Assets/LocalScenes/SaintMaurice/*
 unity/Assets/Screenshots/
 unity/Assets/Screenshots.meta
 
+# Unity's crash-recovery copies of the open scene; never the reviewed scene.
+unity/Assets/_Recovery/
+unity/Assets/_Recovery.meta
+
 # User delivery preserved locally; the reviewed import lives under Unity Art.
 /anime+character+3d+model(1)/
 unity/Assets/Temp.meta
